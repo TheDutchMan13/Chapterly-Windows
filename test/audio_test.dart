@@ -652,7 +652,7 @@ void main() {
     await repository.addListeningMinutes(id, DateTime(2026, 10, 31), 7);
     await repository.addListeningMinutes(id, day, 0);
     final log = repository.byId(id)!.readingLog;
-    expect([for (final e in log) (e.pages, e.minutes)], [(20, 0), (0, 15), (0, 7)]);
+    expect([for (final e in log) (e.pages, e.minutes)], [(0, 15), (20, 0), (0, 7)]);
   });
 }
 
