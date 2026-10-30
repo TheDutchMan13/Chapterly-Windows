@@ -1,9 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
+import 'mini_timer.dart';
+
 /// A simple stopwatch. Returns the minutes read (at least 1, rounded up),
-/// or null if cancelled or nothing was timed.
+/// or null if cancelled or nothing was timed. "Small window" shrinks
+/// Chapterly to a little timer that stays on top while you read.
 Future<int?> showReadingTimerDialog(BuildContext context) {
   return showDialog<int>(
     context: context,
@@ -20,70 +21,61 @@ class _ReadingTimerDialog extends StatefulWidget {
 }
 
 class _ReadingTimerDialogState extends State<_ReadingTimerDialog> {
-  final _stopwatch = Stopwatch();
-  Timer? _ticker;
+  final _watch = ReadingStopwatch();
 
   @override
   void dispose() {
-    _ticker?.cancel();
+    _watch.dispose();
     super.dispose();
   }
 
-  void _toggle() {
-    setState(() {
-      if (_stopwatch.isRunning) {
-        _stopwatch.stop();
-        _ticker?.cancel();
-      } else {
-        _stopwatch.start();
-        _ticker = Timer.periodic(
-          const Duration(seconds: 1),
-          (_) => setState(() {}),
-        );
-      }
-    });
-  }
-
-  String _clock() {
-    final total = _stopwatch.elapsed.inSeconds;
-    final hours = total ~/ 3600;
-    final minutes = (total % 3600) ~/ 60;
-    final seconds = total % 60;
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(hours)}:${two(minutes)}:${two(seconds)}';
-  }
-
   void _save() {
-    final seconds = _stopwatch.elapsed.inSeconds;
+    final seconds = _watch.elapsed.inSeconds;
     Navigator.of(context).pop(seconds <= 0 ? null : (seconds / 60).ceil());
+  }
+
+  void _small() {
+    if (!_watch.isRunning) _watch.toggle();
+    MiniTimer.instance.enter(_watch);
   }
 
   @override
   Widget build(BuildContext context) {
-    final started = _stopwatch.elapsed.inSeconds > 0;
-    return AlertDialog(
-      title: const Text('Reading timer'),
-      content: Center(
-        heightFactor: 1,
-        child: Text(
-          _clock(),
-          style: Theme.of(context).textTheme.displaySmall,
+    return ListenableBuilder(
+      listenable: _watch,
+      builder: (context, _) => AlertDialog(
+        title: Row(
+          children: [
+            const Expanded(child: Text('Reading timer')),
+            IconButton(
+              tooltip: 'Small window that stays on top',
+              icon: const Icon(Icons.picture_in_picture_alt_outlined),
+              onPressed: _small,
+            ),
+          ],
         ),
+        content: Center(
+          heightFactor: 1,
+          child: Text(
+            _watch.clock,
+            style: Theme.of(context).textTheme.displaySmall,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: _watch.toggle,
+            child: Text(_watch.isRunning ? 'Pause' : 'Start'),
+          ),
+          FilledButton(
+            onPressed: _watch.started ? _save : null,
+            child: const Text('Save'),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: _toggle,
-          child: Text(_stopwatch.isRunning ? 'Pause' : 'Start'),
-        ),
-        FilledButton(
-          onPressed: started ? _save : null,
-          child: const Text('Save'),
-        ),
-      ],
     );
   }
 }

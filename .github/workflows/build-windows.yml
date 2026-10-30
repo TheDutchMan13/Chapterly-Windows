@@ -35,3 +35,18 @@ jobs:
         with:
           name: chapterly-windows
           path: build/windows/x64/runner/Release
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" installer\chapterly.iss
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: chapterly-windows-setup
+          path: build/installer/*.exe

@@ -39,6 +39,10 @@ class Win32Window {
   // Show the current window. Returns true if the window was successfully shown.
   bool Show();
 
+  // Moves the window to where it was when Chapterly last closed, if that
+  // place is still on a screen. Call after Create and before Show.
+  void RestorePlacement();
+
   // Release OS resources associated with window.
   void Destroy();
 
@@ -91,6 +95,12 @@ class Win32Window {
   static void UpdateTheme(HWND const window);
 
   bool quit_on_close_ = false;
+
+  // Open maximized because it was maximized when Chapterly last closed.
+  bool show_maximized_ = false;
+
+  // Remembers the window's size and place for next time.
+  void SavePlacement();
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

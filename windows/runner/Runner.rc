@@ -90,10 +90,10 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.chapterly" "\0"
-            VALUE "FileDescription", "chapterly" "\0"
+            VALUE "FileDescription", "Chapterly" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "chapterly" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.chapterly. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Hans De Kryger. Licensed under the GNU GPL v3." "\0"
             VALUE "OriginalFilename", "chapterly.exe" "\0"
             VALUE "ProductName", "chapterly" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"

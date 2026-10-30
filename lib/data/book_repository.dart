@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../models/audio_progress.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/quote.dart';
@@ -340,6 +341,51 @@ class BookRepository extends ChangeNotifier {
         for (final book in nextUp)
           if (book.id != id) book.id,
       ]);
+
+  /// Ignored when [title] is empty.
+  Future<void> setTitle(String id, String title) {
+    final clean = title.trim();
+    if (clean.isEmpty) return Future.value();
+    return _update(id, (book) => book.copyWith(title: clean));
+  }
+
+  /// A web address or a picture stored as a data: address (see
+  /// cover_image.dart). Null removes the cover.
+  Future<void> setCover(String id, String? coverUrl) =>
+      _update(id, (book) => book.copyWith(coverUrl: () => coverUrl));
+
+  /// Where you are in the audiobook. Null clears it.
+  Future<void> setAudioProgress(String id, AudioProgress? progress) =>
+      _update(id, (book) => book.copyWith(audio: () => progress));
+
+  /// Adds minutes listened on [date] to the reading log, keeping one
+  /// listening entry (no pages) per day.
+  Future<void> addListeningMinutes(String id, DateTime date, int minutes) {
+    if (minutes <= 0) return Future.value();
+    return _update(id, (book) {
+      final log = [...book.readingLog];
+      final at = log.indexWhere(
+        (entry) =>
+            entry.pages == 0 &&
+            entry.date.year == date.year &&
+            entry.date.month == date.month &&
+            entry.date.day == date.day,
+      );
+      if (at >= 0) {
+        log[at] = LogEntry(
+          date: log[at].date,
+          minutes: log[at].minutes + minutes,
+        );
+      } else {
+        log.add(LogEntry(
+          date: DateTime(date.year, date.month, date.day),
+          minutes: minutes,
+        ));
+        log.sort((a, b) => a.date.compareTo(b.date));
+      }
+      return book.copyWith(readingLog: log);
+    });
+  }
 
   Future<void> setPages(String id, int? pages) =>
       _update(id, (book) => book.copyWith(pages: () => pages));

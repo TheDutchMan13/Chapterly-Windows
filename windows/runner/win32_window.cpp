@@ -7,6 +7,14 @@
 
 namespace {
 
+// Where the window's size and place are kept between runs.
+constexpr const wchar_t kPlacementKey[] = L"Software\\Chapterly";
+constexpr const wchar_t kPlacementValue[] = L"WindowPlacement";
+
+}  // namespace
+
+namespace {
+
 /// Window attribute that enables dark mode window decorations.
 ///
 /// Redefined in case the developer's machine has a Windows SDK older than
@@ -150,7 +158,61 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  return ShowWindow(window_handle_,
+                    show_maximized_ ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
+}
+
+void Win32Window::RestorePlacement() {
+  if (!window_handle_) {
+    return;
+  }
+  WINDOWPLACEMENT placement{};
+  DWORD size = sizeof(placement);
+  if (RegGetValueW(HKEY_CURRENT_USER, kPlacementKey, kPlacementValue,
+                   RRF_RT_REG_BINARY, nullptr, &placement,
+                   &size) != ERROR_SUCCESS ||
+      size != sizeof(placement) || placement.length != sizeof(placement)) {
+    return;
+  }
+  // Skip it when that place is no longer on a screen (a monitor was removed).
+  if (MonitorFromRect(&placement.rcNormalPosition, MONITOR_DEFAULTTONULL) ==
+      nullptr) {
+    return;
+  }
+  show_maximized_ = placement.showCmd == SW_SHOWMAXIMIZED;
+  // Move it while it is still hidden; Show() makes it visible.
+  placement.showCmd = SW_HIDE;
+  placement.flags = 0;
+  SetWindowPlacement(window_handle_, &placement);
+}
+
+void Win32Window::SavePlacement() {
+  if (!window_handle_) {
+    return;
+  }
+  WINDOWPLACEMENT placement{};
+  placement.length = sizeof(placement);
+  if (!GetWindowPlacement(window_handle_, &placement)) {
+    return;
+  }
+  if (placement.showCmd == SW_SHOWMINIMIZED) {
+    placement.showCmd = (placement.flags & WPF_RESTORETOMAXIMIZED)
+                            ? SW_SHOWMAXIMIZED
+                            : SW_SHOWNORMAL;
+  }
+  // Closed while it was the small reading-timer window: keep the size it
+  // had before, so it does not open tiny next time.
+  double scale = GetDpiForWindow(window_handle_) / 96.0;
+  LONG width =
+      placement.rcNormalPosition.right - placement.rcNormalPosition.left;
+  LONG height =
+      placement.rcNormalPosition.bottom - placement.rcNormalPosition.top;
+  if (width < static_cast<LONG>(400 * scale) ||
+      height < static_cast<LONG>(400 * scale)) {
+    return;
+  }
+  RegSetKeyValueW(HKEY_CURRENT_USER, kPlacementKey, kPlacementValue,
+                  REG_BINARY, &placement, sizeof(placement));
 }
 
 // static
@@ -180,6 +242,7 @@ Win32Window::MessageHandler(HWND hwnd,
                             LPARAM const lparam) noexcept {
   switch (message) {
     case WM_DESTROY:
+      SavePlacement();
       window_handle_ = nullptr;
       Destroy();
       if (quit_on_close_) {
@@ -204,6 +267,15 @@ Win32Window::MessageHandler(HWND hwnd,
         MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
                    rect.bottom - rect.top, TRUE);
       }
+      return 0;
+    }
+
+    case WM_GETMINMAXINFO: {
+      // The smallest the window can be, so the library never gets squashed.
+      MINMAXINFO* info = reinterpret_cast<MINMAXINFO*>(lparam);
+      double scale = GetDpiForWindow(hwnd) / 96.0;
+      info->ptMinTrackSize.x = static_cast<LONG>(480 * scale);
+      info->ptMinTrackSize.y = static_cast<LONG>(640 * scale);
       return 0;
     }
 

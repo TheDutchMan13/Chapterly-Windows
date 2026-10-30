@@ -19,6 +19,8 @@ import '../models/wish_priority.dart';
 import '../widgets/book_cover.dart';
 import 'author_books_screen.dart';
 import 'book_card_screen.dart';
+import 'listen_card.dart';
+import 'cover_actions.dart';
 import 'log_entry_dialog.dart';
 import 'next_up_screen.dart';
 import 'similar_books_screen.dart';
@@ -33,12 +35,17 @@ class BookDetailScreen extends StatelessWidget {
     required this.settings,
     required this.fileIo,
     required this.bookId,
+    this.onClose,
   });
 
   final BookRepository repository;
   final AppSettings settings;
   final FileIo fileIo;
   final String bookId;
+
+  /// Set when the book is shown beside the list (wide Windows layout):
+  /// closes the pane instead of going back.
+  final VoidCallback? onClose;
 
   /// Shows a dialog with one text field. Returns the text, or null if cancelled.
   Future<String?> _askText(
@@ -432,7 +439,12 @@ class BookDetailScreen extends StatelessWidget {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     await repository.moveToTrash(book.id);
-    navigator.pop();
+    final close = onClose;
+    if (close != null) {
+      close();
+    } else {
+      navigator.pop();
+    }
     messenger.showSnackBar(
       SnackBar(
         content: Text('"${book.title}" moved to the trash'),
@@ -648,8 +660,53 @@ class BookDetailScreen extends StatelessWidget {
     await repository.setRating(book.id, choice == 0 ? null : choice);
   }
 
+  /// Change the cover: pick a picture file, paste one, or remove it.
+  Future<void> _coverMenu(
+    BuildContext context,
+    Book book,
+    Offset position,
+  ) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final choice = await showMenu<int>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        const PopupMenuItem(value: 0, child: Text('Choose a picture...')),
+        const PopupMenuItem(value: 1, child: Text('Paste a picture (Ctrl+V)')),
+        if (book.coverUrl != null)
+          const PopupMenuItem(value: 2, child: Text('Remove the cover')),
+      ],
+    );
+    switch (choice) {
+      case 0:
+        await pickCoverFile(messenger, repository, book.id);
+      case 1:
+        await pasteCover(messenger, repository, book.id);
+      case 2:
+        final before = book.coverUrl;
+        await repository.setCover(book.id, null);
+        messenger?.showSnackBar(
+          SnackBar(
+            content: const Text('Cover removed'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () => repository.setCover(book.id, before),
+            ),
+          ),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    return ShownBook(bookId: bookId, child: _build(context));
+  }
+
+  Widget _build(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge([repository, settings]),
       builder: (context, _) {
@@ -664,6 +721,13 @@ class BookDetailScreen extends StatelessWidget {
         final pace = readingPace(book);
         return Scaffold(
           appBar: AppBar(
+            leading: onClose == null
+                ? null
+                : IconButton(
+                    tooltip: 'Close (Esc)',
+                    icon: const Icon(Icons.close),
+                    onPressed: onClose,
+                  ),
             title: const Text('Book'),
             actions: [
               IconButton(
@@ -693,10 +757,24 @@ class BookDetailScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             children: [
               Center(
-                child: BookCover(
-                  coverUrl: book.coverUrl,
-                  width: 120,
-                  height: 180,
+                child: Tooltip(
+                  message: 'Click to change the cover. You can also drop a '
+                      'picture on the window or paste one with Ctrl+V.',
+                  waitDuration: const Duration(milliseconds: 600),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTapUp: (details) =>
+                          _coverMenu(context, book, details.globalPosition),
+                      onSecondaryTapUp: (details) =>
+                          _coverMenu(context, book, details.globalPosition),
+                      child: BookCover(
+                        coverUrl: book.coverUrl,
+                        width: 120,
+                        height: 180,
+                      ),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -739,6 +817,7 @@ class BookDetailScreen extends StatelessWidget {
               if (book.firstPublishYear != null)
                 Text('First published ${book.firstPublishYear}'),
               if (book.isbn != null) Text('ISBN ${book.isbn}'),
+              ListenCard(book: book, repository: repository),
               const SizedBox(height: 24),
               DropdownButtonFormField<Shelf>(
                 initialValue: book.shelf,

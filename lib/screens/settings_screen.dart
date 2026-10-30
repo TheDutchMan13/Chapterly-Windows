@@ -12,10 +12,12 @@ import '../data/file_io.dart';
 import '../data/kindle_clippings.dart';
 import '../data/pc_sync.dart';
 import '../data/theme_options.dart';
+import '../data/update_check.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
 import 'pin_dialogs.dart';
 import 'shelf_order_screen.dart';
+import 'sync_preview.dart';
 import 'whats_new_screen.dart';
 
 /// Accent colour and font, backup and restore, and CSV import and export.
@@ -221,6 +223,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     return result ?? false;
+  }
+
+  void _showShortcuts() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Keyboard shortcuts'),
+        content: const Text(
+          'Ctrl+F              Search\n'
+          'Ctrl+N              Add a book\n'
+          'Ctrl+Shift+N    Add several books from a list\n'
+          'Ctrl+S              Sync with your phone\n'
+          'Ctrl+V              Paste a picture as the open book\'s cover\n'
+          'Ctrl+,               Settings\n'
+          'Esc                   Close the selection, the search or the '
+          'open book\n'
+          '\n'
+          'Right-click a book for more actions. Drop a backup, a CSV file '
+          'or My Clippings.txt on the window to import it, or a picture to '
+          'make it the open book\'s cover.\n'
+          '\n'
+          'In the table view: double-click a title, author or page count to '
+          'change it, click a shelf, rating or format to pick one, and '
+          'Ctrl+click or Shift+click to select several books.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _checkNow() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      widget.settings.setLastUpdateCheck(DateTime.now());
+      final update = await checkForUpdate();
+      if (update == null) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('You have the newest version.')),
+        );
+      } else {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Chapterly ${update.version} is available.'),
+            action: SnackBarAction(
+              label: 'Download',
+              onPressed: () => launchUrl(
+                Uri.parse(update.url),
+                mode: LaunchMode.externalApplication,
+              ),
+            ),
+          ),
+        );
+      }
+    } on UpdateCheckFailure {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't reach GitHub. Check your connection."),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _exportBackup() => _run(() async {
@@ -668,14 +739,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: Text('Your library stays on this PC'),
             subtitle: Text(
               'Chapterly has no account, ads or tracking. The only internet '
-              'use is searching Open Library and loading cover images. Sync '
-              'talks only to your own phone on your home network.',
+              'use is searching Open Library, loading cover images and, if '
+              'switched on, checking GitHub for updates. Sync talks only to '
+              'your own phone on your home network.',
             ),
           ),
           ListTile(
             leading: const Icon(Icons.rocket_launch_outlined),
             title: Text('Version'),
             subtitle: Text(appVersion),
+          ),
+          ListTile(
+            leading: const Icon(Icons.keyboard_outlined),
+            title: const Text('Keyboard shortcuts'),
+            subtitle: const Text(
+              'Ctrl+F search, Ctrl+N add, Ctrl+S sync, Ctrl+V paste a cover',
+            ),
+            onTap: _showShortcuts,
+          ),
+          ListenableBuilder(
+            listenable: widget.settings,
+            builder: (context, _) => SwitchListTile(
+              secondary: const Icon(Icons.system_update_outlined),
+              title: const Text('Check for updates'),
+              subtitle: const Text(
+                'Once a day, asks GitHub whether a newer Chapterly for '
+                'Windows is out. Nothing about you or your books is sent.',
+              ),
+              value: widget.settings.checkUpdates,
+              onChanged: widget.settings.setCheckUpdates,
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.refresh),
+            title: const Text('Check for updates now'),
+            onTap: _checkNow,
           ),
           ListTile(
             leading: const Icon(Icons.auto_awesome_outlined),
@@ -872,10 +970,14 @@ class _SyncSettings extends StatefulWidget {
   State<_SyncSettings> createState() => _SyncSettingsState();
 }
 
+/// The choices for "Sync while Chapterly is open", in minutes. 0 is never.
+const _syncChoices = [0, 5, 15, 30, 60];
+
 class _SyncSettingsState extends State<_SyncSettings> {
   final _address = TextEditingController();
   final _code = TextEditingController();
   String? _problem;
+  bool _finding = false;
 
   @override
   void dispose() {
@@ -896,6 +998,74 @@ class _SyncSettingsState extends State<_SyncSettings> {
     return '${formatDateTime(at)} · $what';
   }
 
+  /// Looks for the phone on the network. Returns its address, or null.
+  Future<String?> _find() async {
+    setState(() {
+      _finding = true;
+      _problem = null;
+    });
+    final found = await widget.pcSync.findPhones();
+    if (!mounted) return null;
+    setState(() => _finding = false);
+    if (found.isEmpty) {
+      setState(() {
+        _problem = 'No phone found. Check that Chapterly is open on the phone '
+            'with "Allow sync from my PC" on, and that both are on the same '
+            'Wi-Fi. You can also type the address.';
+      });
+      return null;
+    }
+    if (found.length == 1) return found.first;
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Which phone?'),
+        children: [
+          for (final address in found)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(dialogContext).pop(address),
+              child: Text(address),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _findForPairing() async {
+    final address = await _find();
+    if (address == null || !mounted) return;
+    setState(() => _address.text = address);
+  }
+
+  Future<void> _findAgain() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final address = await _find();
+    if (address == null || !mounted) return;
+    final problem = await widget.pcSync.changeAddress(address);
+    if (!mounted) return;
+    setState(() => _problem = problem);
+    if (problem == null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Found your phone at $address')),
+      );
+    }
+  }
+
+  Widget _findLabel(String idle) => _finding
+      ? const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 8),
+            Text('Looking for your phone...'),
+          ],
+        )
+      : Text(idle);
+
   Future<void> _connect() async {
     setState(() => _problem = null);
     final messenger = ScaffoldMessenger.of(context);
@@ -913,13 +1083,7 @@ class _SyncSettingsState extends State<_SyncSettings> {
     }
   }
 
-  Future<void> _syncNow() async {
-    final messenger = ScaffoldMessenger.of(context);
-    final problem = await widget.pcSync.syncNow();
-    messenger.showSnackBar(
-      SnackBar(content: Text(problem ?? 'Synced with your phone')),
-    );
-  }
+  Future<void> _syncNow() => runManualSync(context, widget.pcSync);
 
   Future<void> _forget() async {
     final sure = await showDialog<bool>(
@@ -962,6 +1126,55 @@ class _SyncSettingsState extends State<_SyncSettings> {
             title: const Text('Last sync'),
             subtitle: Text(_lastSyncText()),
           ),
+          SwitchListTile(
+            secondary: const Icon(Icons.autorenew),
+            title: const Text('Sync when Chapterly opens'),
+            subtitle: const Text(
+              'Only if your phone is there. Says nothing when it is not.',
+            ),
+            value: widget.settings.syncOnOpen,
+            onChanged: widget.settings.setSyncOnOpen,
+          ),
+          ListTile(
+            leading: const Icon(Icons.timer_outlined),
+            title: const Text('Sync while Chapterly is open'),
+            subtitle: const Text(
+              'Quietly, whenever your phone is there.',
+            ),
+            trailing: DropdownButton<int>(
+              value: _syncChoices.contains(widget.settings.syncEveryMinutes)
+                  ? widget.settings.syncEveryMinutes
+                  : 15,
+              onChanged: (minutes) {
+                if (minutes != null) {
+                  widget.settings.setSyncEveryMinutes(minutes);
+                }
+              },
+              items: [
+                for (final minutes in _syncChoices)
+                  DropdownMenuItem(
+                    value: minutes,
+                    child: Text(
+                      minutes == 0
+                          ? 'Never'
+                          : minutes == 60
+                              ? 'Every hour'
+                              : 'Every $minutes minutes',
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.fact_check_outlined),
+            title: const Text('Show changes before syncing'),
+            subtitle: const Text(
+              'Sync now shows what will change first. Automatic syncs wait '
+              'for you when they would remove books.',
+            ),
+            value: widget.settings.reviewSync,
+            onChanged: widget.settings.setReviewSync,
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Wrap(
@@ -973,6 +1186,10 @@ class _SyncSettingsState extends State<_SyncSettings> {
                   icon: const Icon(Icons.sync),
                   label: Text(sync.busy ? 'Syncing...' : 'Sync now'),
                 ),
+                OutlinedButton(
+                  onPressed: sync.busy ? null : _findAgain,
+                  child: _findLabel('Find my phone again'),
+                ),
                 TextButton(
                   onPressed: sync.busy ? null : _forget,
                   child: const Text('Forget this phone'),
@@ -980,6 +1197,14 @@ class _SyncSettingsState extends State<_SyncSettings> {
               ],
             ),
           ),
+          if (_problem case final problem?)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Text(
+                problem,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
@@ -1008,6 +1233,14 @@ class _SyncSettingsState extends State<_SyncSettings> {
               labelText: 'Address',
               hintText: '192.168.1.20:8765',
               border: OutlineInputBorder(),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: sync.busy ? null : _findForPairing,
+              icon: const Icon(Icons.wifi_find),
+              label: _findLabel('Find my phone'),
             ),
           ),
           const SizedBox(height: 12),

@@ -8,7 +8,9 @@ import 'package:http/http.dart' as http;
 import '../models/book.dart';
 import 'app_settings.dart';
 import 'book_repository.dart';
+import 'phone_finder.dart';
 import 'sync_merge.dart';
+import 'sync_plan.dart';
 import 'sync_protocol.dart';
 
 /// A sync problem, with a message for the user.
@@ -203,7 +205,8 @@ class MemoryCodeStore implements CodeStore {
   }
 }
 
-/// Pairs with the phone and syncs when asked. Sync never runs on its own.
+/// Pairs with the phone and syncs: when asked, when Chapterly opens, and
+/// every few minutes while it is open (see Settings).
 class PcSync extends ChangeNotifier {
   PcSync({
     required this.repository,
@@ -219,6 +222,25 @@ class PcSync extends ChangeNotifier {
 
   bool _busy = false;
   bool _hasCode = false;
+  SyncPlan? _pending;
+  String? _dismissed;
+  Timer? _timer;
+  DateTime? _lastAutoAttempt;
+
+  /// Called after a sync in the background changed books here, with how
+  /// many. The library uses it to show a message.
+  void Function(int changed)? onBackgroundSync;
+
+  /// Changes an automatic sync held back because they would remove books.
+  /// The library offers to review them.
+  SyncPlan? get pendingReview => _pending;
+
+  /// Hides [pendingReview] until the changes waiting are different.
+  void dismissPending() {
+    _dismissed = _pending?.signature;
+    _pending = null;
+    notifyListeners();
+  }
 
   /// True while connecting or syncing.
   bool get busy => _busy;
@@ -303,6 +325,7 @@ class PcSync extends ChangeNotifier {
       final changed = countSyncChanges(now.books, merged.books);
       await repository.applySynced(merged.books, merged.tombstones);
       settings.recordSync(at: DateTime.now(), changed: changed);
+      _pending = null;
       return null;
     } on SyncFailure catch (error) {
       settings.recordSyncError(error.message);
@@ -311,6 +334,159 @@ class PcSync extends ChangeNotifier {
       const message = 'The sync could not be finished.';
       settings.recordSyncError(message);
       return message;
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  /// Works out what a sync would change on this PC and on the phone,
+  /// without changing anything. It asks the phone for its library by sending
+  /// an empty one: merging nothing into the phone's library leaves it as it
+  /// is. Returns the plan, or the message to show.
+  Future<({SyncPlan? plan, String? problem})> preview() async {
+    if (_busy) return (plan: null, problem: 'A sync is already running.');
+    final saved = settings.syncAddress;
+    final address = saved == null ? null : parsePhoneAddress(saved);
+    final code = await codeStore.read();
+    if (address == null || code == null) {
+      return (plan: null, problem: 'Connect to your phone first, in Settings.');
+    }
+    _setBusy(true);
+    try {
+      final phone = await client.sync(
+        address,
+        code,
+        encodeSyncPayload(const [], const {}),
+      );
+      final now = repository.snapshot();
+      final plan = planSync(
+        phoneBooks: phone.books,
+        phoneTombstones: phone.tombstones,
+        pcBooks: now.books,
+        pcTombstones: now.tombstones,
+      );
+      return (plan: plan, problem: null);
+    } on SyncFailure catch (error) {
+      settings.recordSyncError(error.message);
+      return (plan: null, problem: error.message);
+    } catch (_) {
+      const message = 'Could not get the library from your phone.';
+      settings.recordSyncError(message);
+      return (plan: null, problem: message);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  /// Records that both sides already match, after a preview found nothing
+  /// to do.
+  void recordInSync() {
+    settings.recordSync(at: DateTime.now(), changed: 0);
+    _pending = null;
+    notifyListeners();
+  }
+
+  /// A sync nobody asked for: when Chapterly opens or in the background.
+  /// When the phone is not there it says nothing and records nothing. With
+  /// "Show changes before syncing" on, changes that would remove books are
+  /// held back for review instead. Returns true when it synced.
+  Future<bool> autoSync() async {
+    if (_busy || !paired) return false;
+    final address = parsePhoneAddress(settings.syncAddress ?? '');
+    if (address == null) return false;
+    try {
+      await client.ping(address);
+    } on SyncFailure {
+      return false;
+    }
+    if (settings.reviewSync) {
+      final plan = (await preview()).plan;
+      if (plan == null) return false;
+      if (plan.isEmpty) {
+        recordInSync();
+        return true;
+      }
+      if (plan.removals > 0) {
+        if (plan.signature != _dismissed) {
+          _pending = plan;
+          notifyListeners();
+        }
+        return false;
+      }
+    }
+    return await syncNow() == null;
+  }
+
+  /// Syncs when Chapterly opens, if paired and switched on. Returns true
+  /// when it synced.
+  Future<bool> syncOnOpen() async {
+    if (!settings.syncOnOpen) return false;
+    _lastAutoAttempt = DateTime.now();
+    return autoSync();
+  }
+
+  /// Whether a background sync should run now: paired, switched on, and the
+  /// last sync or try was at least [AppSettings.syncEveryMinutes] ago.
+  bool backgroundSyncDue(DateTime now) {
+    final minutes = settings.syncEveryMinutes;
+    if (minutes <= 0 || _busy || !paired) return false;
+    DateTime? last = settings.lastSyncAt;
+    final tried = _lastAutoAttempt;
+    if (tried != null && (last == null || tried.isAfter(last))) last = tried;
+    return last == null || now.difference(last) >= Duration(minutes: minutes);
+  }
+
+  /// Checks once a [tick] whether a background sync is due. Each tick also
+  /// refreshes "Synced 5 min ago" at the top of the library.
+  void startBackgroundSync({Duration tick = const Duration(minutes: 1)}) {
+    _timer?.cancel();
+    _timer = Timer.periodic(tick, (_) => runBackgroundTick());
+  }
+
+  /// One background check. Public for tests.
+  Future<void> runBackgroundTick([DateTime? at]) async {
+    notifyListeners();
+    final now = at ?? DateTime.now();
+    if (!backgroundSyncDue(now)) return;
+    _lastAutoAttempt = now;
+    if (await autoSync()) {
+      final changed = settings.lastSyncChanged;
+      if (changed > 0) onBackgroundSync?.call(changed);
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  /// Saves a new address for the paired phone, for example after the router
+  /// gave it a new one. Returns null when it worked, or the message to show.
+  Future<String?> changeAddress(String input) async {
+    final address = parsePhoneAddress(input);
+    if (address == null) {
+      return 'Type the address your phone shows, such as 192.168.1.20:8765.';
+    }
+    try {
+      await client.ping(address);
+    } on SyncFailure catch (error) {
+      return error.message;
+    }
+    settings.setSyncAddress(formatPhoneAddress(address));
+    notifyListeners();
+    return null;
+  }
+
+  /// Looks for Chapterly phones on the home network and returns their
+  /// addresses, such as 192.168.1.20:8765.
+  Future<List<String>> findPhones() async {
+    if (_busy) return const [];
+    _setBusy(true);
+    try {
+      return await findPhonesOnNetwork(client);
+    } catch (_) {
+      return const [];
     } finally {
       _setBusy(false);
     }
@@ -325,6 +501,7 @@ class PcSync extends ChangeNotifier {
     }
     settings.setSyncAddress(null);
     _hasCode = false;
+    _pending = null;
     notifyListeners();
   }
 }

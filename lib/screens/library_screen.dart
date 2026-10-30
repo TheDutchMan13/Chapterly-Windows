@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
@@ -8,6 +10,8 @@ import '../data/file_io.dart';
 import '../data/open_library_client.dart';
 import '../data/pc_sync.dart';
 import '../data/rating_text.dart';
+import '../data/sync_plan.dart';
+import '../data/update_check.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
@@ -15,7 +19,10 @@ import '../models/wish_priority.dart';
 import '../widgets/book_cover.dart';
 import 'add_book_dialog.dart';
 import 'book_detail_screen.dart';
+import 'book_table.dart';
+import 'bulk_add_screen.dart';
 import 'duplicates_screen.dart';
+import 'file_drop.dart';
 import 'manage_shelves_screen.dart';
 import 'next_up_screen.dart';
 import 'read_next_screen.dart';
@@ -23,9 +30,13 @@ import 'search_screen.dart';
 import 'settings_screen.dart';
 import 'shelf_picker.dart';
 import 'statistics_screen.dart';
+import 'sync_preview.dart';
 import 'trash_screen.dart';
 
-enum _AddChoice { search, isbn, manual }
+enum _AddChoice { search, isbn, bulk, manual }
+
+/// From this window width the open book shows beside the list.
+const _twoPaneWidth = 1000.0;
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
@@ -58,8 +69,218 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _matchAllTags = true;
   int? _finishYear;
 
+  /// The book shown beside the list in a wide window.
+  String? _currentId;
+
+  /// Whether the window is wide enough for two panes (set while laying out).
+  bool _wide = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.pcSync.onBackgroundSync = _syncedInBackground;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startUp());
+  }
+
+  void _syncedInBackground(int changed) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Synced with your phone: $changed '
+          '${changed == 1 ? 'book' : 'books'} changed',
+        ),
+      ),
+    );
+  }
+
+  /// Syncs with the phone and checks for updates when Chapterly opens. Both
+  /// stay quiet unless there is news.
+  Future<void> _startUp() async {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final synced = await widget.pcSync.syncOnOpen();
+    final changed = widget.settings.lastSyncChanged;
+    if (synced && changed > 0) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Synced with your phone: $changed '
+            '${changed == 1 ? 'book' : 'books'} changed',
+          ),
+        ),
+      );
+    }
+    final update = await checkForUpdateIfDue(widget.settings);
+    if (update == null) return;
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 12),
+        content: Text('Chapterly ${update.version} is available.'),
+        action: SnackBarAction(
+          label: 'Download',
+          onPressed: () => launchUrl(
+            Uri.parse(update.url),
+            mode: LaunchMode.externalApplication,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Esc closes the selection, then the search, then the open book.
+  void _escape() {
+    if (_selected.isNotEmpty) {
+      setState(_selected.clear);
+    } else if (_searching) {
+      _stopSearching();
+    } else if (_currentId != null) {
+      setState(() => _currentId = null);
+    }
+  }
+
+  /// Runs a selection action (trash, add to a shelf) on just [book].
+  void _actOn(Book book, Future<void> Function() action) {
+    setState(() {
+      _selected
+        ..clear()
+        ..add(book.id);
+    });
+    action();
+  }
+
+  Future<void> _showBookMenu(Book book, Offset position) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final choice = await showMenu<VoidCallback>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        PopupMenuItem(
+          value: () => _openBook(book),
+          child: const Text('Open'),
+        ),
+        const PopupMenuDivider(),
+        for (final shelf in Shelf.values)
+          if (shelf != book.shelf)
+            PopupMenuItem(
+              value: () => widget.repository.moveTo(book.id, shelf),
+              child: Text('Move to ${shelf.label}'),
+            ),
+        PopupMenuItem(
+          value: () => _actOn(book, _addSelectedToShelf),
+          child: const Text('Add to one of your shelves...'),
+        ),
+        PopupMenuItem(
+          value: () => widget.repository
+              .setFavorite(book.id, favorite: !book.favorite),
+          child: Text(
+            book.favorite ? 'Remove from favorites' : 'Add to favorites',
+          ),
+        ),
+        PopupMenuItem(
+          value: () => setState(() => _selected.add(book.id)),
+          child: const Text('Select'),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: () => _actOn(book, _trashSelected),
+          child: const Text('Move to trash'),
+        ),
+      ],
+    );
+    choice?.call();
+  }
+
+  /// The open book in a wide window, or a hint when none is open. The pane
+  /// has its own messenger so its messages (such as Undo) show there.
+  Widget _detailPane() {
+    final id = _currentId;
+    final book = id == null ? null : widget.repository.byId(id);
+    if (book != null && book.deletedAt == null) {
+      return ScaffoldMessenger(
+        child: BookDetailScreen(
+          key: ValueKey(book.id),
+          repository: widget.repository,
+          settings: widget.settings,
+          fileIo: widget.fileIo,
+          bookId: book.id,
+          onClose: () => setState(() => _currentId = null),
+        ),
+      );
+    }
+    return ScaffoldMessenger(
+      child: Scaffold(
+        body: Center(
+          child: Text(
+            'Pick a book to see it here.',
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Keyboard shortcuts, file dropping and, in a wide window, the open book
+  /// beside the list.
+  Widget _frame(Widget library) {
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): () =>
+            setState(() => _searching = true),
+        const SingleActivator(LogicalKeyboardKey.keyN, control: true):
+            _addBook,
+        const SingleActivator(
+          LogicalKeyboardKey.keyN,
+          control: true,
+          shift: true,
+        ): _addSeveral,
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+            _syncNow,
+        const SingleActivator(LogicalKeyboardKey.comma, control: true):
+            _openSettings,
+        const SingleActivator(LogicalKeyboardKey.escape): _escape,
+      },
+      child: Focus(
+        autofocus: true,
+        child: FileDropTarget(
+          repository: widget.repository,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              // The table needs the whole width, so it opens books on
+              // their own page.
+              _wide = widget.settings.display != DisplayMode.table &&
+                  width >= _twoPaneWidth;
+              final share = width * 0.42;
+              final listWidth = !_wide
+                  ? width
+                  : share < 400
+                      ? 400.0
+                      : share > 560
+                          ? 560.0
+                          : share;
+              return Row(
+                children: [
+                  SizedBox(width: listWidth, child: library),
+                  if (_wide) const VerticalDivider(width: 1),
+                  if (_wide) Expanded(child: _detailPane()),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    if (widget.pcSync.onBackgroundSync == _syncedInBackground) {
+      widget.pcSync.onBackgroundSync = null;
+    }
     _searchController.dispose();
     super.dispose();
   }
@@ -430,6 +651,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _openBook(Book book) {
+    if (_wide) {
+      setState(() => _currentId = book.id);
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => BookDetailScreen(
@@ -485,6 +710,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
               onTap: () => Navigator.of(sheetContext).pop(_AddChoice.isbn),
             ),
             ListTile(
+              leading: const Icon(Icons.playlist_add),
+              title: const Text('Add several at once (Ctrl+Shift+N)'),
+              subtitle: const Text('Paste a list of ISBNs or titles'),
+              onTap: () => Navigator.of(sheetContext).pop(_AddChoice.bulk),
+            ),
+            ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: const Text('Add manually'),
               onTap: () => Navigator.of(sheetContext).pop(_AddChoice.manual),
@@ -507,9 +738,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
         );
       case _AddChoice.isbn:
         await _lookUpIsbn();
+      case _AddChoice.bulk:
+        await _addSeveral();
       case _AddChoice.manual:
         await _addManually();
     }
+  }
+
+  /// Paste a list of books and add them all.
+  Future<void> _addSeveral() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final added = await Navigator.of(context).push<int>(
+      MaterialPageRoute(
+        builder: (_) => BulkAddScreen(
+          repository: widget.repository,
+          client: widget.client,
+          settings: widget.settings,
+        ),
+      ),
+    );
+    if (added == null || added == 0) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text('Added $added ${added == 1 ? 'book' : 'books'}')),
+    );
   }
 
   Future<void> _addManually({String? isbn}) async {
@@ -584,11 +835,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _openSettings();
       return;
     }
-    final messenger = ScaffoldMessenger.of(context);
-    final problem = await widget.pcSync.syncNow();
-    messenger.showSnackBar(
-      SnackBar(content: Text(problem ?? 'Synced with your phone')),
-    );
+    await runManualSync(context, widget.pcSync);
   }
 
   Future<void> _addFromIsbn(String isbn, OpenLibraryBook? found) async {
@@ -637,7 +884,33 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _list(List<Book> books) => _ShelfList(
+  Widget _list(List<Book> books) {
+    if (widget.settings.display == DisplayMode.table) {
+      return BookTable(
+        books: sortBooks(
+          books,
+          widget.settings.sortField,
+          ascending: widget.settings.ascending,
+        ),
+        repository: widget.repository,
+        selected: _selected,
+        onSetSelected: (ids) => setState(() {
+          _selected
+            ..clear()
+            ..addAll(ids);
+        }),
+        onOpen: _openBook,
+        onContextMenu: _showBookMenu,
+        ratingAsNumber: widget.settings.ratingAsNumber,
+        emptyText: _filtering
+            ? 'No books on this shelf match your search or filters.'
+            : 'No books on this shelf yet.',
+      );
+    }
+    return _shelfList(books);
+  }
+
+  Widget _shelfList(List<Book> books) => _ShelfList(
         books: sortBooks(
           books,
           widget.settings.sortField,
@@ -653,6 +926,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         showFormat: widget.settings.showFormatOnCards,
         showTags: widget.settings.showTagsOnCards,
         ratingAsNumber: widget.settings.ratingAsNumber,
+        current: _wide ? _currentId : null,
+        onContextMenu: _showBookMenu,
       );
 
   List<String> get _collections =>
@@ -743,13 +1018,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     }
     return AppBar(
-      title: const Text('Chapterly'),
+      title: ListenableBuilder(
+        listenable: widget.pcSync,
+        builder: (context, _) {
+          if (!widget.pcSync.paired) return const Text('Chapterly');
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Chapterly'),
+              Text(
+                widget.pcSync.busy
+                    ? 'Syncing...'
+                    : syncedAgoText(widget.settings.lastSyncAt, DateTime.now()),
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
+          );
+        },
+      ),
       actions: [
         ListenableBuilder(
           listenable: widget.pcSync,
           builder: (context, _) => IconButton(
             tooltip: widget.pcSync.paired
-                ? 'Sync with your phone'
+                ? 'Sync with your phone (Ctrl+S)'
                 : 'Set up sync with your phone',
             icon: widget.pcSync.busy
                 ? const SizedBox(
@@ -762,7 +1055,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
         ),
         IconButton(
-          tooltip: 'Search',
+          tooltip: 'Search (Ctrl+F)',
           icon: const Icon(Icons.search),
           onPressed: () => setState(() => _searching = true),
         ),
@@ -779,16 +1072,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
           ],
         ),
-        IconButton(
-          tooltip: widget.settings.display == DisplayMode.grid
-              ? 'Show as list'
-              : 'Show as grid',
-          icon: Icon(
-            widget.settings.display == DisplayMode.grid
-                ? Icons.view_list
-                : Icons.grid_view,
-          ),
-          onPressed: widget.settings.toggleDisplay,
+        PopupMenuButton<DisplayMode>(
+          tooltip: 'View',
+          icon: Icon(switch (widget.settings.display) {
+            DisplayMode.list => Icons.view_list,
+            DisplayMode.grid => Icons.grid_view,
+            DisplayMode.table => Icons.table_rows_outlined,
+          }),
+          onSelected: widget.settings.setDisplay,
+          itemBuilder: (_) => [
+            for (final (mode, label) in [
+              (DisplayMode.list, 'List'),
+              (DisplayMode.grid, 'Grid'),
+              (DisplayMode.table, 'Table'),
+            ])
+              CheckedPopupMenuItem(
+                value: mode,
+                checked: widget.settings.display == mode,
+                child: Text(label),
+              ),
+          ],
         ),
         PopupMenuButton<VoidCallback>(
           tooltip: 'More',
@@ -830,7 +1133,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge([widget.settings, widget.repository]),
-      builder: (context, _) => DefaultTabController(
+      builder: (context, _) => _frame(DefaultTabController(
         key: ValueKey(_collections.length),
         length: Shelf.values.length + _collections.length,
         child: PopScope(
@@ -877,6 +1180,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 });
                 return Column(
                   children: [
+                    ListenableBuilder(
+                      listenable: widget.pcSync,
+                      builder: (context, _) {
+                        final plan = widget.pcSync.pendingReview;
+                        if (plan == null) return const SizedBox.shrink();
+                        final removals = plan.removals;
+                        return MaterialBanner(
+                          leading: const Icon(Icons.sync_problem),
+                          content: Text(
+                            'A sync with your phone is waiting for you: it '
+                            'would remove $removals '
+                            '${removals == 1 ? 'book' : 'books'}.',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: widget.pcSync.dismissPending,
+                              child: const Text('Not now'),
+                            ),
+                            TextButton(
+                              onPressed: _syncNow,
+                              child: const Text('Review'),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                     if (widget.settings.backupDue(
                       bookCount: widget.repository.books.length,
                     ))
@@ -990,14 +1319,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
             floatingActionButton: _selected.isEmpty
                 ? FloatingActionButton(
-                    tooltip: 'Add book',
+                    tooltip: 'Add book (Ctrl+N)',
                     onPressed: _addBook,
                     child: const Icon(Icons.add),
                   )
                 : null,
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -1034,6 +1363,8 @@ class _ShelfList extends StatelessWidget {
     required this.showFormat,
     required this.showTags,
     required this.ratingAsNumber,
+    required this.current,
+    required this.onContextMenu,
   });
 
   final List<Book> books;
@@ -1046,6 +1377,10 @@ class _ShelfList extends StatelessWidget {
   final bool showFormat;
   final bool showTags;
   final bool ratingAsNumber;
+
+  /// The book open beside the list, highlighted.
+  final String? current;
+  final void Function(Book book, Offset position) onContextMenu;
 
   List<String> _subtitleLines(Book book) {
     final format = book.format;
@@ -1100,8 +1435,12 @@ class _ShelfList extends StatelessWidget {
           return InkWell(
             onTap: () => onOpen(book),
             onLongPress: () => onSelect(book),
+            onSecondaryTapDown: (details) =>
+                onContextMenu(book, details.globalPosition),
             child: Container(
-              color: selected.contains(book.id) ? highlight : null,
+              color: selected.contains(book.id) || book.id == current
+                  ? highlight
+                  : null,
               child: Column(
                 children: [
                   Stack(
@@ -1144,8 +1483,11 @@ class _ShelfList extends StatelessWidget {
       itemBuilder: (context, index) {
         final book = books[index];
         final lines = _subtitleLines(book);
-        return ListTile(
-          selected: selected.contains(book.id),
+        return GestureDetector(
+          onSecondaryTapDown: (details) =>
+              onContextMenu(book, details.globalPosition),
+          child: ListTile(
+          selected: selected.contains(book.id) || book.id == current,
           selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
           leading: BookCover(
             coverUrl: book.coverUrl,
@@ -1180,6 +1522,7 @@ class _ShelfList extends StatelessWidget {
                     ),
                   ],
                 ),
+          ),
         );
       },
     );

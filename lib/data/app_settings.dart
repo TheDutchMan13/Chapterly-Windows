@@ -39,7 +39,7 @@ extension SortFieldLabel on SortField {
       };
 }
 
-enum DisplayMode { list, grid }
+enum DisplayMode { list, grid, table }
 
 DateTime? _fromMillis(int? value) =>
     value == null ? null : DateTime.fromMillisecondsSinceEpoch(value);
@@ -71,6 +71,11 @@ class AppSettings extends ChangeNotifier {
   int _lastSyncChanged = 0;
   String? _lastSyncError;
   String? _syncAddress;
+  bool _syncOnOpen = true;
+  bool _reviewSync = true;
+  int _syncEveryMinutes = 15;
+  bool _checkUpdates = true;
+  DateTime? _lastUpdateCheck;
   List<String> _collections = [];
   String? _pinHash;
   String? _pinSalt;
@@ -140,6 +145,24 @@ class AppSettings extends ChangeNotifier {
   /// this PC is not paired.
   String? get syncAddress => _syncAddress;
 
+  /// Sync with the phone each time Chapterly opens, quietly, if the phone is
+  /// there.
+  bool get syncOnOpen => _syncOnOpen;
+
+  /// Show what a sync will change before it happens. Automatic syncs then
+  /// hold back changes that would remove books, for you to review.
+  bool get reviewSync => _reviewSync;
+
+  /// Sync in the background every this many minutes while Chapterly is open.
+  /// 0 turns it off.
+  int get syncEveryMinutes => _syncEveryMinutes;
+
+  /// Ask GitHub once a day whether a newer Chapterly for Windows is out.
+  bool get checkUpdates => _checkUpdates;
+
+  /// When the last update check ran.
+  DateTime? get lastUpdateCheck => _lastUpdateCheck;
+
   /// The names of your own shelves, including ones with no books yet.
   List<String> get collections => List.unmodifiable(_collections);
 
@@ -202,6 +225,11 @@ class AppSettings extends ChangeNotifier {
     settings._lastSyncChanged = prefs.getInt('lastSyncChanged') ?? 0;
     settings._lastSyncError = prefs.getString('lastSyncError');
     settings._syncAddress = prefs.getString('syncAddress');
+    settings._syncOnOpen = prefs.getBool('syncOnOpen') ?? true;
+    settings._reviewSync = prefs.getBool('reviewSync') ?? true;
+    settings._syncEveryMinutes = prefs.getInt('syncEveryMinutes') ?? 15;
+    settings._checkUpdates = prefs.getBool('checkUpdates') ?? true;
+    settings._lastUpdateCheck = _fromMillis(prefs.getInt('lastUpdateCheck'));
     settings._collections = prefs.getStringList('collections') ?? [];
     settings._pinHash = prefs.getString('pinHash');
     settings._pinSalt = prefs.getString('pinSalt');
@@ -407,6 +435,12 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setDisplay(DisplayMode mode) {
+    _display = mode;
+    _save();
+    notifyListeners();
+  }
+
   void toggleDisplay() {
     _display =
         _display == DisplayMode.list ? DisplayMode.grid : DisplayMode.list;
@@ -467,6 +501,35 @@ class AppSettings extends ChangeNotifier {
     _syncCode = code;
     prefs?.setString('syncCode', code);
     notifyListeners();
+  }
+
+  void setSyncOnOpen(bool value) {
+    _syncOnOpen = value;
+    prefs?.setBool('syncOnOpen', value);
+    notifyListeners();
+  }
+
+  void setReviewSync(bool value) {
+    _reviewSync = value;
+    prefs?.setBool('reviewSync', value);
+    notifyListeners();
+  }
+
+  void setSyncEveryMinutes(int minutes) {
+    _syncEveryMinutes = minutes < 0 ? 0 : minutes;
+    prefs?.setInt('syncEveryMinutes', _syncEveryMinutes);
+    notifyListeners();
+  }
+
+  void setCheckUpdates(bool value) {
+    _checkUpdates = value;
+    prefs?.setBool('checkUpdates', value);
+    notifyListeners();
+  }
+
+  void setLastUpdateCheck(DateTime at) {
+    _lastUpdateCheck = at;
+    prefs?.setInt('lastUpdateCheck', at.millisecondsSinceEpoch);
   }
 
   /// Pass null to forget the phone.

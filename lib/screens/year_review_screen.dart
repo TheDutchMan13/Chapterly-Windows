@@ -1,10 +1,50 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../data/book_repository.dart';
 import '../data/date_format.dart';
 import '../data/file_io.dart';
 import '../data/year_review.dart';
+import '../data/year_review_pdf.dart';
 import '../widgets/share_card.dart';
+
+/// Makes a printable PDF of [year] (the numbers and every book finished)
+/// and asks where to save it. Offers to open it afterwards.
+Future<void> saveYearReviewPdf(
+  BuildContext context, {
+  required BookRepository repository,
+  required FileIo fileIo,
+  required int year,
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final bytes = await buildYearReviewPdf(
+      repository.books,
+      year,
+      fonts: await loadWindowsFonts(),
+    );
+    final path = await fileIo.saveBytes(
+      fileName: 'chapterly-$year-in-books.pdf',
+      bytes: bytes,
+      typeLabel: 'PDF',
+      extensions: const ['pdf'],
+    );
+    if (path == null) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: const Text('Saved the PDF'),
+        action: SnackBarAction(
+          label: 'Open',
+          onPressed: () => launchUrl(Uri.file(path)),
+        ),
+      ),
+    );
+  } catch (_) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Could not make the PDF.')),
+    );
+  }
+}
 
 const _monthNames = [
   'January',
@@ -99,7 +139,17 @@ class _YearReviewScreenState extends State<YearReviewScreen> {
         title: Text('${widget.year} in review'),
         actions: [
           IconButton(
-            tooltip: 'Share',
+            tooltip: 'Save as PDF to print',
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            onPressed: () => saveYearReviewPdf(
+              context,
+              repository: widget.repository,
+              fileIo: widget.fileIo,
+              year: widget.year,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Save as a picture',
             icon: const Icon(Icons.share),
             onPressed: _busy ? null : _share,
           ),

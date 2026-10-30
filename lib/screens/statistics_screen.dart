@@ -13,6 +13,9 @@ import 'year_review_screen.dart';
 
 const _monthLetters = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 
+/// From this width the sections show in two columns.
+const _twoColumnWidth = 1000.0;
+
 /// Reading statistics, for all time or for one year, with a yearly goal.
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({
@@ -448,77 +451,81 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               if (readingPace(book) case final pace?) (book, pace),
           ];
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              if (overall.byYear.isNotEmpty) ...[
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('All time'),
-                      selected: year == null,
-                      onSelected: (_) => setState(() => _year = null),
-                    ),
-                    for (final y in overall.yearsNewestFirst)
-                      ChoiceChip(
-                        label: Text('$y'),
-                        selected: year == y,
-                        onSelected: (_) => setState(() => _year = y),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-              ],
+          final header = <Widget>[
+            if (overall.byYear.isNotEmpty) ...[
               Wrap(
-                spacing: 12,
-                runSpacing: 12,
+                spacing: 8,
                 children: [
-                  _StatTile(
-                    label: 'Books finished',
-                    value: stats.finishedCount.toString(),
+                  ChoiceChip(
+                    label: const Text('All time'),
+                    selected: year == null,
+                    onSelected: (_) => setState(() => _year = null),
                   ),
-                  _StatTile(
-                    label: 'Pages read',
-                    value: stats.pagesRead.toString(),
-                  ),
-                  _StatTile(
-                    label: 'Average rating',
-                    value: average == null ? '–' : average.toStringAsFixed(1),
-                  ),
-                  _StatTile(
-                    label: 'Average pages',
-                    value: stats.averagePages?.toString() ?? '–',
-                  ),
-                  if (stats.loggedPages > 0)
-                    _StatTile(
-                      label: 'Pages in reading log',
-                      value: stats.loggedPages.toString(),
-                    ),
-                  if (stats.loggedMinutes > 0)
-                    _StatTile(
-                      label: 'Time read',
-                      value: formatMinutes(stats.loggedMinutes),
-                    ),
-                  if (streak > 0)
-                    _StatTile(
-                      label: 'Reading streak',
-                      value: '$streak ${streak == 1 ? 'day' : 'days'}',
-                    ),
-                  if (pagesToday > 0)
-                    _StatTile(
-                      label: 'Pages today',
-                      value: pagesToday.toString(),
-                    ),
-                  if (longest != null)
-                    _StatTile(
-                      label: 'Longest book',
-                      value: '${longest.pages} pages',
-                      detail: longest.title,
+                  for (final y in overall.yearsNewestFirst)
+                    ChoiceChip(
+                      label: Text('$y'),
+                      selected: year == y,
+                      onSelected: (_) => setState(() => _year = y),
                     ),
                 ],
               ),
-              if (year != null) ...[
+              const SizedBox(height: 16),
+            ],
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _StatTile(
+                  label: 'Books finished',
+                  value: stats.finishedCount.toString(),
+                ),
+                _StatTile(
+                  label: 'Pages read',
+                  value: stats.pagesRead.toString(),
+                ),
+                _StatTile(
+                  label: 'Average rating',
+                  value: average == null ? '–' : average.toStringAsFixed(1),
+                ),
+                _StatTile(
+                  label: 'Average pages',
+                  value: stats.averagePages?.toString() ?? '–',
+                ),
+                if (stats.loggedPages > 0)
+                  _StatTile(
+                    label: 'Pages in reading log',
+                    value: stats.loggedPages.toString(),
+                  ),
+                if (stats.loggedMinutes > 0)
+                  _StatTile(
+                    label: 'Time read',
+                    value: formatMinutes(stats.loggedMinutes),
+                  ),
+                if (streak > 0)
+                  _StatTile(
+                    label: 'Reading streak',
+                    value: '$streak ${streak == 1 ? 'day' : 'days'}',
+                  ),
+                if (pagesToday > 0)
+                  _StatTile(
+                    label: 'Pages today',
+                    value: pagesToday.toString(),
+                  ),
+                if (longest != null)
+                  _StatTile(
+                    label: 'Longest book',
+                    value: '${longest.pages} pages',
+                    detail: longest.title,
+                  ),
+              ],
+            ),
+          ];
+
+          // Each section is one block. A wide window shows them in two
+          // columns; a narrow one shows them one under another.
+          final sections = <Widget>[
+            if (year != null)
+              _section([
                 const SizedBox(height: 24),
                 _goalCard(year, stats),
                 const SizedBox(height: 12),
@@ -528,82 +535,39 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 const SizedBox(height: 12),
                 _monthlyGoalCard(year, stats),
                 const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.auto_awesome),
-                  label: Text('$year in review'),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => YearReviewScreen(
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.auto_awesome),
+                      label: Text('$year in review'),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => YearReviewScreen(
+                            repository: widget.repository,
+                            fileIo: widget.fileIo,
+                            year: year,
+                          ),
+                        ),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.picture_as_pdf_outlined),
+                      label: const Text('Save as PDF to print'),
+                      onPressed: () => saveYearReviewPdf(
+                        context,
                         repository: widget.repository,
                         fileIo: widget.fileIo,
                         year: year,
                       ),
                     ),
-                  ),
-                ),
-              ],
-              if (year == null) ...[
-                const SizedBox(height: 24),
-                Text('By shelf', style: textTheme.titleMedium),
-                for (final shelf in Shelf.values)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      children: [
-                        Expanded(child: Text(shelf.label)),
-                        Text('${stats.shelfCounts[shelf] ?? 0}'),
-                      ],
-                    ),
-                  ),
-              ],
-              if (stats.formatCounts.isNotEmpty) ...[
-                const SizedBox(height: 24),
-                Text('By format', style: textTheme.titleMedium),
-                for (final format in BookFormat.values)
-                  if (stats.formatCounts.containsKey(format))
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          Expanded(child: Text(format.label)),
-                          Text('${stats.formatCounts[format]}'),
-                        ],
-                      ),
-                    ),
-              ],
-              if (stats.ratingCounts.values.any((count) => count > 0)) ...[
-                const SizedBox(height: 24),
-                Text('Ratings', style: textTheme.titleMedium),
-                const SizedBox(height: 8),
-                _BarChart(
-                  labels: const ['1★', '2★', '3★', '4★', '5★'],
-                  values: [
-                    for (var star = 1; star <= 5; star++)
-                      stats.ratingCounts[star] ?? 0,
                   ],
                 ),
-              ],
-              if (stats.topAuthors.isNotEmpty)
-                ..._countSection('Most read authors', stats.topAuthors),
-              if (stats.topTags.isNotEmpty)
-                ..._countSection('Most used tags', stats.topTags),
-              if (paces.isNotEmpty) ...[
+              ]),
+            if (year == null && overall.byYear.isNotEmpty)
+              _section([
                 const SizedBox(height: 24),
-                Text('Reading pace', style: textTheme.titleMedium),
-                for (final (book, pace) in paces)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(book.title),
-                        Text(pace.describe(), style: textTheme.bodySmall),
-                      ],
-                    ),
-                  ),
-              ],
-              const SizedBox(height: 24),
-              if (year == null && overall.byYear.isNotEmpty) ...[
                 Text('Books finished per year', style: textTheme.titleMedium),
                 const SizedBox(height: 8),
                 _BarChart(
@@ -622,7 +586,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     values: overall.pagesByYear.values.toList(),
                   ),
                 ],
-              ] else if (year != null) ...[
+              ])
+            else if (year != null)
+              _section([
+                const SizedBox(height: 24),
                 Text(
                   'Books finished per month in $year',
                   style: textTheme.titleMedium,
@@ -647,23 +614,136 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   const SizedBox(height: 8),
                   _BarChart(labels: _monthLetters, values: stats.loggedByMonth),
                 ],
-              ],
-              if (overall.finishedWithoutDate > 0) ...[
+              ]),
+            if (year == null)
+              _section([
                 const SizedBox(height: 24),
-                Text(
-                  '${overall.finishedWithoutDate} finished '
-                  '${overall.finishedWithoutDate == 1 ? 'book has' : 'books have'}'
-                  ' no finish date, so they are left out of the yearly and '
-                  'monthly charts. Open a book to set its finish date.',
-                  style: textTheme.bodySmall,
+                Text('By shelf', style: textTheme.titleMedium),
+                for (final shelf in Shelf.values)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(child: Text(shelf.label)),
+                        Text('${stats.shelfCounts[shelf] ?? 0}'),
+                      ],
+                    ),
+                  ),
+              ]),
+            if (stats.ratingCounts.values.any((count) => count > 0))
+              _section([
+                const SizedBox(height: 24),
+                Text('Ratings', style: textTheme.titleMedium),
+                const SizedBox(height: 8),
+                _BarChart(
+                  labels: const ['1★', '2★', '3★', '4★', '5★'],
+                  values: [
+                    for (var star = 1; star <= 5; star++)
+                      stats.ratingCounts[star] ?? 0,
+                  ],
                 ),
-              ],
+              ]),
+            if (stats.formatCounts.isNotEmpty)
+              _section([
+                const SizedBox(height: 24),
+                Text('By format', style: textTheme.titleMedium),
+                for (final format in BookFormat.values)
+                  if (stats.formatCounts.containsKey(format))
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(format.label)),
+                          Text('${stats.formatCounts[format]}'),
+                        ],
+                      ),
+                    ),
+              ]),
+            if (stats.topAuthors.isNotEmpty)
+              _section(_countSection('Most read authors', stats.topAuthors)),
+            if (stats.topTags.isNotEmpty)
+              _section(_countSection('Most used tags', stats.topTags)),
+            if (paces.isNotEmpty)
+              _section([
+                const SizedBox(height: 24),
+                Text('Reading pace', style: textTheme.titleMedium),
+                for (final (book, pace) in paces)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(book.title),
+                        Text(pace.describe(), style: textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+              ]),
+          ];
+
+          final footnote = <Widget>[
+            if (overall.finishedWithoutDate > 0) ...[
+              const SizedBox(height: 24),
+              Text(
+                '${overall.finishedWithoutDate} finished '
+                '${overall.finishedWithoutDate == 1 ? 'book has' : 'books have'}'
+                ' no finish date, so they are left out of the yearly and '
+                'monthly charts. Open a book to set its finish date.',
+                style: textTheme.bodySmall,
+              ),
             ],
+          ];
+
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < _twoColumnWidth) {
+                return ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [...header, ...sections, ...footnote],
+                );
+              }
+              final left = <Widget>[];
+              final right = <Widget>[];
+              for (var i = 0; i < sections.length; i++) {
+                (i.isEven ? left : right).add(sections[i]);
+              }
+              return ListView(
+                padding: const EdgeInsets.all(24),
+                children: [
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1400),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ...header,
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: Column(children: left)),
+                              const SizedBox(width: 32),
+                              Expanded(child: Column(children: right)),
+                            ],
+                          ),
+                          ...footnote,
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           );
         },
       ),
     );
   }
+
+  /// One block of the statistics page.
+  Widget _section(List<Widget> children) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      );
 }
 
 class _StatTile extends StatelessWidget {

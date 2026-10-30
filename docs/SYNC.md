@@ -47,6 +47,12 @@ Errors: `401` wrong or missing code, `400` the message is not valid or needs a
 newer protocol (reply has `{"error": "..."}` text), `500` the phone could not
 finish.
 
+Looking without changing anything: a body with no books and no tombstones
+merges nothing into the phone's library, so the phone's library stays as it
+is and the reply is simply the phone's library. The PC uses this for "Show
+changes before syncing": it works out what a real sync would change on each
+side, shows it, and only then sends its real library.
+
 ## A book
 
 Fields (all optional except `id`, `title`, `shelf`, `addedAt`, `updatedAt`):
@@ -61,10 +67,17 @@ Fields (all optional except `id`, `title`, `shelf`, `addedAt`, `updatedAt`):
     currentPage, aspectRatings ({"plot" | "characters" | "writing" | "pacing": 1-5}),
     priority ("low" | "medium" | "high"), buyAt (shop, library or link),
     queuePosition (place in the Next up order, 0 is first),
+    audio ({positionMs, lengthMs, track, trackMs, trackCount}: where you are
+      in the audiobook; the audio files themselves never sync),
     readingLog (list of {date, pages, minutes}),
     previousReadings (list of {startedAt, finishedAt, rating, log})
 
 Dates are ISO 8601 text.
+
+`coverUrl` is usually a web address. A cover added on the PC from a picture is
+stored in the book itself as a small JPEG data address
+(`data:image/jpeg;base64,...`, about 400 pixels wide), so it syncs like any
+other field. Both apps show either kind.
 
 ## Merging rules
 

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: HansDeKryger.Chapterly
+PackageVersion: 1.2.0
+PackageLocale: en-US
+Publisher: Hans De Kryger
+PublisherUrl: https://github.com/TheDutchMan13
+PublisherSupportUrl: https://github.com/TheDutchMan13/Chapterly-Windows/issues
+Author: Hans De Kryger
+PackageName: Chapterly
+PackageUrl: https://github.com/TheDutchMan13/Chapterly-Windows
+License: GPL-3.0
+LicenseUrl: https://github.com/TheDutchMan13/Chapterly-Windows/blob/main/LICENSE
+Copyright: Copyright (C) 2026 Hans De Kryger
+ShortDescription: A private, offline book tracker that syncs with the Chapterly phone app over your home Wi-Fi.
+Description: |-
+  Chapterly keeps track of the books you have read, are reading and want to read.
+  Everything stays on your PC: no account and no cloud. It syncs with the
+  Chapterly Android app over your home Wi-Fi.
+Moniker: chapterly
+Tags:
+  - books
+  - reading
+  - book-tracker
+  - library
+  - offline
+ReleaseNotesUrl: https://github.com/TheDutchMan13/Chapterly-Windows/releases/tag/v1.2.0
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

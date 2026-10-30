@@ -3,7 +3,7 @@ description: "Chapterly for Windows: a private book tracker that syncs with the 
 publish_to: 'none'
 
 # Keep in step with appVersion in lib/data/app_info.dart.
-version: 1.0.0+1
+version: 1.3.0+4
 
 environment:
   sdk: ^3.13.5
@@ -22,6 +22,20 @@ dependencies:
   url_launcher: ^6.3.1
   crypto: ^3.0.6
   flutter_secure_storage: ^9.2.4
+  # 0.9 renamed its whole API; 0.7 is the one this app is written for.
+  desktop_drop: ^0.7.1
+  # Shrinks pictures used as covers to small JPEGs.
+  image: ^4.5.0
+  # The printable year in review.
+  pdf: ^3.11.3
+  # Reads a picture from the clipboard (Ctrl+V for a cover).
+  pasteboard: ^0.5.0
+  # The small reading-timer window that stays on top.
+  window_manager: ^0.5.1
+  # Audiobooks: just_audio plays them through media_kit on Windows.
+  just_audio: ^0.10.5
+  just_audio_media_kit: ^2.1.0
+  media_kit_libs_windows_audio: ^1.0.9
 
 dev_dependencies:
   flutter_test:

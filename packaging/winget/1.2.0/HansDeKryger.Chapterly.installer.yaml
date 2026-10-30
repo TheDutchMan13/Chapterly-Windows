@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: HansDeKryger.Chapterly
+PackageVersion: 1.2.0
+InstallerType: inno
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+ProductCode: '{B22021BF-108E-4F7A-A9C4-4A326D2D9D6A}_is1'
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/TheDutchMan13/Chapterly-Windows/releases/download/v1.2.0/Chapterly-Setup-1.2.0.exe
+    # Replace with the real hash before submitting (see README.md here).
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+ManifestType: installer
+ManifestVersion: 1.6.0

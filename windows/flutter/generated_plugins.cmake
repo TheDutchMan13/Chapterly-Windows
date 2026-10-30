@@ -3,9 +3,14 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  desktop_drop
   file_selector_windows
   flutter_secure_storage_windows
+  media_kit_libs_windows_audio
+  pasteboard
+  screen_retriever_windows
   url_launcher_windows
+  window_manager
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

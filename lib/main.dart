@@ -1,9 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'audio/audio_library.dart';
+import 'audio/listen_controller.dart';
+import 'audio/listening.dart';
+import 'audio/windows_audio_files.dart';
 import 'data/app_settings.dart';
 import 'data/auto_backup.dart';
 import 'data/book_repository.dart';
@@ -13,11 +18,20 @@ import 'data/pc_sync.dart';
 import 'data/secure_code_store.dart';
 import 'data/sqlite_book_store.dart';
 import 'data/theme_options.dart';
+import 'data/window_control.dart';
+import 'screens/cover_actions.dart';
 import 'screens/library_screen.dart';
 import 'screens/lock_gate.dart';
+import 'screens/mini_timer.dart';
+import 'screens/now_playing.dart';
+
+/// Lets code outside the screens (such as Ctrl+V for a cover) show messages.
+final _messengerKey = GlobalKey<ScaffoldMessengerState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await PluginWindowControl.initialize();
+  MiniTimer.instance.window = const PluginWindowControl();
   // C:\Users\<you>\AppData\Roaming\...\chapterly
   final dataDir = await getApplicationSupportDirectory();
   await Directory(dataDir.path).create(recursive: true);
@@ -32,6 +46,19 @@ Future<void> main() async {
     codeStore: const SecureCodeStore(),
   );
   await pcSync.load();
+  pcSync.startBackgroundSync();
+  // Audiobooks play through media_kit on Windows.
+  JustAudioMediaKit.title = 'Chapterly';
+  JustAudioMediaKit.ensureInitialized();
+  const audioFiles = WindowsAudioFiles();
+  Listening.files = audioFiles;
+  Listening.controller = ListenController(
+    repository: repository,
+    library: await AudioLibrary.load(
+      File(p.join(dataDir.path, 'audio_library.json')),
+    ),
+    files: audioFiles,
+  );
   WidgetsBinding.instance.addObserver(
     AutoBackupObserver(repository: repository, settings: settings),
   );
@@ -71,12 +98,23 @@ class ChapterlyApp extends StatelessWidget {
       builder: (context, _) => MaterialApp(
         title: 'Chapterly',
         debugShowCheckedModeBanner: false,
+        scaffoldMessengerKey: _messengerKey,
+        navigatorKey: Listening.navigatorKey,
         theme: buildTheme(settings, Brightness.light),
         darkTheme: buildTheme(settings, Brightness.dark),
         themeMode: settings.themeMode,
-        builder: (context, child) => LockGate(
-          settings: settings,
-          child: child ?? const SizedBox.shrink(),
+        builder: (context, child) => MiniTimerHost(
+          child: CoverPasteShortcut(
+            repository: repository,
+            messengerKey: _messengerKey,
+            child: LockGate(
+              settings: settings,
+              child: NowPlayingFrame(
+                repository: repository,
+                child: child ?? const SizedBox.shrink(),
+              ),
+            ),
+          ),
         ),
         home: LibraryScreen(
           repository: repository,

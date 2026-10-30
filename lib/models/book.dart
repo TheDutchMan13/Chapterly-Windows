@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'audio_progress.dart';
 import 'book_format.dart';
 import 'quote.dart';
 import 'reading.dart';
@@ -33,7 +34,7 @@ const _knownJsonKeys = {
   'firstPublishYear', 'pages', 'rating', 'startedAt', 'finishedAt', 'format',
   'favorite', 'notes', 'deletedAt', 'series', 'seriesNumber', 'readingLog',
   'previousReadings', 'collections', 'quotes', 'currentPage', 'aspectRatings',
-  'priority', 'buyAt', 'queuePosition', 'updatedAt',
+  'priority', 'buyAt', 'queuePosition', 'audio', 'updatedAt',
 };
 
 /// Fields from a newer Chapterly that this app does not know yet.
@@ -93,6 +94,7 @@ class Book {
     this.priority,
     this.buyAt,
     this.queuePosition,
+    this.audio,
     this.extras = const {},
     DateTime? updatedAt,
   }) : updatedAt = updatedAt ?? addedAt;
@@ -153,6 +155,9 @@ class Book {
   /// Place in your Next up order (0 is first). Null when not placed.
   final int? queuePosition;
 
+  /// Where you are in the audiobook, or null if you have not listened.
+  final AudioProgress? audio;
+
   /// Fields sent by a newer phone app that this Windows app does not know.
   /// They are saved and sent back unchanged, so a sync never wipes them.
   final Map<String, Object?> extras;
@@ -201,6 +206,7 @@ class Book {
   /// Fields that can be cleared take a function so that `() => null` means
   /// "clear it" while leaving the argument out means "keep it".
   Book copyWith({
+    String? title,
     String? author,
     Shelf? shelf,
     List<String>? tags,
@@ -226,11 +232,12 @@ class Book {
     WishPriority? Function()? priority,
     String? Function()? buyAt,
     int? Function()? queuePosition,
+    AudioProgress? Function()? audio,
     DateTime? updatedAt,
   }) =>
       Book(
         id: id,
-        title: title,
+        title: title ?? this.title,
         author: author ?? this.author,
         shelf: shelf ?? this.shelf,
         addedAt: addedAt,
@@ -261,6 +268,7 @@ class Book {
         buyAt: buyAt != null ? buyAt() : this.buyAt,
         queuePosition:
             queuePosition != null ? queuePosition() : this.queuePosition,
+        audio: audio != null ? audio() : this.audio,
         extras: extras,
         updatedAt: updatedAt ?? this.updatedAt,
       );
@@ -296,6 +304,10 @@ class Book {
         'priority': priority?.name,
         'buy_at': buyAt,
         'queue_position': queuePosition,
+        'audio': switch (audio) {
+          null => null,
+          final AudioProgress progress => jsonEncode(progress.toJson()),
+        },
         'extras': extras.isEmpty ? null : jsonEncode(extras),
         'updated_at': updatedAt.millisecondsSinceEpoch,
       };
@@ -329,6 +341,7 @@ class Book {
         priority: _priorityFromName(map['priority']),
         buyAt: map['buy_at'] as String?,
         queuePosition: map['queue_position'] as int?,
+        audio: AudioProgress.fromJson(_decode(map['audio'])),
         extras: _objectMap(_decode(map['extras'])),
         updatedAt: _dateFromMillis(map['updated_at']),
       );
@@ -364,6 +377,7 @@ class Book {
         'priority': priority?.name,
         'buyAt': buyAt,
         'queuePosition': queuePosition,
+        'audio': audio?.toJson(),
         'updatedAt': updatedAt.toIso8601String(),
       };
 
@@ -398,6 +412,7 @@ class Book {
         priority: _priorityFromName(json['priority']),
         buyAt: json['buyAt'] as String?,
         queuePosition: json['queuePosition'] as int?,
+        audio: AudioProgress.fromJson(json['audio']),
         extras: _extrasFrom(json),
         updatedAt: _dateFromIso(json['updatedAt']),
       );
