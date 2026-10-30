@@ -1,0 +1,32 @@
+name: chapterly
+description: "Chapterly for Windows: a private book tracker that syncs with the Chapterly phone app over your home Wi-Fi."
+publish_to: 'none'
+
+# Keep in step with appVersion in lib/data/app_info.dart.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  # 2.4 and newer build and bundle sqlite3.dll by themselves (sqlite3 v3).
+  sqflite_common_ffi: ^2.4.0
+  path: ^1.9.1
+  http: ^1.2.2
+  path_provider: ^2.1.5
+  file_selector: ^1.0.3
+  shared_preferences: ^2.5.3
+  url_launcher: ^6.3.1
+  crypto: ^3.0.6
+  flutter_secure_storage: ^9.2.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
