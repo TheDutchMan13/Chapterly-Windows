@@ -3,7 +3,7 @@ description: "Chapterly for Windows: a private book tracker that syncs with the 
 publish_to: 'none'
 
 # Keep in step with appVersion in lib/data/app_info.dart.
-version: 1.4.0+5
+version: 1.5.0+6
 
 environment:
   sdk: ^3.13.5
@@ -36,6 +36,12 @@ dependencies:
   just_audio: ^0.10.5
   just_audio_media_kit: ^2.1.0
   media_kit_libs_windows_audio: ^1.0.9
+  # The reader: EPUB books are zips of web pages, shown chapter by chapter;
+  # PDF through PDFium.
+  archive: ^4.5.0
+  xml: ">=6.5.0 <8.0.0"
+  flutter_widget_from_html_core: ^0.17.4
+  pdfrx: ^2.11.0
 
 dev_dependencies:
   flutter_test:

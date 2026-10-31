@@ -34,7 +34,14 @@ Uint8List? bytesFromDataCover(String url) {
 /// JPEG, [coverWidth] pixels wide at most, as a data: address that can be
 /// saved as a book's cover and synced. Returns null if it is not a picture.
 String? shrinkToDataCover(Uint8List bytes) {
-  final decoded = img.decodeImage(bytes);
+  // The picture library can throw, not just return null, on bytes that are
+  // not a picture at all (a few stray bytes, say).
+  final img.Image? decoded;
+  try {
+    decoded = img.decodeImage(bytes);
+  } catch (_) {
+    return null;
+  }
   if (decoded == null) return null;
   var picture = img.bakeOrientation(decoded);
   if (picture.width > coverWidth) {

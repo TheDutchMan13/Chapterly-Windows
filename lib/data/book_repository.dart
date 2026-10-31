@@ -387,6 +387,11 @@ class BookRepository extends ChangeNotifier {
     });
   }
 
+  /// Time spent reading a book file in the reader, logged like listening
+  /// time: one entry per day without pages.
+  Future<void> addReadingMinutes(String id, DateTime date, int minutes) =>
+      addListeningMinutes(id, date, minutes);
+
   Future<void> setPages(String id, int? pages) =>
       _update(id, (book) => book.copyWith(pages: () => pages));
 

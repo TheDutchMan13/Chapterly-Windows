@@ -19,6 +19,9 @@ import 'data/secure_code_store.dart';
 import 'data/sqlite_book_store.dart';
 import 'data/theme_options.dart';
 import 'data/window_control.dart';
+import 'ebook/ebook_library.dart';
+import 'ebook/ebook_reading.dart';
+import 'ebook/windows_ebook_files.dart';
 import 'screens/cover_actions.dart';
 import 'screens/home_shell.dart';
 import 'screens/lock_gate.dart';
@@ -59,6 +62,13 @@ Future<void> main() async {
     ),
     files: audioFiles,
   );
+  // The reader: which book file belongs to which book on this PC, and the
+  // folder with Chapterly's copies of the files.
+  EbookReading.library = await EbookLibrary.load(
+    File(p.join(dataDir.path, 'ebook_library.json')),
+  );
+  EbookReading.files = const WindowsEbookFiles();
+  EbookReading.booksDir = Directory(p.join(dataDir.path, 'books'));
   WidgetsBinding.instance.addObserver(
     AutoBackupObserver(repository: repository, settings: settings),
   );

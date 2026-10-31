@@ -13,6 +13,25 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.5.0',
+    date: '2026-10-31',
+    changes: [
+      'Reader: add the EPUB or PDF file of a book and read it in Chapterly '
+          '(Book file, on the Reading tab of the book page)',
+      'EPUB books scroll one chapter at a time, at a comfortable width',
+      'Text size, typeface, line spacing, margins, and paper, white, dark or '
+          'black pages',
+      'Chapters, search (Ctrl+F), bookmarks (Ctrl+B), and Page Down, Space '
+          'or the arrow keys to move through the book',
+      'Select a passage and right-click to highlight it and save it to the '
+          'book\'s quotes',
+      'The reader keeps the current page up to date and adds reading time to '
+          'the reading log',
+      'Chapterly keeps its own copy of the file on this PC; it is not synced '
+          'or backed up',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.0',
     date: '2026-10-30',
     changes: [

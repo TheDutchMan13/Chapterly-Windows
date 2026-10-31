@@ -27,6 +27,12 @@ Made for a PC:
   30-second skips, speed 0.5x to 3x and a sleep timer. Plays through
   media_kit. Listening time goes into the reading log, and where you are
   syncs with the phone (the audio files stay on each device)
+- Reader: add a book's EPUB or PDF file and read it in Chapterly. EPUB books
+  scroll one chapter at a time; chapters, search, bookmarks, highlights
+  saved as quotes, text size, typeface, spacing, margins and four themes.
+  The reader keeps the book's current page up to date and adds reading time
+  to the reading log. Chapterly keeps its own copy of the file on this PC;
+  it is not synced or backed up
 - Keyboard shortcuts: Ctrl+F search, Ctrl+N add a book, Ctrl+Shift+N add
   several, Ctrl+S sync, Ctrl+V paste a cover, Ctrl+, Settings, Esc to close
 - Right-click a book to move, favorite, add to a shelf or trash it
