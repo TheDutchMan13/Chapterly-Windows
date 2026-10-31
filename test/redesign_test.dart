@@ -46,7 +46,7 @@ void main() {
     expect(find.text('Reading'), findsOneWidget);
     expect(find.text('Notes'), findsOneWidget);
     // A book that is not being read opens on Overview.
-    expect(find.text('Find more'), findsOneWidget);
+    expect(find.text('Format'), findsOneWidget);
 
     await tester.tap(find.text('Notes'));
     await tester.pumpAndSettle();
@@ -54,6 +54,6 @@ void main() {
 
     await tester.tap(find.text('Reading'));
     await tester.pumpAndSettle();
-    expect(find.text('Reading log'), findsOneWidget);
+    expect(find.text('Started'), findsOneWidget);
   });
 }
