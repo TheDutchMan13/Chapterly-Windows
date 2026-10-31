@@ -25,6 +25,16 @@ const changelog = [
           'already linked, and no book is added without asking',
       'Files it is not sure about wait in a list where you link, choose '
           'another book, add as a new book, or skip',
+      'Works with a Calibre library: when a book sits in a Calibre folder, '
+          'its metadata.opf is used to find the right book, and a blank '
+          'cover, series, tags, ISBN or year is filled in from Calibre '
+          '(nothing you wrote is changed)',
+      'Import from Calibre library (Settings) adds the Calibre books you '
+          'do not have yet, with covers, series, tags and their files',
+      'An Import button under Add file in the side menu: from a Calibre '
+          'library, scan your folders now, or from a CSV file',
+      'A progress window with a bar and the book being worked on while a '
+          'scan or Calibre import runs',
     ],
   ),
   ChangelogEntry(

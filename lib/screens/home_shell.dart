@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../audio/listening.dart';
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
+import '../data/csv.dart';
 import '../data/file_io.dart';
 import '../data/library_scan.dart';
 import '../data/open_library_client.dart';
@@ -15,6 +16,7 @@ import 'library_screen.dart';
 import 'next_up_screen.dart';
 import 'read_next_screen.dart';
 import 'scan_review_screen.dart';
+import 'scan_settings.dart';
 import 'settings_screen.dart';
 import 'statistics_screen.dart';
 
@@ -64,6 +66,7 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
   final _addMenu = MenuController();
+  final _importMenu = MenuController();
 
   /// Tells the library which book to open after Add file.
   final _openBook = ValueNotifier<String?>(null);
@@ -151,6 +154,99 @@ class _HomeShellState extends State<HomeShell> {
         },
       );
 
+  void _say(String message) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+
+  /// Runs a folder or Calibre action, after checking a books folder is set.
+  Future<void> _withFolders(
+    Future<void> Function(ScanSettings tools) action,
+  ) async {
+    final scanner = LibraryScanning.scanner;
+    if (scanner == null) return;
+    if (!widget.settings.hasScanFolders) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Choose your books folder in Settings first.'),
+        action: SnackBarAction(
+          label: 'Settings',
+          onPressed: () => _go(_settingsPage),
+        ),
+      ));
+      return;
+    }
+    await action(ScanSettings(
+      settings: widget.settings,
+      repository: widget.repository,
+      scanner: scanner,
+    ));
+  }
+
+  Future<void> _importCsv() async {
+    try {
+      final text = await widget.fileIo.pickTextFile();
+      if (text == null) return;
+      final result = importBooksFromCsv(text);
+      final added = await widget.repository.importBooks(result.books);
+      final duplicates = result.books.length - added;
+      if (!mounted) return;
+      final parts = ['Imported $added book${added == 1 ? '' : 's'}'];
+      if (duplicates > 0) parts.add('$duplicates already in your library');
+      if (result.skipped > 0) parts.add('${result.skipped} skipped');
+      _say('${parts.join(', ')}.');
+    } on FormatException catch (error) {
+      if (mounted) _say(error.message);
+    } catch (_) {
+      if (mounted) _say('Something went wrong. Please try again.');
+    }
+  }
+
+  /// The Import button under Add file: Calibre, a folder scan, or a CSV.
+  Widget _importButton(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final scanner = LibraryScanning.scanner;
+    return MenuAnchor(
+      controller: _importMenu,
+      menuChildren: [
+        if (scanner != null) ...[
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.collections_bookmark_outlined),
+            onPressed: () =>
+                _withFolders((tools) => tools.importCalibre(context)),
+            child: const Text('From a Calibre library...'),
+          ),
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.search),
+            onPressed: () => _withFolders((tools) => tools.scanNow(context)),
+            child: const Text('Scan my book folders now'),
+          ),
+        ],
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.table_chart_outlined),
+          onPressed: _importCsv,
+          child: const Text('From a CSV file...'),
+        ),
+      ],
+      builder: (context, controller, _) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          children: [
+            Tooltip(
+              message: 'Import books from Calibre, your folders or a CSV',
+              waitDuration: const Duration(milliseconds: 600),
+              child: IconButton.filledTonal(
+                icon: const Icon(Icons.download_outlined),
+                onPressed: () =>
+                    controller.isOpen ? controller.close() : controller.open(),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text('Import', style: textTheme.labelMedium),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// The button at the top of the side menu: pick an EPUB, PDF or
   /// audiobook and it is linked to its book in the library.
   Widget _addButton(BuildContext context) {
@@ -225,9 +321,15 @@ class _HomeShellState extends State<HomeShell> {
                       onDestinationSelected: _go,
                       labelType: NavigationRailLabelType.all,
                       groupAlignment: -1,
-                      leading: _canAddFiles
-                          ? _addButton(context)
-                          : const SizedBox(height: 4),
+                      leading: Column(
+                        children: [
+                          if (_canAddFiles)
+                            _addButton(context)
+                          else
+                            const SizedBox(height: 4),
+                          _importButton(context),
+                        ],
+                      ),
                       destinations: [
                         for (var i = 0; i < _pages.length; i++)
                           NavigationRailDestination(

@@ -265,6 +265,42 @@ class BookRepository extends ChangeNotifier {
   Future<void> setTags(String id, List<String> tags) =>
       _update(id, (book) => book.copyWith(tags: tags));
 
+  /// Fills in details a book does not have yet (for example from Calibre).
+  /// Anything the book already has is kept. Returns whether anything changed.
+  Future<bool> fillBlanks(
+    String id, {
+    String? isbn,
+    int? year,
+    String? series,
+    int? seriesNumber,
+    List<String>? tags,
+    String? coverUrl,
+  }) async {
+    final book = byId(id);
+    if (book == null) return false;
+    final fillIsbn = (book.isbn ?? '').isEmpty && (isbn ?? '').isNotEmpty;
+    final fillYear = book.firstPublishYear == null && year != null;
+    final fillSeries = (book.series ?? '').isEmpty && (series ?? '').isNotEmpty;
+    final fillTags = book.tags.isEmpty && tags != null && tags.isNotEmpty;
+    final fillCover =
+        (book.coverUrl ?? '').isEmpty && (coverUrl ?? '').isNotEmpty;
+    if (!(fillIsbn || fillYear || fillSeries || fillTags || fillCover)) {
+      return false;
+    }
+    await _update(
+      id,
+      (b) => b.copyWith(
+        isbn: fillIsbn ? () => isbn : null,
+        firstPublishYear: fillYear ? () => year : null,
+        series: fillSeries ? () => series : null,
+        seriesNumber: fillSeries ? () => seriesNumber : null,
+        tags: fillTags ? tags : null,
+        coverUrl: fillCover ? () => coverUrl : null,
+      ),
+    );
+    return true;
+  }
+
   /// 1 to 5 stars, or null to clear the rating.
   Future<void> setRating(String id, int? rating) =>
       _update(id, (book) => book.copyWith(rating: () => rating));

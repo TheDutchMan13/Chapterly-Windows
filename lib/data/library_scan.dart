@@ -15,6 +15,8 @@ import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
 import 'book_repository.dart';
+import 'calibre.dart';
+import 'cover_image.dart';
 import 'file_match.dart';
 
 // Windows app only: scanning your book and audiobook folders and linking
@@ -32,6 +34,7 @@ class ScanItem {
     required this.name,
     required this.files,
     this.folder = '',
+    this.directory = '',
   });
 
   final ScanKind kind;
@@ -47,6 +50,13 @@ class ScanItem {
   /// The folder holding it ("Frank Herbert" for Frank Herbert/Dune/01.mp3).
   /// Helps recognise the author. Empty when it is the scanned folder itself.
   final String folder;
+
+  /// The folder that holds only this item, where a Calibre metadata.opf
+  /// and cover.jpg would be. Empty when it shares its folder with others.
+  final String directory;
+
+  /// What Calibre knows about it, when it sits in a Calibre book folder.
+  CalibreInfo? calibre;
 
   /// The title and author found inside the file, when it has any.
   String title = '';
@@ -334,6 +344,7 @@ Future<List<ScanItem>> findBookFiles(String folder, Set<String> settled) async {
         key: key,
         name: name,
         folder: p.equals(parent, folder) ? '' : p.basename(parent),
+        directory: p.equals(parent, folder) ? '' : parent,
         files: [PickedFile(location: entity.path, name: name)],
       ));
     }
@@ -366,7 +377,12 @@ Future<List<ScanItem>> findAudiobooks(
     // A folder that cannot be read: what was found so far is used.
   }
   final items = <ScanItem>[];
-  for (final unit in groupAudiobooks(relative)) {
+  final units = groupAudiobooks(relative);
+  final perRoot = <String, int>{};
+  for (final unit in units) {
+    perRoot[unit.root] = (perRoot[unit.root] ?? 0) + 1;
+  }
+  for (final unit in units) {
     final files = [...unit.files]..sort();
     var bytes = 0;
     var newest = 0;
@@ -385,6 +401,9 @@ Future<List<ScanItem>> findAudiobooks(
       key: key,
       name: unit.name,
       folder: unit.folder,
+      directory: unit.root.isEmpty || perRoot[unit.root] != 1
+          ? ''
+          : p.join(folder, unit.root),
       files: [
         for (final file in files)
           PickedFile(location: p.join(folder, file), name: unit.nameOf(file)),
@@ -397,6 +416,16 @@ Future<List<ScanItem>> findAudiobooks(
 /// Fills in the title and author found inside the item's file.
 Future<void> readScanInfo(ScanItem item, AudioFiles audioFiles) async {
   try {
+    // Calibre's details are the best source: no need to open the file.
+    if (item.directory.isNotEmpty) {
+      final calibre = await readCalibreFolder(item.directory);
+      if (calibre != null) {
+        item.calibre = calibre;
+        item.title = calibre.title;
+        item.author = calibre.author;
+        if (item.author.isNotEmpty) return;
+      }
+    }
     if (item.kind == ScanKind.book) {
       final file = File(item.files.first.location);
       if (await file.length() > _readLimit) return;
@@ -405,7 +434,7 @@ Future<void> readScanInfo(ScanItem item, AudioFiles audioFiles) async {
           ? epubTitleAndAuthor(bytes)
           : pdfTitleAndAuthor(bytes);
       if (info != null) {
-        item.title = info.title;
+        if (item.title.isEmpty) item.title = info.title;
         item.author = info.author;
       }
       return;
@@ -416,8 +445,10 @@ Future<void> readScanInfo(ScanItem item, AudioFiles audioFiles) async {
     try {
       final tags = await readAudioTags(source);
       // With one file per chapter the title is only the chapter's.
-      item.title =
-          item.files.length > 1 && tags.album.isEmpty ? '' : tags.bookTitle;
+      if (item.title.isEmpty) {
+        item.title =
+            item.files.length > 1 && tags.album.isEmpty ? '' : tags.bookTitle;
+      }
       item.author = tags.author;
     } finally {
       await source.close();
@@ -438,6 +469,7 @@ class ScanResult {
     this.review = const [],
     this.newUnsure = 0,
     this.problems = const [],
+    this.filledDetails = 0,
   });
 
   final int linkedBooks;
@@ -453,6 +485,9 @@ class ScanResult {
   final int newUnsure;
 
   final List<String> problems;
+
+  /// Books that got a cover or other details from Calibre.
+  final int filledDetails;
 
   int get linked => linkedBooks + linkedAudiobooks;
 }
@@ -485,6 +520,10 @@ class LibraryScanner extends ChangeNotifier {
   final Future<void> Function(String bookId)? closePlayerFor;
 
   bool _running = false;
+  int _done = 0;
+  int _total = 0;
+  String _current = '';
+  int _filled = 0;
   String _message = '';
   List<ScanDecision> _pending = const [];
 
@@ -492,6 +531,13 @@ class LibraryScanner extends ChangeNotifier {
 
   /// What the scan is doing now.
   String get message => _message;
+
+  /// 0.0 to 1.0 for the step that is running, or null when the amount of
+  /// work is not known yet.
+  double? get progress => _total <= 0 ? null : _done / _total;
+
+  /// The file or book being worked on.
+  String get current => _current;
 
   /// Files from the last scan that wait for you.
   List<ScanDecision> get pending => List.unmodifiable(_pending);
@@ -508,6 +554,7 @@ class LibraryScanner extends ChangeNotifier {
   }) async {
     if (_running) return null;
     _running = true;
+    _filled = 0;
     _message = 'Looking for files...';
     notifyListeners();
     try {
@@ -521,6 +568,9 @@ class LibraryScanner extends ChangeNotifier {
       for (final item in items) {
         done++;
         _message = 'Reading $done of ${items.length}...';
+        _done = done;
+        _total = items.length;
+        _current = item.name;
         notifyListeners();
         await readScanInfo(item, audioFiles);
         // Let the app draw between files.
@@ -531,11 +581,15 @@ class LibraryScanner extends ChangeNotifier {
         repository.books,
         hasLink: hasLink,
       );
+      _done = 0;
+      _total = decisions.length;
       var books = 0;
       var audiobooks = 0;
       final problems = <String>[];
       final review = <ScanDecision>[];
       for (final decision in decisions) {
+        _done++;
+        _current = decision.item.name;
         switch (decision.outcome) {
           case ScanOutcome.link:
             _message = 'Linking ${decision.item.name}...';
@@ -572,16 +626,33 @@ class LibraryScanner extends ChangeNotifier {
         review: review,
         newUnsure: fresh,
         problems: problems,
+        filledDetails: _filled,
       );
     } finally {
       _running = false;
       _message = '';
+      _done = 0;
+      _total = 0;
+      _current = '';
       notifyListeners();
     }
   }
 
   /// Links the item to the book. Returns a problem to show, or null.
   Future<String?> linkToBook(ScanItem item, String bookId) async {
+    final problem = await _link(item, bookId);
+    final calibre = item.calibre;
+    if (problem == null && calibre != null) {
+      try {
+        if (await fillFromCalibre(repository, bookId, calibre)) _filled++;
+      } catch (_) {
+        // The details are a bonus; the link is already made.
+      }
+    }
+    return problem;
+  }
+
+  Future<String?> _link(ScanItem item, String bookId) async {
     try {
       if (item.kind == ScanKind.book) {
         return await addBookFile(
@@ -655,6 +726,152 @@ class LibraryScanner extends ChangeNotifier {
     return problem;
   }
 
+  // ---- Importing from a Calibre library
+
+  /// Looks through a Calibre library and says what an import would do.
+  /// Null when a scan or import is already running.
+  Future<List<CalibrePlanEntry>?> planCalibre(String folder) async {
+    if (_running) return null;
+    _running = true;
+    _message = 'Reading the Calibre library...';
+    notifyListeners();
+    try {
+      final found = await findCalibreBooks(folder);
+      return planCalibreImport(found, repository.books);
+    } finally {
+      _running = false;
+      _message = '';
+      _done = 0;
+      _total = 0;
+      _current = '';
+      notifyListeners();
+    }
+  }
+
+  /// Adds the books of [plan] that are not in your library (on [shelf], with
+  /// their Calibre details and cover, and with their files linked when
+  /// [linkFiles] is true) and fills blank details of the ones you have.
+  Future<CalibreImportResult?> importCalibre(
+    List<CalibrePlanEntry> plan, {
+    required Shelf shelf,
+    required bool linkFiles,
+  }) async {
+    if (_running) return null;
+    _running = true;
+    var added = 0;
+    var filled = 0;
+    var linked = 0;
+    final problems = <String>[];
+    try {
+      var done = 0;
+      for (final entry in plan) {
+        done++;
+        _message = 'Importing $done of ${plan.length}...';
+        _done = done;
+        _total = plan.length;
+        _current = entry.book.info.title;
+        notifyListeners();
+        final info = entry.book.info;
+        if (entry.outcome == CalibreOutcome.fill && entry.match != null) {
+          if (await fillFromCalibre(repository, entry.match!.id, info)) {
+            filled++;
+          }
+        } else if (entry.outcome == CalibreOutcome.add) {
+          final id = newBookId();
+          final hasEbook = entry.book.bookFiles.isNotEmpty;
+          final hasAudio = entry.book.audioFiles.isNotEmpty;
+          String? cover;
+          final coverPath = info.coverPath;
+          if (coverPath != null) {
+            try {
+              cover = await makeDataCover(await File(coverPath).readAsBytes());
+            } catch (_) {
+              cover = null;
+            }
+          }
+          final count = await repository.importBooks([
+            Book(
+              id: id,
+              title: info.title,
+              author: info.author,
+              shelf: shelf,
+              addedAt: DateTime.now(),
+              tags: info.tags,
+              isbn: info.isbn,
+              coverUrl: cover,
+              firstPublishYear: info.year,
+              series: info.series,
+              seriesNumber: info.seriesNumber,
+              format: hasEbook
+                  ? BookFormat.ebook
+                  : (hasAudio ? BookFormat.audiobook : null),
+            ),
+          ]);
+          if (count > 0) {
+            added++;
+            if (linkFiles) {
+              if (hasEbook) {
+                final file = entry.book.bookFiles.first;
+                final name = p.basename(file);
+                final problem = await _link(
+                  ScanItem(
+                    kind: ScanKind.book,
+                    key: 'book|$file',
+                    name: name,
+                    files: [PickedFile(location: file, name: name)],
+                  ),
+                  id,
+                );
+                if (problem == null) {
+                  linked++;
+                } else {
+                  problems.add(problem);
+                }
+              }
+              if (hasAudio) {
+                final problem = await _link(
+                  ScanItem(
+                    kind: ScanKind.audiobook,
+                    key: 'audio|${entry.book.directory}',
+                    name: p.basename(entry.book.directory),
+                    files: [
+                      for (final file in entry.book.audioFiles)
+                        PickedFile(
+                          location: file,
+                          name: p.relative(file, from: entry.book.directory),
+                        ),
+                    ],
+                  ),
+                  id,
+                );
+                if (problem == null) {
+                  linked++;
+                } else {
+                  problems.add(problem);
+                }
+              }
+            }
+          }
+        }
+        await Future<void>.delayed(Duration.zero);
+      }
+      return CalibreImportResult(
+        added: added,
+        filled: filled,
+        linked: linked,
+        unsure: plan.where((e) => e.outcome == CalibreOutcome.unsure).length,
+        problems: problems,
+      );
+    } finally {
+      _running = false;
+      _message = '';
+      _done = 0;
+      _total = 0;
+      _current = '';
+      notifyListeners();
+    }
+  }
+
   /// Leaves the item alone from now on (until the file changes).
   Future<void> skip(ScanItem item) => _settle(item);
 
@@ -676,6 +893,29 @@ class LibraryScanner extends ChangeNotifier {
     await memory.save();
     notifyListeners();
   }
+}
+
+/// What a Calibre import did.
+class CalibreImportResult {
+  const CalibreImportResult({
+    required this.added,
+    required this.filled,
+    required this.linked,
+    required this.unsure,
+    this.problems = const [],
+  });
+
+  final int added;
+
+  /// Books you already had that got blank details filled in.
+  final int filled;
+
+  /// Book files and audiobooks linked to the added books.
+  final int linked;
+
+  /// Calibre books that might be ones you have: left alone.
+  final int unsure;
+  final List<String> problems;
 }
 
 /// The scanner for the whole app, set up in main.dart. Null in tests and

@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
+import '../data/calibre.dart';
 import '../data/library_scan.dart';
+import '../models/shelf.dart';
+import 'scan_progress.dart';
 import 'scan_review_screen.dart';
 
 // Windows app only.
@@ -33,10 +36,15 @@ class ScanSettings extends StatelessWidget {
     }
   }
 
-  Future<void> _scan(BuildContext context) async {
-    final result = await scanner.scan(
-      booksFolder: settings.booksFolder,
-      audiobooksFolder: settings.audiobooksFolder,
+  Future<void> scanNow(BuildContext context) async {
+    final result = await showScanProgress(
+      context,
+      scanner,
+      'Scanning your folders',
+      scanner.scan(
+        booksFolder: settings.booksFolder,
+        audiobooksFolder: settings.audiobooksFolder,
+      ),
     );
     if (result == null) return;
     settings.setLastScan(DateTime.now());
@@ -73,6 +81,124 @@ class ScanSettings extends StatelessWidget {
               },
               child: const Text('Review'),
             ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialog),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> importCalibre(BuildContext context) async {
+    final folder = settings.booksFolder;
+    if (folder == null) return;
+    final plan = await showScanProgress(
+      context,
+      scanner,
+      'Reading the Calibre library',
+      scanner.planCalibre(folder),
+    );
+    if (plan == null || !context.mounted) return;
+    final add = plan.where((e) => e.outcome == CalibreOutcome.add).length;
+    final fill = plan.where((e) => e.outcome == CalibreOutcome.fill).length;
+    final unsure = plan.length - add - fill;
+    if (plan.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: const Text('No Calibre books found'),
+          content: const Text(
+            'Chapterly found no metadata.opf files in the books folder. '
+            'Choose your Calibre library folder (the one with metadata.db) '
+            'as the books folder, and keep Calibre\'s "Save metadata in OPF" '
+            'on.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    var shelf = Shelf.forLater;
+    var linkFiles = true;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => StatefulBuilder(
+        builder: (dialog, setState) => AlertDialog(
+          title: const Text('Import from Calibre'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${plan.length} books in the Calibre library.\n'
+                '• $add not in your library yet: they will be added\n'
+                '• $fill already in your library: blank details and covers '
+                'are filled in, nothing you wrote is changed\n'
+                '• $unsure might be books you have: left alone',
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<Shelf>(
+                initialValue: shelf,
+                decoration: const InputDecoration(
+                  labelText: 'Put added books on',
+                ),
+                items: [
+                  for (final value in Shelf.values)
+                    DropdownMenuItem(value: value, child: Text(value.label)),
+                ],
+                onChanged: (value) =>
+                    setState(() => shelf = value ?? Shelf.forLater),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('Also link their book files'),
+                value: linkFiles,
+                onChanged: (value) => setState(() => linkFiles = value ?? true),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: add + fill == 0 ? null : () => Navigator.pop(dialog, true),
+              child: const Text('Import'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (go != true || !context.mounted) return;
+    final result = await showScanProgress(
+      context,
+      scanner,
+      'Importing from Calibre',
+      scanner.importCalibre(plan, shelf: shelf, linkFiles: linkFiles),
+    );
+    if (result == null || !context.mounted) return;
+    final lines = [
+      'Added ${result.added} ${result.added == 1 ? 'book' : 'books'}.',
+      if (result.linked > 0) 'Linked ${result.linked} files.',
+      if (result.filled > 0)
+        'Filled in details for ${result.filled} '
+            '${result.filled == 1 ? 'book' : 'books'} you had.',
+      ...result.problems,
+    ];
+    await showDialog<void>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Import finished'),
+        content: Text(lines.join('\n')),
+        actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialog),
             child: const Text('OK'),
@@ -162,7 +288,17 @@ class ScanSettings extends StatelessWidget {
                             : 'Last scan ${_when(last)}.',
               ),
               enabled: settings.hasScanFolders && !scanner.running,
-              onTap: () => _scan(context),
+              onTap: () => scanNow(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.collections_bookmark_outlined),
+              title: const Text('Import from Calibre library'),
+              subtitle: const Text(
+                'Adds books from the books folder when it is a Calibre '
+                'library, with their covers and details.',
+              ),
+              enabled: books != null && !scanner.running,
+              onTap: () => importCalibre(context),
             ),
             if (scanner.pending.isNotEmpty)
               ListTile(

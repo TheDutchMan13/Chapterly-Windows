@@ -44,7 +44,9 @@ Made for a PC:
 - Book and audiobook folders (Settings): Scan now, or when Chapterly opens,
   links the files in your folders to the matching books. Only clear matches
   are linked, existing links are never replaced, and unsure files wait in a
-  list for you
+  list for you. Pointing the books folder at a Calibre library also fills
+  blank covers, series, tags, ISBN and year from Calibre, and Import from
+  Calibre library adds the books you do not have yet
 - Keyboard shortcuts: Ctrl+F search, Ctrl+N add a book, Ctrl+Shift+N add
   several, Ctrl+O add a book file or audiobook, Ctrl+S sync, Ctrl+V paste a
   cover, Ctrl+, Settings, Esc to close
