@@ -76,6 +76,10 @@ class AppSettings extends ChangeNotifier {
   int _syncEveryMinutes = 15;
   bool _checkUpdates = true;
   DateTime? _lastUpdateCheck;
+  String? _booksFolder;
+  String? _audiobooksFolder;
+  bool _scanOnOpen = true;
+  DateTime? _lastScanAt;
   List<String> _collections = [];
   String? _pinHash;
   String? _pinSalt;
@@ -161,6 +165,21 @@ class AppSettings extends ChangeNotifier {
   /// Ask GitHub once a day whether a newer Chapterly for Windows is out.
   bool get checkUpdates => _checkUpdates;
 
+  /// The folder with your EPUB and PDF files, scanned to link them to books.
+  String? get booksFolder => _booksFolder;
+
+  /// The folder with your audiobooks.
+  String? get audiobooksFolder => _audiobooksFolder;
+
+  /// Scan those folders a few seconds after Chapterly opens.
+  bool get scanOnOpen => _scanOnOpen;
+
+  /// When the folders were last scanned.
+  DateTime? get lastScanAt => _lastScanAt;
+
+  bool get hasScanFolders =>
+      (_booksFolder ?? '').isNotEmpty || (_audiobooksFolder ?? '').isNotEmpty;
+
   /// When the last update check ran.
   DateTime? get lastUpdateCheck => _lastUpdateCheck;
 
@@ -237,6 +256,10 @@ class AppSettings extends ChangeNotifier {
     settings._syncEveryMinutes = prefs.getInt('syncEveryMinutes') ?? 15;
     settings._checkUpdates = prefs.getBool('checkUpdates') ?? true;
     settings._lastUpdateCheck = _fromMillis(prefs.getInt('lastUpdateCheck'));
+    settings._booksFolder = prefs.getString('booksFolder');
+    settings._audiobooksFolder = prefs.getString('audiobooksFolder');
+    settings._scanOnOpen = prefs.getBool('scanOnOpen') ?? true;
+    settings._lastScanAt = _fromMillis(prefs.getInt('lastScanAt'));
     settings._collections = prefs.getStringList('collections') ?? [];
     settings._pinHash = prefs.getString('pinHash');
     settings._pinSalt = prefs.getString('pinSalt');
@@ -541,6 +564,38 @@ class AppSettings extends ChangeNotifier {
   void setSyncEveryMinutes(int minutes) {
     _syncEveryMinutes = minutes < 0 ? 0 : minutes;
     prefs?.setInt('syncEveryMinutes', _syncEveryMinutes);
+    notifyListeners();
+  }
+
+  void setBooksFolder(String? folder) {
+    _booksFolder = folder;
+    if (folder == null) {
+      prefs?.remove('booksFolder');
+    } else {
+      prefs?.setString('booksFolder', folder);
+    }
+    notifyListeners();
+  }
+
+  void setAudiobooksFolder(String? folder) {
+    _audiobooksFolder = folder;
+    if (folder == null) {
+      prefs?.remove('audiobooksFolder');
+    } else {
+      prefs?.setString('audiobooksFolder', folder);
+    }
+    notifyListeners();
+  }
+
+  void setScanOnOpen(bool value) {
+    _scanOnOpen = value;
+    prefs?.setBool('scanOnOpen', value);
+    notifyListeners();
+  }
+
+  void setLastScan(DateTime when) {
+    _lastScanAt = when;
+    prefs?.setInt('lastScanAt', when.millisecondsSinceEpoch);
     notifyListeners();
   }
 

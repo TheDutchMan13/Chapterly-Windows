@@ -13,6 +13,21 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.8.0',
+    date: '2026-10-31',
+    changes: [
+      'Choose a books folder and an audiobooks folder in Settings, and '
+          'Chapterly links the EPUB, PDF and audiobook files in them to the '
+          'matching books in your library',
+      'Scan now, or let it scan a few seconds after Chapterly opens (you can '
+          'switch that off)',
+      'Only clear matches are linked, a file is never put over one that is '
+          'already linked, and no book is added without asking',
+      'Files it is not sure about wait in a list where you link, choose '
+          'another book, add as a new book, or skip',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.7.0',
     date: '2026-10-31',
     changes: [

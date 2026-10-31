@@ -5,6 +5,7 @@ import '../audio/listening.dart';
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
 import '../data/file_io.dart';
+import '../data/library_scan.dart';
 import '../data/open_library_client.dart';
 import '../data/pc_sync.dart';
 import '../ebook/ebook_reading.dart';
@@ -13,6 +14,7 @@ import 'add_file_flow.dart';
 import 'library_screen.dart';
 import 'next_up_screen.dart';
 import 'read_next_screen.dart';
+import 'scan_review_screen.dart';
 import 'settings_screen.dart';
 import 'statistics_screen.dart';
 
@@ -65,6 +67,63 @@ class _HomeShellState extends State<HomeShell> {
 
   /// Tells the library which book to open after Add file.
   final _openBook = ValueNotifier<String?>(null);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scanOnOpen());
+  }
+
+  /// Links new files in your folders a few seconds after opening, when that
+  /// is switched on. Says nothing unless it linked something or found files
+  /// it is unsure about that you have not been told about yet.
+  Future<void> _scanOnOpen() async {
+    final scanner = LibraryScanning.scanner;
+    final settings = widget.settings;
+    if (scanner == null || !settings.scanOnOpen || !settings.hasScanFolders) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(seconds: 4));
+    if (!mounted) return;
+    final result = await scanner.scan(
+      booksFolder: settings.booksFolder,
+      audiobooksFolder: settings.audiobooksFolder,
+    );
+    if (result == null) return;
+    settings.setLastScan(DateTime.now());
+    if (!mounted || (result.linked == 0 && result.newUnsure == 0)) return;
+    final parts = <String>[
+      if (result.linkedBooks > 0)
+        '${result.linkedBooks} book ${result.linkedBooks == 1 ? 'file' : 'files'}',
+      if (result.linkedAudiobooks > 0)
+        '${result.linkedAudiobooks} '
+            '${result.linkedAudiobooks == 1 ? 'audiobook' : 'audiobooks'}',
+    ];
+    final text = [
+      if (parts.isNotEmpty) 'Linked ${parts.join(' and ')}.',
+      if (result.newUnsure > 0)
+        '${result.newUnsure} '
+            '${result.newUnsure == 1 ? 'file needs' : 'files need'} '
+            'your decision.',
+    ].join(' ');
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(text),
+      action: result.review.isEmpty
+          ? null
+          : SnackBarAction(
+              label: 'Review',
+              onPressed: () {
+                if (!mounted) return;
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => ScanReviewScreen(
+                    scanner: scanner,
+                    repository: widget.repository,
+                  ),
+                ));
+              },
+            ),
+    ));
+  }
 
   @override
   void dispose() {

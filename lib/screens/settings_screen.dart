@@ -10,12 +10,14 @@ import '../data/csv.dart';
 import '../data/date_format.dart';
 import '../data/file_io.dart';
 import '../data/kindle_clippings.dart';
+import '../data/library_scan.dart';
 import '../data/pc_sync.dart';
 import '../data/theme_options.dart';
 import '../data/update_check.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
 import 'pin_dialogs.dart';
+import 'scan_settings.dart';
 import 'shelf_order_screen.dart';
 import 'sync_preview.dart';
 import 'whats_new_screen.dart';
@@ -716,6 +718,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               pcSync: widget.pcSync,
             ),
           ),
+          if (LibraryScanning.scanner case final scanner?) ...[
+            const _SectionHeader('Book and audiobook folders'),
+            ScanSettings(
+              settings: widget.settings,
+              repository: widget.repository,
+              scanner: scanner,
+            ),
+          ],
           const _SectionHeader('Spreadsheet (CSV)'),
           ListTile(
             leading: const Icon(Icons.table_chart_outlined),

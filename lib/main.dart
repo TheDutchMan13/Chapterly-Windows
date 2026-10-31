@@ -13,6 +13,7 @@ import 'data/app_settings.dart';
 import 'data/auto_backup.dart';
 import 'data/book_repository.dart';
 import 'data/file_io.dart';
+import 'data/library_scan.dart';
 import 'data/open_library_client.dart';
 import 'data/pc_sync.dart';
 import 'data/secure_code_store.dart';
@@ -55,13 +56,14 @@ Future<void> main() async {
   JustAudioMediaKit.ensureInitialized();
   const audioFiles = WindowsAudioFiles();
   Listening.files = audioFiles;
-  Listening.controller = ListenController(
+  final listenController = ListenController(
     repository: repository,
     library: await AudioLibrary.load(
       File(p.join(dataDir.path, 'audio_library.json')),
     ),
     files: audioFiles,
   );
+  Listening.controller = listenController;
   // The reader: which book file belongs to which book on this PC, and the
   // folder with Chapterly's copies of the files.
   EbookReading.library = await EbookLibrary.load(
@@ -69,6 +71,21 @@ Future<void> main() async {
   );
   EbookReading.files = const WindowsEbookFiles();
   EbookReading.booksDir = Directory(p.join(dataDir.path, 'books'));
+  // Links the files in your book and audiobook folders to your books.
+  LibraryScanning.scanner = LibraryScanner(
+    repository: repository,
+    ebookLibrary: EbookReading.library!,
+    ebookFiles: EbookReading.files!,
+    booksDir: EbookReading.booksDir!,
+    audioFiles: audioFiles,
+    audioLibrary: listenController.library,
+    memory: await ScanMemory.load(
+      File(p.join(dataDir.path, 'scan_state.json')),
+    ),
+    closePlayerFor: (bookId) async {
+      if (listenController.bookId == bookId) await listenController.close();
+    },
+  );
   WidgetsBinding.instance.addObserver(
     AutoBackupObserver(repository: repository, settings: settings),
   );

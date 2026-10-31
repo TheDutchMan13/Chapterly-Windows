@@ -41,6 +41,10 @@ Made for a PC:
   EPUB, PDF or audiobook file or folder, and Chapterly links it to the right
   book in your library from the title and author inside the file (or its
   name). Pick another book, or add it as a new one, when it guesses wrong
+- Book and audiobook folders (Settings): Scan now, or when Chapterly opens,
+  links the files in your folders to the matching books. Only clear matches
+  are linked, existing links are never replaced, and unsure files wait in a
+  list for you
 - Keyboard shortcuts: Ctrl+F search, Ctrl+N add a book, Ctrl+Shift+N add
   several, Ctrl+O add a book file or audiobook, Ctrl+S sync, Ctrl+V paste a
   cover, Ctrl+, Settings, Esc to close
