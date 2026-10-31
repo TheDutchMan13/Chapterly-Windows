@@ -12,7 +12,7 @@ import '../data/file_match.dart';
 import '../ebook/ebook_files.dart';
 import '../ebook/ebook_library.dart';
 import '../ebook/ebook_reading.dart';
-import '../ebook/epub_book.dart';
+import '../ebook/epub_info.dart';
 import '../ebook/pdf_info.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
@@ -22,8 +22,8 @@ import 'reader_screen.dart';
 /// What the Add file button opens.
 enum AddFileKind { book, audioFile, audioFolder }
 
-/// PDFs bigger than this are matched by their file name only.
-const _pdfReadLimit = 64 * 1024 * 1024;
+/// Book files bigger than this are matched by their file name only.
+const _readLimit = 64 * 1024 * 1024;
 
 /// The work of the Add file button: pick an EPUB, PDF or audiobook, find
 /// the book in the library it belongs to (from the title and author in the
@@ -116,7 +116,7 @@ Future<void> linkBookFile(
         '"${picked.name}" is neither.');
     return;
   }
-  final found = await _bookFileInfo(picked.location, format);
+  final found = await _bookFileInfo(files, booksDir, picked, format);
   if (!context.mounted) return;
   final choice = await _askWhichBook(
     context,
@@ -274,12 +274,29 @@ String _folderName(PickedFile file) {
 
 /// The title and author inside an EPUB or PDF. Empty when there is none or
 /// the file cannot be read; the file name is then used.
-Future<FoundBookInfo> _bookFileInfo(String path, EbookFormat format) async {
+///
+/// A file on Windows is read where it is. On Android the picked file is a
+/// content:// address that cannot be opened as a file, so a short-lived
+/// copy is made in the books folder and deleted again.
+Future<FoundBookInfo> _bookFileInfo(
+  EbookFiles files,
+  Directory booksDir,
+  PickedFile picked,
+  EbookFormat format,
+) async {
+  File? temporary;
   try {
-    final file = File(path);
-    if (format == EbookFormat.pdf && await file.length() > _pdfReadLimit) {
-      return const FoundBookInfo();
+    var file = File(picked.location);
+    if (!await file.exists()) {
+      await booksDir.create(recursive: true);
+      temporary = File(
+        '${booksDir.path}/probe-${DateTime.now().microsecondsSinceEpoch}.tmp',
+      );
+      final copied = await files.copy(picked, temporary.path);
+      if (copied <= 0) return const FoundBookInfo();
+      file = temporary;
     }
+    if (await file.length() > _readLimit) return const FoundBookInfo();
     final bytes = await file.readAsBytes();
     final info = format == EbookFormat.epub
         ? epubTitleAndAuthor(bytes)
@@ -288,6 +305,14 @@ Future<FoundBookInfo> _bookFileInfo(String path, EbookFormat format) async {
     return FoundBookInfo(title: info.title, author: info.author);
   } catch (_) {
     return const FoundBookInfo();
+  } finally {
+    try {
+      if (temporary != null && await temporary.exists()) {
+        await temporary.delete();
+      }
+    } catch (_) {
+      // Left behind; it does no harm.
+    }
   }
 }
 
@@ -619,24 +644,23 @@ class _LinkFileDialogState extends State<LinkFileDialog> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                SegmentedButton<Shelf>(
-                  segments: const [
-                    ButtonSegment(
-                      value: Shelf.forLater,
-                      label: Text('For later'),
-                    ),
-                    ButtonSegment(
-                      value: Shelf.inProgress,
-                      label: Text('In progress'),
-                    ),
-                    ButtonSegment(
-                      value: Shelf.finished,
-                      label: Text('Finished'),
-                    ),
+                // Chips wrap on a narrow phone screen; a segmented button would
+                // not fit.
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    for (final shelf in const [
+                      Shelf.forLater,
+                      Shelf.inProgress,
+                      Shelf.finished,
+                    ])
+                      ChoiceChip(
+                        label: Text(shelf.label),
+                        selected: _shelf == shelf,
+                        onSelected: (_) => setState(() => _shelf = shelf),
+                      ),
                   ],
-                  selected: {_shelf},
-                  onSelectionChanged: (value) =>
-                      setState(() => _shelf = value.first),
                 ),
               ],
             ],

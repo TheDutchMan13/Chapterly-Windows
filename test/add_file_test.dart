@@ -1,10 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:chapterly/audio/audio_probe.dart';
 import 'package:chapterly/audio/audio_tags.dart';
 import 'package:chapterly/data/file_match.dart';
-import 'package:chapterly/ebook/epub_book.dart';
+import 'package:chapterly/ebook/epub_info.dart';
 import 'package:chapterly/ebook/pdf_info.dart';
 import 'package:chapterly/models/book.dart';
 import 'package:chapterly/models/shelf.dart';
@@ -21,8 +22,9 @@ int _crc32(List<int> bytes) {
   return crc ^ 0xFFFFFFFF;
 }
 
-/// A zip with the files stored as they are (no compression).
-Uint8List _zip(Map<String, List<int>> files) {
+/// A zip with the files stored as they are, or deflated as real EPUBs
+/// mostly are.
+Uint8List _zip(Map<String, List<int>> files, {bool deflate = false}) {
   final out = BytesBuilder();
   final central = BytesBuilder();
   void u16(BytesBuilder b, int v) => b.add([v & 0xFF, (v >> 8) & 0xFF]);
@@ -34,18 +36,20 @@ Uint8List _zip(Map<String, List<int>> files) {
       ]);
   for (final entry in files.entries) {
     final name = utf8.encode(entry.key);
-    final data = entry.value;
-    final crc = _crc32(data);
+    final original = entry.value;
+    final data = deflate ? ZLibCodec(raw: true).encode(original) : original;
+    final method = deflate ? 8 : 0;
+    final crc = _crc32(original);
     final offset = out.length;
     u32(out, 0x04034b50);
     u16(out, 20);
     u16(out, 0);
-    u16(out, 0);
+    u16(out, method);
     u16(out, 0);
     u16(out, 0x21);
     u32(out, crc);
     u32(out, data.length);
-    u32(out, data.length);
+    u32(out, original.length);
     u16(out, name.length);
     u16(out, 0);
     out.add(name);
@@ -55,12 +59,12 @@ Uint8List _zip(Map<String, List<int>> files) {
     u16(central, 20);
     u16(central, 20);
     u16(central, 0);
-    u16(central, 0);
+    u16(central, method);
     u16(central, 0);
     u16(central, 0x21);
     u32(central, crc);
     u32(central, data.length);
-    u32(central, data.length);
+    u32(central, original.length);
     u16(central, name.length);
     u16(central, 0);
     u16(central, 0);
@@ -86,7 +90,7 @@ Uint8List _zip(Map<String, List<int>> files) {
 
 List<int> _text(String s) => utf8.encode(s);
 
-Uint8List _epub(String metadata) => _zip({
+Uint8List _epub(String metadata, {bool deflate = false}) => _zip({
       'mimetype': _text('application/epub+zip'),
       'META-INF/container.xml': _text('<?xml version="1.0"?>'
           '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
@@ -102,7 +106,7 @@ Uint8List _epub(String metadata) => _zip({
           'media-type="application/xhtml+xml"/></manifest>'
           '<spine><itemref idref="c1"/></spine></package>'),
       'OEBPS/c1.xhtml': _text('<html><body><p>Hi</p></body></html>'),
-    });
+    }, deflate: deflate);
 
 List<int> _u32(int v) =>
     [(v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF];
@@ -270,6 +274,16 @@ void main() {
       final info = epubTitleAndAuthor(
           _epub('<dc:title> Dune </dc:title><dc:creator>Frank Herbert</dc:creator>'));
       expect((info?.title, info?.author), ('Dune', 'Frank Herbert'));
+    });
+
+    test('reads a compressed EPUB, with entities and CDATA', () {
+      final info = epubTitleAndAuthor(_epub(
+        '<dc:title><![CDATA[Pride & Prejudice]]></dc:title>'
+        '<dc:creator opf:role="aut">Jane Austen &amp; Friends</dc:creator>',
+        deflate: true,
+      ));
+      expect(info?.title, 'Pride & Prejudice');
+      expect(info?.author, 'Jane Austen & Friends');
     });
 
     test('is null for a file that is not an EPUB', () {
