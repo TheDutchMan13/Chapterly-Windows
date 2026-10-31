@@ -10,7 +10,6 @@ import '../data/file_io.dart';
 import '../data/open_library_client.dart';
 import '../data/pc_sync.dart';
 import '../data/rating_text.dart';
-import '../data/sync_plan.dart';
 import '../data/update_check.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
@@ -21,22 +20,24 @@ import 'add_book_dialog.dart';
 import 'book_detail_screen.dart';
 import 'book_table.dart';
 import 'bulk_add_screen.dart';
+import 'cover_size_dialog.dart';
 import 'duplicates_screen.dart';
 import 'file_drop.dart';
 import 'manage_shelves_screen.dart';
-import 'next_up_screen.dart';
-import 'read_next_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
 import 'shelf_picker.dart';
-import 'statistics_screen.dart';
 import 'sync_preview.dart';
 import 'trash_screen.dart';
 
 enum _AddChoice { search, isbn, bulk, manual }
 
-/// From this window width the open book shows beside the list.
-const _twoPaneWidth = 1000.0;
+/// From this width the open book shows beside the list.
+const _twoPaneWidth = 900.0;
+
+/// The table needs more room, so it shows the open book beside it only
+/// from this width.
+const _twoPaneTableWidth = 1300.0;
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
@@ -46,6 +47,7 @@ class LibraryScreen extends StatefulWidget {
     required this.settings,
     required this.pcSync,
     required this.fileIo,
+    this.onOpenSettings,
   });
 
   final BookRepository repository;
@@ -53,6 +55,9 @@ class LibraryScreen extends StatefulWidget {
   final AppSettings settings;
   final PcSync pcSync;
   final FileIo fileIo;
+
+  /// Shows Settings in the side menu. Without it, Settings opens as a page.
+  final VoidCallback? onOpenSettings;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -242,6 +247,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
         const SingleActivator(LogicalKeyboardKey.comma, control: true):
             _openSettings,
         const SingleActivator(LogicalKeyboardKey.escape): _escape,
+        const SingleActivator(LogicalKeyboardKey.equal, control: true): () =>
+            _resizeCovers(0.1),
+        const SingleActivator(LogicalKeyboardKey.minus, control: true): () =>
+            _resizeCovers(-0.1),
       },
       child: Focus(
         autofocus: true,
@@ -250,17 +259,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth;
-              // The table needs the whole width, so it opens books on
-              // their own page.
-              _wide = widget.settings.display != DisplayMode.table &&
-                  width >= _twoPaneWidth;
-              final share = width * 0.42;
+              final table = widget.settings.display == DisplayMode.table;
+              _wide = width >= (table ? _twoPaneTableWidth : _twoPaneWidth);
+              final share = width * (table ? 0.58 : 0.42);
+              final least = table ? 700.0 : 380.0;
+              final most = table ? 1100.0 : 560.0;
               final listWidth = !_wide
                   ? width
-                  : share < 400
-                      ? 400.0
-                      : share > 560
-                          ? 560.0
+                  : share < least
+                      ? least
+                      : share > most
+                          ? most
                           : share;
               return Row(
                 children: [
@@ -386,28 +395,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  void _openReadNext() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ReadNextScreen(
-          repository: widget.repository,
-          settings: widget.settings,
-          fileIo: widget.fileIo,
-        ),
-      ),
-    );
-  }
-
-  void _openNextUp() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => NextUpScreen(
-          repository: widget.repository,
-          settings: widget.settings,
-          fileIo: widget.fileIo,
-        ),
-      ),
-    );
+  /// Ctrl+= and Ctrl+- make the covers in the grid bigger or smaller.
+  void _resizeCovers(double step) {
+    if (widget.settings.display != DisplayMode.grid) return;
+    widget.settings.setCoverScale(widget.settings.coverScale + step);
   }
 
   void _openDuplicates() {
@@ -667,19 +658,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  void _openStatistics() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => StatisticsScreen(
-          repository: widget.repository,
-          settings: widget.settings,
-          fileIo: widget.fileIo,
-        ),
-      ),
-    );
-  }
-
   void _openSettings() {
+    final show = widget.onOpenSettings;
+    if (show != null) {
+      show();
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SettingsScreen(
@@ -928,6 +912,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ratingAsNumber: widget.settings.ratingAsNumber,
         current: _wide ? _currentId : null,
         onContextMenu: _showBookMenu,
+        coverScale: widget.settings.coverScale,
       );
 
   List<String> get _collections =>
@@ -1018,42 +1003,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     }
     return AppBar(
-      title: ListenableBuilder(
-        listenable: widget.pcSync,
-        builder: (context, _) {
-          if (!widget.pcSync.paired) return const Text('Chapterly');
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Chapterly'),
-              Text(
-                widget.pcSync.busy
-                    ? 'Syncing...'
-                    : syncedAgoText(widget.settings.lastSyncAt, DateTime.now()),
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
-            ],
-          );
-        },
-      ),
+      title: const Text('Library'),
       actions: [
-        ListenableBuilder(
-          listenable: widget.pcSync,
-          builder: (context, _) => IconButton(
-            tooltip: widget.pcSync.paired
-                ? 'Sync with your phone (Ctrl+S)'
-                : 'Set up sync with your phone',
-            icon: widget.pcSync.busy
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.sync),
-            onPressed: widget.pcSync.busy ? null : _syncNow,
-          ),
-        ),
         IconButton(
           tooltip: 'Search (Ctrl+F)',
           icon: const Icon(Icons.search),
@@ -1091,24 +1042,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 checked: widget.settings.display == mode,
                 child: Text(label),
               ),
+            const PopupMenuDivider(),
+            PopupMenuItem<DisplayMode>(
+              onTap: () => showCoverSizeDialog(context, widget.settings),
+              child: const Text('Cover size...'),
+            ),
           ],
         ),
         PopupMenuButton<VoidCallback>(
           tooltip: 'More',
           onSelected: (action) => action(),
           itemBuilder: (_) => [
-            PopupMenuItem(
-              value: _openStatistics,
-              child: const Text('Statistics'),
-            ),
-            PopupMenuItem(
-              value: _openNextUp,
-              child: const Text('Next up (reading order)'),
-            ),
-            PopupMenuItem(
-              value: _openReadNext,
-              child: const Text('What should I read next?'),
-            ),
             PopupMenuItem(
               value: _openShelves,
               child: const Text('Your shelves'),
@@ -1118,10 +1062,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
               child: const Text('Find duplicates'),
             ),
             PopupMenuItem(value: _openTrash, child: const Text('Trash')),
-            PopupMenuItem(
-              value: _openSettings,
-              child: const Text('Settings'),
-            ),
           ],
         ),
       ],
@@ -1365,6 +1305,7 @@ class _ShelfList extends StatelessWidget {
     required this.ratingAsNumber,
     required this.current,
     required this.onContextMenu,
+    required this.coverScale,
   });
 
   final List<Book> books;
@@ -1381,6 +1322,9 @@ class _ShelfList extends StatelessWidget {
   /// The book open beside the list, highlighted.
   final String? current;
   final void Function(Book book, Offset position) onContextMenu;
+
+  /// How big the covers are in the grid; 1 is the normal size.
+  final double coverScale;
 
   List<String> _subtitleLines(Book book) {
     final format = book.format;
@@ -1421,11 +1365,13 @@ class _ShelfList extends StatelessWidget {
 
     if (display == DisplayMode.grid) {
       final highlight = Theme.of(context).colorScheme.primaryContainer;
+      final coverWidth = 110 * coverScale;
+      final coverHeight = 160 * coverScale;
       return GridView.builder(
         padding: const EdgeInsets.all(12),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 130,
-          mainAxisExtent: 220,
+        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: coverWidth + 20,
+          mainAxisExtent: coverHeight + 60,
           crossAxisSpacing: 8,
           mainAxisSpacing: 8,
         ),
@@ -1448,8 +1394,8 @@ class _ShelfList extends StatelessWidget {
                     children: [
                       BookCover(
                         coverUrl: book.coverUrl,
-                        width: 110,
-                        height: 160,
+                        width: coverWidth,
+                        height: coverHeight,
                       ),
                       if (book.favorite)
                         const Padding(

@@ -20,7 +20,7 @@ import 'data/sqlite_book_store.dart';
 import 'data/theme_options.dart';
 import 'data/window_control.dart';
 import 'screens/cover_actions.dart';
-import 'screens/library_screen.dart';
+import 'screens/home_shell.dart';
 import 'screens/lock_gate.dart';
 import 'screens/mini_timer.dart';
 import 'screens/now_playing.dart';
@@ -116,7 +116,7 @@ class ChapterlyApp extends StatelessWidget {
             ),
           ),
         ),
-        home: LibraryScreen(
+        home: HomeShell(
           repository: repository,
           client: client,
           settings: settings,

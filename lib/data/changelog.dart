@@ -13,6 +13,24 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.4.0',
+    date: '2026-10-30',
+    changes: [
+      'A side menu for Library, Statistics, Next up, Read next and Settings '
+          '(Ctrl+1 to Ctrl+5)',
+      'How syncing with your phone is going, at the bottom of the side '
+          'menu: click it to sync',
+      'The book page is split into Overview, Reading and Notes, with the '
+          'cover, shelf and progress always at the top',
+      'The table view shows the open book beside it in a wide window',
+      'A fuller player: a big cover, larger buttons, the chapter and how '
+          'much of the book is left, and the chapter list beside it in a wide '
+          'window',
+      'Choose the cover size for the grid view (View, then Cover size, or '
+          'Ctrl+= and Ctrl+-)',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.3.0',
     date: '2026-10-30',
     changes: [

@@ -97,6 +97,7 @@ class AppSettings extends ChangeNotifier {
   bool _ratingAsNumber = false;
   bool _showFormatOnCards = true;
   bool _showTagsOnCards = true;
+  double _coverScale = 1.0;
   List<Shelf> _shelfOrder = List.of(Shelf.values);
 
   SortField get sortField => _sortField;
@@ -190,6 +191,12 @@ class AppSettings extends ChangeNotifier {
   bool get showFormatOnCards => _showFormatOnCards;
   bool get showTagsOnCards => _showTagsOnCards;
 
+  /// How big the covers are in the grid view, from [minCoverScale] to
+  /// [maxCoverScale]; 1 is the normal size.
+  double get coverScale => _coverScale;
+  static const minCoverScale = 0.7;
+  static const maxCoverScale = 1.6;
+
   /// The four main shelves in the order their tabs are shown.
   List<Shelf> get shelfOrder => List.unmodifiable(_shelfOrder);
 
@@ -242,6 +249,8 @@ class AppSettings extends ChangeNotifier {
     settings._ratingAsNumber = prefs.getBool('ratingAsNumber') ?? false;
     settings._showFormatOnCards = prefs.getBool('showFormatOnCards') ?? true;
     settings._showTagsOnCards = prefs.getBool('showTagsOnCards') ?? true;
+    settings._coverScale =
+        _clampScale(prefs.getDouble('coverScale') ?? 1.0);
     settings._shelfOrder = _cleanShelfOrder([
       for (final name in prefs.getStringList('shelfOrder') ?? <String>[])
         ?Shelf.values.asNameMap()[name],
@@ -409,6 +418,20 @@ class AppSettings extends ChangeNotifier {
   void setShowTagsOnCards(bool value) {
     _showTagsOnCards = value;
     prefs?.setBool('showTagsOnCards', value);
+    notifyListeners();
+  }
+
+  static double _clampScale(double value) => value < minCoverScale
+      ? minCoverScale
+      : value > maxCoverScale
+          ? maxCoverScale
+          : value;
+
+  void setCoverScale(double value) {
+    final scale = _clampScale(value);
+    if (scale == _coverScale) return;
+    _coverScale = scale;
+    prefs?.setDouble('coverScale', scale);
     notifyListeners();
   }
 
