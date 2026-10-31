@@ -13,6 +13,19 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.7.0',
+    date: '2026-10-31',
+    changes: [
+      'Add file, at the top of the side menu (Ctrl+O): open an EPUB, PDF or '
+          'audiobook and Chapterly finds its book in your library from the '
+          'title and author in the file or its name',
+      'Pick another book if it guessed wrong, or add the file as a new book '
+          'with one click',
+      'Or drag an EPUB, PDF, audiobook file or audiobook folder onto the '
+          'window',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.6.0',
     date: '2026-10-31',
     changes: [

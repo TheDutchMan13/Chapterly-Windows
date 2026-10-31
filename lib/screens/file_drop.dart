@@ -1,26 +1,39 @@
+import 'dart:io';
+
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 
+import '../audio/audio_files.dart';
+import '../audio/audio_library.dart';
+import '../audio/listening.dart';
 import '../data/backup.dart';
 import '../data/book_repository.dart';
 import '../data/cover_image.dart';
 import '../data/csv.dart';
 import '../data/dropped_file.dart';
 import '../data/kindle_clippings.dart';
+import '../ebook/ebook_library.dart';
+import '../ebook/ebook_reading.dart';
+import 'add_file_flow.dart';
 import 'cover_actions.dart';
 
 /// Drop a Chapterly backup, a CSV file or My Clippings.txt anywhere on the
 /// window to import it. A picture becomes the cover of the book that is
-/// open.
+/// open. An EPUB or PDF, or an audiobook (its file, its files or its
+/// folder), is linked to its book in the library, as with Add file.
 class FileDropTarget extends StatefulWidget {
   const FileDropTarget({
     super.key,
     required this.repository,
     required this.child,
+    this.onLinked,
   });
 
   final BookRepository repository;
   final Widget child;
+
+  /// Shows the book a dropped book file or audiobook was linked to.
+  final void Function(String bookId)? onLinked;
 
   @override
   State<FileDropTarget> createState() => _FileDropTargetState();
@@ -40,7 +53,67 @@ class _FileDropTargetState extends State<FileDropTarget> {
     _busy = true;
     final messenger = ScaffoldMessenger.of(context);
     try {
+      // Book files and audiobooks are linked to books; the rest is
+      // imported as before.
+      final books = <PickedFile>[];
+      final audio = <PickedFile>[];
+      final folders = <String>[];
+      final handled = <Object>{};
       for (final file in details.files) {
+        if (await FileSystemEntity.isDirectory(file.path)) {
+          folders.add(file.path);
+        } else if (ebookFormatOf(file.name) != null) {
+          books.add(PickedFile(location: file.path, name: file.name));
+        } else if (isAudioFileName(file.name)) {
+          audio.add(PickedFile(location: file.path, name: file.name));
+        } else {
+          continue;
+        }
+        handled.add(file);
+      }
+      final others =
+          details.files.where((file) => !handled.contains(file)).toList();
+      if ((books.isNotEmpty && EbookReading.library == null) ||
+          ((audio.isNotEmpty || folders.isNotEmpty) &&
+              Listening.controller == null)) {
+        _say(messenger, 'Book files and audiobooks cannot be added here.');
+      }
+      void linked(String bookId) => widget.onLinked?.call(bookId);
+      for (final book in books) {
+        if (!mounted) return;
+        await linkBookFile(
+          context,
+          repository: widget.repository,
+          picked: book,
+          onLinked: linked,
+        );
+      }
+      if (audio.isNotEmpty) {
+        if (!mounted) return;
+        // Several files dropped together are one audiobook, named after
+        // their folder.
+        await linkAudiobook(
+          context,
+          repository: widget.repository,
+          picked: audio,
+          folder: audio.length > 1,
+          onLinked: linked,
+        );
+      }
+      for (final folder in folders) {
+        if (!mounted) return;
+        final files = await audioFilesIn(folder);
+        if (!mounted) return;
+        await linkAudiobook(
+          context,
+          repository: widget.repository,
+          picked: files,
+          folder: true,
+          onLinked: linked,
+        );
+      }
+
+      for (final file in others) {
         if (isCoverImageFile(file.name)) {
           final id = ShownBooks.current;
           if (id == null) {
@@ -169,7 +242,8 @@ class _FileDropTargetState extends State<FileDropTarget> {
                     child: Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
-                        'Drop a backup, a CSV file or My Clippings.txt to '
+                        'Drop an EPUB, PDF or audiobook to add it to its '
+                        'book, a backup, a CSV file or My Clippings.txt to '
                         'import it, or a picture for the open book\'s cover',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),

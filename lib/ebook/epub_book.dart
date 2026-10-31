@@ -107,6 +107,70 @@ String _decodeHref(String href) {
   }
 }
 
+/// The title and authors written inside an EPUB, read without opening the
+/// whole book. Several authors are joined with ", ". Null when the file is
+/// not an EPUB; empty strings for what the book does not say.
+({String title, String author})? epubTitleAndAuthor(Uint8List bytes) {
+  try {
+    final archive = ZipDecoder().decodeBytes(bytes);
+    ArchiveFile? find(String path) {
+      for (final file in archive.files) {
+        if (file.isFile && file.name == path) return file;
+      }
+      return null;
+    }
+
+    XmlDocument? parse(String path) {
+      final file = find(path);
+      if (file == null) return null;
+      return XmlDocument.parse(utf8.decode(_bytesOf(file), allowMalformed: true));
+    }
+
+    final container = parse('META-INF/container.xml');
+    if (container == null) return null;
+    final rootfile = _elements(container, 'rootfile').firstOrNull;
+    final opfPath = rootfile == null ? null : _attr(rootfile, 'full-path');
+    final opf = opfPath == null ? null : parse(opfPath);
+    if (opf == null) return null;
+    final XmlNode metadata = _elements(opf, 'metadata').firstOrNull ?? opf;
+    String clean(String text) => text.replaceAll(_spaces, ' ').trim();
+
+    var title = '';
+    for (final element in _elements(metadata, 'title')) {
+      title = clean(element.innerText);
+      if (title.isNotEmpty) break;
+    }
+
+    // EPUB 3 says who is an author with <meta refines="#id"
+    // property="role">aut</meta>; EPUB 2 with opf:role="aut".
+    final roles = <String, String>{};
+    for (final meta in _elements(metadata, 'meta')) {
+      final refines = _attr(meta, 'refines');
+      if (_attr(meta, 'property') == 'role' && refines != null) {
+        roles[refines.replaceFirst('#', '')] = clean(meta.innerText);
+      }
+    }
+    final creators = <({String name, String? role})>[
+      for (final creator in _elements(metadata, 'creator'))
+        if (clean(creator.innerText) case final name when name.isNotEmpty)
+          (
+            name: name,
+            role: _attr(creator, 'role') ?? roles[_attr(creator, 'id') ?? ''],
+          ),
+    ];
+    final authors = creators.where((other) => other.role == 'aut').toList();
+    final names = [
+      for (final creator in authors.isNotEmpty
+          ? authors
+          : creators.where((other) => other.role == null))
+        creator.name,
+    ];
+    return (title: title, author: names.take(3).join(', '));
+  } catch (_) {
+    return null;
+  }
+}
+
 /// An EPUB book opened from its file: its chapters in reading order, the
 /// table of contents and the pictures. An EPUB is a zip of web pages.
 class EpubBook {

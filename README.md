@@ -37,8 +37,13 @@ Made for a PC:
   footnote pop-ups, picture zoom, dictionary look-up, PDF search and
   contents, a look of its own for one book, and time in the reader in
   Statistics
+- Add file (top of the side menu, Ctrl+O), or drag it onto the window: an
+  EPUB, PDF or audiobook file or folder, and Chapterly links it to the right
+  book in your library from the title and author inside the file (or its
+  name). Pick another book, or add it as a new one, when it guesses wrong
 - Keyboard shortcuts: Ctrl+F search, Ctrl+N add a book, Ctrl+Shift+N add
-  several, Ctrl+S sync, Ctrl+V paste a cover, Ctrl+, Settings, Esc to close
+  several, Ctrl+O add a book file or audiobook, Ctrl+S sync, Ctrl+V paste a
+  cover, Ctrl+, Settings, Esc to close
 - Right-click a book to move, favorite, add to a shelf or trash it
 - Drop a backup, a CSV file or `My Clippings.txt` on the window to import it
 - Remembers the window size and place

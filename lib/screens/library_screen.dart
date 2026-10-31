@@ -48,6 +48,7 @@ class LibraryScreen extends StatefulWidget {
     required this.pcSync,
     required this.fileIo,
     this.onOpenSettings,
+    this.openBookRequests,
   });
 
   final BookRepository repository;
@@ -58,6 +59,10 @@ class LibraryScreen extends StatefulWidget {
 
   /// Shows Settings in the side menu. Without it, Settings opens as a page.
   final VoidCallback? onOpenSettings;
+
+  /// Opens the book with this id when it changes (such as after Add file
+  /// links a file to it).
+  final ValueListenable<String?>? openBookRequests;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -84,7 +89,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void initState() {
     super.initState();
     widget.pcSync.onBackgroundSync = _syncedInBackground;
+    widget.openBookRequests?.addListener(_openRequested);
     WidgetsBinding.instance.addPostFrameCallback((_) => _startUp());
+  }
+
+  void _openRequested() {
+    final id = widget.openBookRequests?.value;
+    if (id != null) _openById(id);
+  }
+
+  /// Opens a book by id, such as one a dropped file was just linked to.
+  void _openById(String id) {
+    if (!mounted) return;
+    final book = widget.repository.byId(id);
+    if (book != null && book.deletedAt == null) _openBook(book);
   }
 
   void _syncedInBackground(int changed) {
@@ -256,6 +274,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         autofocus: true,
         child: FileDropTarget(
           repository: widget.repository,
+          onLinked: _openById,
           child: LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth;
@@ -290,6 +309,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (widget.pcSync.onBackgroundSync == _syncedInBackground) {
       widget.pcSync.onBackgroundSync = null;
     }
+    widget.openBookRequests?.removeListener(_openRequested);
     _searchController.dispose();
     super.dispose();
   }

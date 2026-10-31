@@ -234,6 +234,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'Ctrl+F              Search\n'
           'Ctrl+N              Add a book\n'
           'Ctrl+Shift+N    Add several books from a list\n'
+          'Ctrl+O              Add a book file or audiobook\n'
           'Ctrl+S              Sync with your phone\n'
           'Ctrl+V              Paste a picture as the open book\'s cover\n'
           'Ctrl+,               Settings\n'
