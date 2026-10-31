@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../data/book_repository.dart';
+import '../data/date_format.dart';
 import '../ebook/ebook_files.dart';
 import '../ebook/ebook_library.dart';
 import '../ebook/ebook_reading.dart';
+import '../ebook/reader_stats.dart';
 import '../ebook/reader_style.dart';
 import '../models/book.dart';
 import 'reader_screen.dart';
@@ -103,6 +105,10 @@ class _BookFileCardState extends State<BookFileCard> {
       builder: (context, _) {
         final link = library.linkFor(widget.book.id);
         final position = link?.position;
+        final stats = link == null || link.days.isEmpty
+            ? null
+            : readerStatsFor(link, bookPages: widget.book.pages);
+        final pace = stats?.pagesPerHour;
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 8),
           child: Padding(
@@ -173,6 +179,17 @@ class _BookFileCardState extends State<BookFileCard> {
                             style: textTheme.bodySmall,
                           ),
                         ],
+                      ),
+                    ),
+                  if (stats != null && stats.minutes > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        [
+                          '${formatMinutes(stats.minutes)} in the reader',
+                          if (pace != null) pagesPerHourText(pace).toLowerCase(),
+                        ].join(' · '),
+                        style: textTheme.bodySmall,
                       ),
                     ),
                   const SizedBox(height: 8),

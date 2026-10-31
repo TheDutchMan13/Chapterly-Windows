@@ -9,6 +9,7 @@ import '../data/statistics.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
+import 'reader_stats_card.dart';
 import 'year_review_screen.dart';
 
 const _monthLetters = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
@@ -445,6 +446,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           final longest = stats.longest;
           final textTheme = Theme.of(context).textTheme;
           final streak = currentStreak(books);
+          final longestRun = longestStreak(books);
           final pagesToday = pagesLoggedOn(books, DateTime.now());
           final paces = [
             for (final book in books)
@@ -506,6 +508,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     label: 'Reading streak',
                     value: '$streak ${streak == 1 ? 'day' : 'days'}',
                   ),
+                if (longestRun > 1)
+                  _StatTile(
+                    label: 'Longest streak',
+                    value: '$longestRun days',
+                  ),
                 if (pagesToday > 0)
                   _StatTile(
                     label: 'Pages today',
@@ -519,6 +526,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   ),
               ],
             ),
+            if (year == null) ReaderStatsCard(repository: widget.repository),
           ];
 
           // Each section is one block. A wide window shows them in two

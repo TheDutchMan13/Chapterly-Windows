@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:chapterly/ebook/epub_book.dart';
+import 'package:chapterly/ebook/windows_speaker.dart';
 import 'package:chapterly/screens/reader_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -189,5 +190,93 @@ void main() {
     );
     // A passage split by formatting is left alone.
     expect(markHighlights(html, ['not here']), html);
+  });
+  test('highlights are found by their words, without the spaces', () {
+    const html = '<p>Emma <b>Woodhouse</b>, handsome &amp;\n clever.</p>'
+        '<p>Emma again.</p>';
+    final compact = compactTextOf(html);
+    expect(compact, 'EmmaWoodhouse,handsome&clever.Emmaagain.');
+    final range = findPassage(compact, 'Woodhouse, handsome & clever');
+    expect(range, (start: 4, end: 29));
+    // Of two places, the one nearer where you are.
+    expect(findPassage(compact, 'Emma', near: 0)!.start, 0);
+    expect(findPassage(compact, 'Emma', near: 1)!.start, 30);
+    expect(findPassage(compact, 'not there'), isNull);
+    expect(findPassage(compact, ' '), isNull);
+  });
+
+  test('a highlight is marked across bold text', () {
+    const html = '<p>Emma <b>Woodhouse</b>, handsome.</p>';
+    final marked = prepareChapterHtml(
+      html,
+      marks: [(start: 2, end: 10, colour: 'green')],
+    );
+    // "ma Woodho" across the bold, the space between marked too.
+    expect(marked, contains('Em<mark data-colour="green">ma </mark>'));
+    expect(
+      marked,
+      contains('<b><mark data-colour="green">Woodho</mark>use</b>'),
+    );
+    expect(compactTextOf(marked), compactTextOf(html));
+  });
+
+  test('footnote links are found and their notes read', () {
+    const html = '<p>Text<a epub:type="noteref" href="notes.xhtml#n1">1</a>'
+        ' more<sup><a href="#n2">2</a></sup> and '
+        '<a href="ch2.xhtml#s">a chapter</a>.</p>';
+    final page = prepareChapterHtml(html);
+    expect(page, contains('href="${noteScheme}notes.xhtml#n1"'));
+    expect(page, contains('href="$noteScheme#n2"'));
+    expect(page, contains('href="ch2.xhtml#s"'));
+
+    final book = EpubBook.open(_zip({
+      'META-INF/container.xml': _text(
+        '<container><rootfiles><rootfile full-path="c.opf"/></rootfiles>'
+        '</container>',
+      ),
+      'c.opf': _text(
+        '<package><manifest>'
+        '<item id="a" href="a.xhtml" media-type="application/xhtml+xml"/>'
+        '<item id="n" href="notes.xhtml" media-type="application/xhtml+xml"/>'
+        '</manifest><spine><itemref idref="a"/><itemref idref="n"/></spine>'
+        '</package>',
+      ),
+      'a.xhtml': _text('<html><body>$html</body></html>'),
+      'notes.xhtml': _text(
+        '<html><body><aside id="n1"><p><a href="a.xhtml">1</a> '
+        'Highbury is a village.</p></aside></body></html>',
+      ),
+    }));
+    expect(book.noteText(0, 'notes.xhtml#n1'), '1 Highbury is a village.');
+    expect(book.noteText(0, 'notes.xhtml#missing'), isNull);
+    expect(book.noteText(0, 'notes.xhtml'), isNull);
+  });
+
+  test('a highlight place is written and read back', () {
+    const range = HighlightRange(2, 10, 40);
+    expect(range.locator, 'r:2:10:40');
+    final back = HighlightRange.parse('r:2:10:40')!;
+    expect([back.chapter, back.start, back.end], [2, 10, 40]);
+    expect(HighlightRange.parse('c:2:0.5'), isNull);
+    expect(HighlightRange.parse('r:2:40:10'), isNull);
+  });
+
+  test('page view turns whole pages, keeping a line', () {
+    expect(pageStep(800, 30), 770);
+    expect(pageCountFor(0, 770), 1);
+    expect(pageCountFor(1540, 770), 3);
+    expect(pageCountFor(1600, 770), 4);
+    expect(pageIndexAt(0, 1600, 770), 0);
+    expect(pageIndexAt(770, 1600, 770), 1);
+    expect(pageIndexAt(1600, 1600, 770), 3);
+    expect(pageOffset(3, 1600, 770), 1600);
+    expect(pageOffset(-1, 1600, 770), 0);
+  });
+
+  test('the Windows voice speed follows the reading speed', () {
+    expect(WindowsSpeaker.rateFor(1), 0);
+    expect(WindowsSpeaker.rateFor(2), 10);
+    expect(WindowsSpeaker.rateFor(0.5), -10);
+    expect(WindowsSpeaker.rateFor(1.5), 5);
   });
 }

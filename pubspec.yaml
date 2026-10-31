@@ -3,7 +3,7 @@ description: "Chapterly for Windows: a private book tracker that syncs with the 
 publish_to: 'none'
 
 # Keep in step with appVersion in lib/data/app_info.dart.
-version: 1.5.0+6
+version: 1.6.0+7
 
 environment:
   sdk: ^3.13.5
@@ -40,6 +40,8 @@ dependencies:
   # PDF through PDFium.
   archive: ^4.5.0
   xml: ">=6.5.0 <8.0.0"
+  # Marking highlights and footnote links in a chapter's page.
+  html: ^0.15.4
   flutter_widget_from_html_core: ^0.17.4
   pdfrx: ^2.11.0
 

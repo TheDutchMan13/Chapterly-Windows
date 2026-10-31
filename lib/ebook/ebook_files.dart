@@ -52,6 +52,10 @@ Future<String?> addBookFile({
         bytes: bytes,
         format: format,
         addedAt: now(),
+        // The book's own look and its time in the reader stay; places in
+        // the old file mean nothing in the new one.
+        prefs: old?.prefs,
+        days: old?.days ?? const [],
       ),
     );
   } catch (_) {

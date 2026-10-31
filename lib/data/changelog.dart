@@ -13,6 +13,24 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.6.0',
+    date: '2026-10-31',
+    changes: [
+      'Show an EPUB a page at a time (mouse wheel, arrows or Page Down), or '
+          'scrolling',
+      'Highlights in four colours, with your own notes, kept even across '
+          'bold or italic text',
+      'Read aloud with the Windows voice (Ctrl+R), at the speed you like',
+      'Footnotes open over the page; click a picture to zoom; look up a word '
+          'in the dictionary',
+      'PDFs: search and the PDF\'s own contents',
+      'Text and theme just for one book, if you like',
+      'Opening a book moves it to In progress, and the end offers to mark '
+          'it finished',
+      'Statistics: time in the reader, reading speed and the longest streak',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.5.0',
     date: '2026-10-31',
     changes: [

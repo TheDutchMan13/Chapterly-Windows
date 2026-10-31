@@ -32,7 +32,11 @@ Made for a PC:
   saved as quotes, text size, typeface, spacing, margins and four themes.
   The reader keeps the book's current page up to date and adds reading time
   to the reading log. Chapterly keeps its own copy of the file on this PC;
-  it is not synced or backed up
+  it is not synced or backed up. Also: a page-at-a-time view, highlights in
+  four colours with notes, read aloud with the Windows voice (Ctrl+R),
+  footnote pop-ups, picture zoom, dictionary look-up, PDF search and
+  contents, a look of its own for one book, and time in the reader in
+  Statistics
 - Keyboard shortcuts: Ctrl+F search, Ctrl+N add a book, Ctrl+Shift+N add
   several, Ctrl+S sync, Ctrl+V paste a cover, Ctrl+, Settings, Esc to close
 - Right-click a book to move, favorite, add to a shelf or trash it

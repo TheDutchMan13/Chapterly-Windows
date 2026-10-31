@@ -59,6 +59,28 @@ ReaderColors readerColors(ReaderTheme theme) => switch (theme) {
         ),
     };
 
+/// A highlight's colour, solid, for drawing behind the text: a light one on
+/// the light themes and a deep one on the dark themes, so the text stays
+/// easy to read.
+Color highlightColour(HighlightColour colour, ReaderTheme theme) {
+  final dark = theme == ReaderTheme.dark || theme == ReaderTheme.black;
+  return switch (colour) {
+    HighlightColour.yellow =>
+      dark ? const Color(0xFF7A6118) : const Color(0xFFF2D35B),
+    HighlightColour.green =>
+      dark ? const Color(0xFF3B6534) : const Color(0xFFB5E0A4),
+    HighlightColour.blue =>
+      dark ? const Color(0xFF2D5576) : const Color(0xFFA9CDF2),
+    HighlightColour.pink =>
+      dark ? const Color(0xFF7A3553) : const Color(0xFFF4B3CB),
+  };
+}
+
+/// A highlight's colour for the EPUB viewer, which lays it over the text
+/// at a low opacity: always the bright one.
+Color highlightSwatch(HighlightColour colour) =>
+    highlightColour(colour, ReaderTheme.white);
+
 String readerThemeLabel(ReaderTheme theme) => switch (theme) {
       ReaderTheme.paper => 'Paper',
       ReaderTheme.white => 'White',

@@ -246,6 +246,26 @@ int currentStreak(List<Book> books, {DateTime? now}) {
   return streak;
 }
 
+/// The most days in a row that have ever had something in the reading log.
+int longestStreak(List<Book> books) {
+  final days = {
+    for (final entry in _allLogEntries(books))
+      if (entry.pages > 0 || entry.minutes > 0) _day(entry.date),
+  };
+  var best = 0;
+  for (final day in days) {
+    if (days.contains(DateTime(day.year, day.month, day.day - 1))) continue;
+    var run = 1;
+    var next = DateTime(day.year, day.month, day.day + 1);
+    while (days.contains(next)) {
+      run++;
+      next = DateTime(next.year, next.month, next.day + 1);
+    }
+    if (run > best) best = run;
+  }
+  return best;
+}
+
 /// How fast a book in progress is being read, worked out from the reading log.
 class ReadingPace {
   const ReadingPace({

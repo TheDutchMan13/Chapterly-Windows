@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:html/dom.dart' as dom;
+import 'package:html/parser.dart' as html_parser;
 import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
 
@@ -315,6 +317,37 @@ class EpubBook {
     return i < 0 ? null : i;
   }
 
+  final _compact = <int, String>{};
+
+  /// The chapter's words with every space taken out: the measure that
+  /// highlights are kept in on Windows, so they survive formatting and line
+  /// breaks.
+  String chapterCompactText(int chapter) =>
+      _compact[chapter] ??= compactTextOf(chapterHtml(chapter));
+
+  /// The words of the footnote a link in [chapter] points to: the element
+  /// with the link's #id, in this chapter or another file of the book.
+  /// Null when it cannot be found.
+  String? noteText(int chapter, String href) {
+    final hash = href.indexOf('#');
+    if (hash < 0) return null;
+    final id = _decodeHref(href.substring(hash + 1));
+    final target = linkTarget(chapter, href);
+    if (target == null || id.isEmpty) return null;
+    final root = html_parser.parseFragment(chapterHtml(target));
+    final element = _byId(root, id);
+    if (element == null) return null;
+    // A note's id is often on its number; the note is the whole aside,
+    // list item or paragraph around it.
+    var note = element;
+    const blocks = {'aside', 'li', 'p', 'div', 'section', 'dd', 'td'};
+    while (!blocks.contains(note.localName) && note.parent != null) {
+      note = note.parent!;
+    }
+    final text = note.text.replaceAll(_spaces, ' ').trim();
+    return text.isEmpty ? null : text;
+  }
+
   /// The title of the contents entry for [chapter], or the one before it.
   String? chapterTitle(int chapter) {
     String? title;
@@ -403,4 +436,180 @@ EpubSpot spotForProgress(List<int> chapterLengths, double progress) {
     before += length;
   }
   return EpubSpot(chapterLengths.length - 1, 1);
+}
+
+final _anySpace = RegExp(r'\s+');
+
+dom.Element? _byId(dom.Node node, String id) {
+  for (final child in node.nodes) {
+    if (child is! dom.Element) continue;
+    if (child.attributes['id'] == id) return child;
+    final found = _byId(child, id);
+    if (found != null) return found;
+  }
+  return null;
+}
+
+void _textNodes(dom.Node node, void Function(dom.Text text) visit) {
+  for (final child in node.nodes.toList()) {
+    if (child is dom.Text) {
+      visit(child);
+    } else if (child is dom.Element) {
+      _textNodes(child, visit);
+    }
+  }
+}
+
+/// The words of a chapter's HTML with every space taken out, as the page
+/// shows them (entities read, tags gone).
+String compactTextOf(String html) {
+  final buffer = StringBuffer();
+  _textNodes(
+    html_parser.parseFragment(html),
+    (text) => buffer.write(text.data.replaceAll(_anySpace, '')),
+  );
+  return buffer.toString();
+}
+
+/// Where a selected passage is in a chapter's compact text (see
+/// [compactTextOf]): the place nearest [near] (0 to 1, how far down the
+/// chapter you are) when it is there more than once. Null when it is not
+/// there, for example when the selection ran across a list's numbers.
+({int start, int end})? findPassage(
+  String compact,
+  String selected, {
+  double near = 0,
+}) {
+  final needle = selected.replaceAll(_anySpace, '');
+  if (needle.length < 2 || compact.isEmpty) return null;
+  final target = near.clamp(0.0, 1.0) * compact.length;
+  int? best;
+  var at = compact.indexOf(needle);
+  while (at >= 0) {
+    if (best == null || (at - target).abs() < (best - target).abs()) best = at;
+    at = compact.indexOf(needle, at + 1);
+  }
+  return best == null ? null : (start: best, end: best + needle.length);
+}
+
+/// A highlight's place on Windows: a chapter and a range of its compact
+/// text. Written as "r:3:120:180".
+class HighlightRange {
+  const HighlightRange(this.chapter, this.start, this.end);
+
+  final int chapter;
+  final int start;
+  final int end;
+
+  String get locator => 'r:$chapter:$start:$end';
+
+  static HighlightRange? parse(String locator) {
+    final parts = locator.split(':');
+    if (parts.length != 4 || parts[0] != 'r') return null;
+    final chapter = int.tryParse(parts[1]);
+    final start = int.tryParse(parts[2]);
+    final end = int.tryParse(parts[3]);
+    if (chapter == null || start == null || end == null) return null;
+    if (chapter < 0 || start < 0 || end <= start) return null;
+    return HighlightRange(chapter, start, end);
+  }
+}
+
+/// A passage to mark: a range of the compact text and the name of its
+/// colour.
+typedef PassageMark = ({int start, int end, String colour});
+
+bool _isNoteRef(dom.Element link) {
+  final href = link.attributes['href'] ?? '';
+  if (!href.contains('#') || href.contains('://')) return false;
+  final type = '${link.attributes['epub:type'] ?? ''} '
+      '${link.attributes['role'] ?? ''}';
+  if (type.contains('backlink')) return false;
+  if (type.contains('noteref')) return true;
+  // Books without those marks: a superscript link to a place.
+  final inSup = link.parent?.localName == 'sup';
+  final hasSup = link.nodes.whereType<dom.Element>().any(
+        (e) => e.localName == 'sup',
+      );
+  return inSup || hasSup;
+}
+
+/// The address a footnote link gets, so a tap shows the note instead of
+/// going to it.
+const noteScheme = 'chapterly-note:';
+
+/// Gets a chapter's page ready to show on Windows: footnote links are
+/// marked (their address starts with [noteScheme]) and [marks] are wrapped
+/// in `<mark data-colour="...">`, even across bold, italic or links.
+String prepareChapterHtml(String html, {List<PassageMark> marks = const []}) {
+  final root = html_parser.parseFragment(html);
+  void links(dom.Node node) {
+    for (final child in node.nodes) {
+      if (child is! dom.Element) continue;
+      if (child.localName == 'a' && _isNoteRef(child)) {
+        child.attributes['href'] = '$noteScheme${child.attributes['href']}';
+      }
+      links(child);
+    }
+  }
+
+  links(root);
+  if (marks.isNotEmpty) {
+    var position = 0;
+    _textNodes(root, (text) {
+      final raw = text.data;
+      final length = raw.replaceAll(_anySpace, '').length;
+      final from = position;
+      position += length;
+      if (length == 0) return;
+      final touching = marks
+          .where((m) => m.start < from + length && m.end > from)
+          .toList();
+      if (touching.isEmpty) return;
+      String? colourAt(int compactIndex) {
+        for (final m in touching) {
+          if (compactIndex >= m.start && compactIndex < m.end) return m.colour;
+        }
+        return null;
+      }
+
+      // Each character's colour: a letter by its own place, a space by the
+      // letters on both sides of it.
+      final colours = List<String?>.filled(raw.length, null);
+      var seen = from;
+      for (var i = 0; i < raw.length; i++) {
+        if (_anySpace.hasMatch(raw[i])) {
+          final before = seen > from ? colourAt(seen - 1) : null;
+          final after = colourAt(seen);
+          colours[i] = before != null && before == after ? before : null;
+        } else {
+          colours[i] = colourAt(seen);
+          seen++;
+        }
+      }
+      final parent = text.parentNode;
+      if (parent == null) return;
+      var start = 0;
+      while (start < raw.length) {
+        var end = start + 1;
+        while (end < raw.length && colours[end] == colours[start]) {
+          end++;
+        }
+        final piece = raw.substring(start, end);
+        final colour = colours[start];
+        final dom.Node node;
+        if (colour == null) {
+          node = dom.Text(piece);
+        } else {
+          node = dom.Element.tag('mark')
+            ..attributes['data-colour'] = colour
+            ..append(dom.Text(piece));
+        }
+        parent.insertBefore(node, text);
+        start = end;
+      }
+      text.remove();
+    });
+  }
+  return root.outerHtml;
 }
