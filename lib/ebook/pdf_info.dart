@@ -31,7 +31,7 @@ import 'dart:typed_data';
   }
 }
 
-/// The text of /[key] in a dictionary: a (literal) or <hex> string.
+/// The text of `/key` in a dictionary: a `(literal)` or a `<hex>` string.
 String _field(String dict, String key) {
   final match = RegExp('/$key(?![A-Za-z0-9])\\s*([(<])').firstMatch(dict);
   if (match == null) return '';
@@ -105,7 +105,7 @@ List<int> _literal(String s, int start) {
   return out;
 }
 
-/// The bytes of a hex string starting with the "<" at [start].
+/// The bytes of a hex string starting with the `<` at [start].
 List<int> _hex(String s, int start) {
   final end = s.indexOf('>', start);
   if (end < 0) return const [];
