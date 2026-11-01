@@ -79,6 +79,7 @@ class AppSettings extends ChangeNotifier {
   String? _booksFolder;
   String? _audiobooksFolder;
   bool _scanOnOpen = true;
+  double? _listPaneShare;
   DateTime? _lastScanAt;
   List<String> _collections = [];
   String? _pinHash;
@@ -171,6 +172,10 @@ class AppSettings extends ChangeNotifier {
   /// The folder with your audiobooks.
   String? get audiobooksFolder => _audiobooksFolder;
 
+  /// How much of the window the book list takes when a book is open beside
+  /// it (0.15 to 0.85), set by dragging the divider. Null: the usual sizes.
+  double? get listPaneShare => _listPaneShare;
+
   /// Scan those folders a few seconds after Chapterly opens.
   bool get scanOnOpen => _scanOnOpen;
 
@@ -259,6 +264,9 @@ class AppSettings extends ChangeNotifier {
     settings._booksFolder = prefs.getString('booksFolder');
     settings._audiobooksFolder = prefs.getString('audiobooksFolder');
     settings._scanOnOpen = prefs.getBool('scanOnOpen') ?? true;
+    final share = prefs.getDouble('listPaneShare');
+    settings._listPaneShare =
+        share != null && share >= 0.15 && share <= 0.85 ? share : null;
     settings._lastScanAt = _fromMillis(prefs.getInt('lastScanAt'));
     settings._collections = prefs.getStringList('collections') ?? [];
     settings._pinHash = prefs.getString('pinHash');
@@ -583,6 +591,16 @@ class AppSettings extends ChangeNotifier {
       prefs?.remove('audiobooksFolder');
     } else {
       prefs?.setString('audiobooksFolder', folder);
+    }
+    notifyListeners();
+  }
+
+  void setListPaneShare(double? share) {
+    _listPaneShare = share;
+    if (share == null) {
+      prefs?.remove('listPaneShare');
+    } else {
+      prefs?.setDouble('listPaneShare', share);
     }
     notifyListeners();
   }

@@ -35,6 +35,10 @@ const changelog = [
           'library, scan your folders now, or from a CSV file',
       'A progress window with a bar and the book being worked on while a '
           'scan or Calibre import runs',
+      'Drag the line between the book list and the open book to make '
+          'either side wider (double-click it to reset)',
+      'Restart button on the audiobook card: starts the book again from '
+          'the beginning (after you confirm)',
       'Settings is tidier: grouped into Appearance, Adding books and your '
           'library, Folders and importing, Backup and sync, Privacy, and '
           'About and updates. Click a group to open it',

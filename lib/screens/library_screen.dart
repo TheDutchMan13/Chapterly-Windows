@@ -86,6 +86,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Whether the window is wide enough for two panes (set while laying out).
   bool _wide = false;
 
+  // Dragging the divider between the list and the open book.
+  double? _dragShare;
+  double _dragStartWidth = 0;
+  double _dragDx = 0;
+
   @override
   void initState() {
     super.initState();
@@ -284,24 +289,69 @@ class _LibraryScreenState extends State<LibraryScreen> {
               final share = width * (table ? 0.58 : 0.42);
               final least = table ? 700.0 : 380.0;
               final most = table ? 1100.0 : 560.0;
-              final listWidth = !_wide
-                  ? width
-                  : share < least
-                      ? least
-                      : share > most
-                          ? most
-                          : share;
-              return Row(
-                children: [
-                  SizedBox(width: listWidth, child: library),
-                  if (_wide) const VerticalDivider(width: 1),
-                  if (_wide) Expanded(child: _detailPane()),
-                ],
-              );
+              // The list stays at least this wide, and so does the open book.
+              const minList = 300.0;
+              const minDetail = 360.0;
+              final preferred = _dragShare ?? widget.settings.listPaneShare;
+              final double listWidth;
+              if (!_wide) {
+                listWidth = width;
+              } else if (preferred != null) {
+                final widest = width - minDetail;
+                final wanted = width * preferred;
+                final capped = wanted > widest ? widest : wanted;
+                listWidth = capped < minList ? minList : capped;
+              } else {
+                listWidth = share < least
+                    ? least
+                    : share > most
+                        ? most
+                        : share;
+              }
+              return _panes(library, width, listWidth);
             },
           ),
         ),
       ),
+    );
+  }
+
+  Widget _panes(Widget library, double width, double listWidth) {
+    return Row(
+      children: [
+        SizedBox(width: listWidth, child: library),
+        if (_wide)
+          _PaneDivider(
+            onStart: () {
+              _dragStartWidth = listWidth;
+              _dragDx = 0;
+            },
+            onUpdate: (dx) {
+              _dragDx += dx;
+              final wanted = _dragStartWidth + _dragDx;
+              final low = 300.0 / width;
+              final high = (width - 360.0) / width;
+              final value = wanted / width;
+              setState(() {
+                _dragShare = value < low
+                    ? low
+                    : value > (high < low ? low : high)
+                        ? (high < low ? low : high)
+                        : value;
+              });
+            },
+            onEnd: () {
+              final share = _dragShare;
+              if (share != null) widget.settings.setListPaneShare(share);
+              setState(() => _dragShare = null);
+            },
+            onReset: () {
+              widget.settings.setListPaneShare(null);
+              setState(() => _dragShare = null);
+            },
+          ),
+        if (_wide) Expanded(child: _detailPane()),
+      ],
     );
   }
 
@@ -1492,6 +1542,44 @@ class _ShelfList extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// The draggable line between the list and the open book. Drag it to make
+/// one side wider; double-click to go back to the usual sizes.
+class _PaneDivider extends StatelessWidget {
+  const _PaneDivider({
+    required this.onStart,
+    required this.onUpdate,
+    required this.onEnd,
+    required this.onReset,
+  });
+
+  final VoidCallback onStart;
+  final ValueChanged<double> onUpdate;
+  final VoidCallback onEnd;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Drag to resize, double-click to reset',
+      waitDuration: const Duration(milliseconds: 800),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.resizeColumn,
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragStart: (_) => onStart(),
+          onHorizontalDragUpdate: (details) => onUpdate(details.delta.dx),
+          onHorizontalDragEnd: (_) => onEnd(),
+          onDoubleTap: onReset,
+          child: const SizedBox(
+            width: 10,
+            child: Center(child: VerticalDivider(width: 1)),
+          ),
+        ),
+      ),
     );
   }
 }

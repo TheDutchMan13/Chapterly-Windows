@@ -183,5 +183,22 @@ void main() {
       settings = await AppSettings.load();
       expect(settings.booksFolder, isNull);
     });
+
+    test('the divider position is kept and can be reset', () async {
+      SharedPreferences.setMockInitialValues({});
+      var settings = await AppSettings.load();
+      expect(settings.listPaneShare, isNull);
+      settings.setListPaneShare(0.3);
+      settings = await AppSettings.load();
+      expect(settings.listPaneShare, 0.3);
+      settings.setListPaneShare(null);
+      settings = await AppSettings.load();
+      expect(settings.listPaneShare, isNull);
+    });
+
+    test('an out of range divider position is ignored', () async {
+      SharedPreferences.setMockInitialValues({'listPaneShare': 0.99});
+      expect((await AppSettings.load()).listPaneShare, isNull);
+    });
   });
 }
