@@ -9,6 +9,7 @@ import '../models/reading.dart';
 import '../models/shelf.dart';
 import '../models/wish_priority.dart';
 import 'app_settings.dart';
+import 'fuzzy.dart';
 import 'book_sorting.dart';
 import 'book_store.dart';
 import 'duplicates.dart';
@@ -29,13 +30,22 @@ List<String> parseTags(String input) {
 String _duplicateKey(Book book) =>
     '${book.title.trim().toLowerCase()}|${book.author.trim().toLowerCase()}';
 
-bool _matchesQuery(Book book, String query) {
+/// A book's title, author, series and tags, folded for searching.
+String _searchText(Book book) =>
+    foldText([book.title, book.author, book.series ?? '', ...book.tags].join(' '));
+
+bool _matchesQuery(Book book, String query, SearchPlan plan) {
   final text = query.trim().toLowerCase();
   if (text.isEmpty) return true;
-  return book.title.toLowerCase().contains(text) ||
+  if (book.title.toLowerCase().contains(text) ||
       book.author.toLowerCase().contains(text) ||
       (book.isbn ?? '').contains(text) ||
-      book.tags.any((tag) => tag.toLowerCase().contains(text));
+      book.tags.any((tag) => tag.toLowerCase().contains(text))) {
+    return true;
+  }
+  // Windows app: every word somewhere (in any order), without accents, and
+  // a word with a typo finds the library words it is near.
+  return plan.matchesFolded(_searchText(book));
 }
 
 /// Whether [book] passes the filters shared by every list in the library.
@@ -49,6 +59,7 @@ bool _passes(
   required bool matchAllTags,
   required Set<String> excludedTags,
   required String query,
+  required SearchPlan plan,
   required bool favoritesOnly,
   required Set<BookFormat> formats,
   required int? finishYear,
@@ -66,7 +77,7 @@ bool _passes(
       !book.finishedReadings.any((r) => r.finishedAt?.year == finishYear)) {
     return false;
   }
-  return _matchesQuery(book, query);
+  return _matchesQuery(book, query, plan);
 }
 
 /// Moves a book to another shelf. Moving to "In progress" records today as
@@ -139,8 +150,9 @@ class BookRepository extends ChangeNotifier {
     bool favoritesOnly = false,
     Set<BookFormat> formats = const {},
     int? finishYear,
-  }) =>
-      [
+  }) {
+    final plan = searchPlan(query);
+    return [
         for (final book in _books)
           if (book.deletedAt == null &&
               book.shelf == shelf &&
@@ -150,12 +162,14 @@ class BookRepository extends ChangeNotifier {
                 matchAllTags: matchAllTags,
                 excludedTags: excludedTags,
                 query: query,
+                plan: plan,
                 favoritesOnly: favoritesOnly,
                 formats: formats,
                 finishYear: finishYear,
               ))
             book,
       ];
+  }
 
   /// Books on your own shelf [name] that are not in the trash. The filters
   /// work as in [booksOn].
@@ -168,8 +182,9 @@ class BookRepository extends ChangeNotifier {
     bool favoritesOnly = false,
     Set<BookFormat> formats = const {},
     int? finishYear,
-  }) =>
-      [
+  }) {
+    final plan = searchPlan(query);
+    return [
         for (final book in _books)
           if (book.deletedAt == null &&
               book.collections.contains(name) &&
@@ -179,12 +194,34 @@ class BookRepository extends ChangeNotifier {
                 matchAllTags: matchAllTags,
                 excludedTags: excludedTags,
                 query: query,
+                plan: plan,
                 favoritesOnly: favoritesOnly,
                 formats: formats,
                 finishYear: finishYear,
               ))
             book,
       ];
+  }
+
+  Set<String>? _vocabulary;
+
+  /// Every word in the library's titles, authors, series and tags, folded.
+  Set<String> get searchVocabulary => _vocabulary ??= {
+        for (final book in _books)
+          if (book.deletedAt == null) ...foldedWords(_searchText(book)),
+      };
+
+  /// [query] worked out against the library's words (Windows app), so a
+  /// word with a typo finds the words it is near.
+  SearchPlan searchPlan(String query) => query.trim().isEmpty
+      ? SearchPlan.empty
+      : SearchPlan.build(query, searchVocabulary);
+
+  @override
+  void notifyListeners() {
+    _vocabulary = null;
+    super.notifyListeners();
+  }
 
   /// The years in which a book was finished (every reading counts), newest
   /// first.
@@ -387,6 +424,10 @@ class BookRepository extends ChangeNotifier {
 
   /// A web address or a picture stored as a data: address (see
   /// cover_image.dart). Null removes the cover.
+  /// Windows app: changes a book's ISBN (Library health).
+  Future<void> setIsbn(String id, String? isbn) =>
+      _update(id, (book) => book.copyWith(isbn: () => isbn));
+
   Future<void> setCover(String id, String? coverUrl) =>
       _update(id, (book) => book.copyWith(coverUrl: () => coverUrl));
 
@@ -681,6 +722,54 @@ class BookRepository extends ChangeNotifier {
   }
 
   /// Adds [tag] to every book in [ids] that does not have it yet.
+  /// How many books (not in the trash) have each tag.
+  Map<String, int> get tagCounts {
+    final counts = <String, int>{};
+    for (final book in _books) {
+      if (book.deletedAt != null) continue;
+      for (final tag in book.tags) {
+        counts[tag] = (counts[tag] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  /// Renames a tag on every book. When a book already has a tag with the
+  /// new name (in any capitals), the two become one.
+  Future<void> renameTag(String from, String to) {
+    final clean = to.trim();
+    if (clean.isEmpty || clean == from) return Future.value();
+    final ids = {
+      for (final book in _books)
+        if (book.tags.contains(from)) book.id,
+    };
+    return _updateMany(ids, (book) {
+      final tags = <String>[];
+      for (final tag in book.tags) {
+        final next = tag == from ? clean : tag;
+        if (!tags.any((t) => t.toLowerCase() == next.toLowerCase())) {
+          tags.add(next);
+        }
+      }
+      return book.copyWith(tags: tags);
+    });
+  }
+
+  /// Takes a tag off every book.
+  Future<void> deleteTag(String tag) {
+    final ids = {
+      for (final book in _books)
+        if (book.tags.contains(tag)) book.id,
+    };
+    return _updateMany(
+      ids,
+      (book) => book.copyWith(tags: [
+        for (final t in book.tags)
+          if (t != tag) t,
+      ]),
+    );
+  }
+
   Future<void> addTagToAll(Set<String> ids, String tag) {
     final clean = tag.trim();
     if (clean.isEmpty) return Future.value();

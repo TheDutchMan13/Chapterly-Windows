@@ -5,10 +5,13 @@ import '../data/app_settings.dart';
 import '../data/book_repository.dart';
 import '../data/date_format.dart';
 import '../data/file_io.dart';
+import '../data/forecast.dart';
 import '../data/statistics.dart';
+import '../data/taste.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
+import 'book_insights.dart';
 import 'reader_stats_card.dart';
 import 'year_review_screen.dart';
 
@@ -384,16 +387,76 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         ),
         const SizedBox(width: 16),
         Expanded(
-          child: Text(
-            unit.isEmpty
-                ? status.describe()
-                : '${status.finished} of ${status.goal} $unit\n'
-                    '${status.describe(unit: unit)}',
-            style: textTheme.bodyLarge,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                unit.isEmpty
+                    ? status.describe()
+                    : '${status.finished} of ${status.goal} $unit\n'
+                        '${status.describe(unit: unit)}',
+                style: textTheme.bodyLarge,
+              ),
+              if (unit.isEmpty)
+                if (_goalOutlook(year, goal) case final outlook?)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(outlook.describe(), style: textTheme.bodySmall),
+                  ),
+            ],
           ),
         ),
       ],
     );
+  }
+
+  GoalForecast? _goalOutlook(int year, int goal) => forecastGoal(
+        widget.repository.books,
+        goal: goal,
+        year: year,
+        finishDates: [
+          for (final book in widget.repository.booksOn(Shelf.inProgress))
+            if (forecastFor(book) case final forecast?) forecast.date,
+        ],
+      );
+
+  List<Widget> _tasteSection(TasteProfile taste) {
+    final textTheme = Theme.of(context).textTheme;
+    return [
+      const SizedBox(height: 24),
+      Text('Your taste', style: textTheme.titleMedium),
+      Text(
+        'From ${taste.ratedBooks} rated books (average '
+        '${taste.average.toStringAsFixed(1)} stars). Groups with few books '
+        'are pulled towards your average.',
+        style: textTheme.bodySmall,
+      ),
+      const SizedBox(height: 4),
+      if (taste.likes.isEmpty && taste.dislikes.isEmpty)
+        const Text('No clear pattern yet: you rate most things about the same.'),
+      for (final finding in taste.likes)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              const Icon(Icons.trending_up, size: 18, color: Colors.green),
+              const SizedBox(width: 8),
+              Expanded(child: Text(finding.describe())),
+            ],
+          ),
+        ),
+      for (final finding in taste.dislikes)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              const Icon(Icons.trending_down, size: 18, color: Colors.orange),
+              const SizedBox(width: 8),
+              Expanded(child: Text(finding.describe())),
+            ],
+          ),
+        ),
+    ];
   }
 
   Widget _goalCard(int year, BookStats stats) {
@@ -450,8 +513,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           final pagesToday = pagesLoggedOn(books, DateTime.now());
           final paces = [
             for (final book in books)
-              if (readingPace(book) case final pace?) (book, pace),
+              if (forecastFor(book)?.describe() ?? readingPace(book)?.describe()
+                  case final text?)
+                (book, text),
           ];
+          final taste = tasteProfile(books);
 
           final header = <Widget>[
             if (overall.byYear.isNotEmpty) ...[
@@ -671,18 +737,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               _section(_countSection('Most read authors', stats.topAuthors)),
             if (stats.topTags.isNotEmpty)
               _section(_countSection('Most used tags', stats.topTags)),
+            if (taste != null) _section(_tasteSection(taste)),
             if (paces.isNotEmpty)
               _section([
                 const SizedBox(height: 24),
                 Text('Reading pace', style: textTheme.titleMedium),
-                for (final (book, pace) in paces)
+                for (final (book, paceText) in paces)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(book.title),
-                        Text(pace.describe(), style: textTheme.bodySmall),
+                        Text(paceText, style: textTheme.bodySmall),
                       ],
                     ),
                   ),

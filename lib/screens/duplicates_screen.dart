@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 
+import '../data/app_settings.dart';
 import '../data/book_repository.dart';
+import '../data/duplicates.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
 
 /// Books that look like the same book. Merge each group into one book.
 class DuplicatesScreen extends StatelessWidget {
-  const DuplicatesScreen({super.key, required this.repository});
+  const DuplicatesScreen({super.key, required this.repository, this.settings});
 
   final BookRepository repository;
+
+  /// Remembers pairs you said are not the same (Windows app).
+  final AppSettings? settings;
 
   String _describe(Book book) => [
         book.title,
@@ -62,10 +67,14 @@ class DuplicatesScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Duplicates')),
       body: ListenableBuilder(
-        listenable: repository,
+        listenable: Listenable.merge([repository, ?settings]),
         builder: (context, _) {
           final groups = repository.findDuplicates();
-          if (groups.isEmpty) {
+          final possible = findPossibleDuplicates(
+            repository.books,
+            dismissed: settings?.notDuplicates ?? const {},
+          );
+          if (groups.isEmpty && possible.isEmpty) {
             return const Center(child: Text('No duplicates found.'));
           }
           return ListView(
@@ -80,6 +89,11 @@ class DuplicatesScreen extends StatelessWidget {
                   'merge the ones that are really the same copy.',
                 ),
               ),
+              if (groups.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
+                  child: Text('No exact duplicates.'),
+                ),
               for (final group in groups)
                 Card(
                   child: Padding(
@@ -103,6 +117,62 @@ class DuplicatesScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+              if (possible.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 20, 4, 4),
+                  child: Text(
+                    'Possible duplicates',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
+                  child: Text(
+                    'These look alike but are not exactly the same: a typo, '
+                    'a subtitle on one, or an edition name. Check them '
+                    'before merging.',
+                  ),
+                ),
+                for (final pair in possible)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            pair.reason,
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(_describe(pair.first)),
+                          Text(_describe(pair.second)),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Wrap(
+                              spacing: 8,
+                              children: [
+                                if (settings != null)
+                                  TextButton(
+                                    onPressed: () =>
+                                        settings!.addNotDuplicate(pair.key),
+                                    child: const Text('Not the same'),
+                                  ),
+                                FilledButton(
+                                  onPressed: () => _merge(
+                                    context,
+                                    [pair.first, pair.second],
+                                  ),
+                                  child: const Text('Merge'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
             ],
           );
         },

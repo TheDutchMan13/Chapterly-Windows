@@ -13,18 +13,97 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
-    version: '1.8.0',
+    version: '1.10.0',
+    date: '2026-11-01',
+    changes: [
+      "This year's reading goal at the top of the Library, with how far "
+          'ahead or behind you are (hide it with the x, or in Settings)',
+      'Saved filters: save the filter chips and search under a name and '
+          'bring them back with one click (Saved filters, at the start of '
+          'the chips)',
+      'Tags (Library menu): see every tag with its number of books, rename '
+          'or merge tags, and delete a tag from all books',
+      'Series (Library menu): every series with the books you have, what '
+          'you have finished, the missing numbers (add one to For later with '
+          'a click) and what to read next',
+      'Audiobook bookmarks: Bookmark in the player saves the place you are '
+          'at, with a note if you like; Bookmarks lists them to jump back, '
+          'edit or delete',
+      'Export a book\'s notes, quotes, highlights and audiobook bookmarks as '
+          'Markdown or PDF (Export, on the Notes tab)',
+      'Refresh details from Open Library for the books you select: blank '
+          'ISBNs, years, covers and pages are filled in',
+      "Media keys and Windows' media controls: your keyboard's play/pause "
+          'and skip keys and headphone buttons control the audiobook, and the '
+          'pop-up by the volume shows the book, chapter and cover',
+      'Mini player: a small window that stays on top with play/pause, '
+          'skip and the chapter (in the player and the now-playing bar)',
+      'Keep running in the tray (Settings, Appearance): closing the window '
+          'keeps Chapterly and your audiobook going; click the tray icon to '
+          'bring it back',
+      'Install updates from inside Chapterly: Update downloads the new '
+          'version, closes Chapterly, installs it and opens it again',
+      'Finish forecast: a book you are reading shows when you should finish '
+          'it at your recent pace, from pages, listening time or the reader '
+          '(recent days count more), and the yearly goal says where you are '
+          'heading by Dec 31',
+      'Search forgives typos ("Brandn Sanderson"), finds words in any '
+          'order and names without accents ("Bronte")',
+      'Possible duplicates: Duplicates also finds books that are nearly the '
+          'same (a typo, a subtitle on one, "Deluxe Edition"), to merge or '
+          'mark as not the same',
+      'Better matching of book and audiobook files to your books: typos, '
+          'words such as "Unabridged" and a different word order no longer '
+          'get in the way',
+      'What should I read next? picks the best match for your taste, and '
+          'says why ("Because you liked Mistborn"); the next book of a '
+          'series you are reading comes first. Surprise me still picks at '
+          'random',
+      'Similar books in your library (on a book page, under Find more)',
+      'Your taste (Statistics): the tags, authors, formats, lengths and '
+          'decades you rate higher or lower than usual',
+      'Suggested tags (Suggest, next to Tags on a book page): from Open '
+          'Library and the tags on other books by the same author',
+      'Find series in titles (Series page): sets the series and number from '
+          'titles such as "The Final Empire (Mistborn, #1)"',
+      'A book with both an audiobook and a book file shows where you are '
+          'in each, and carries on in one from where you are in the other',
+      'Rewind a little after a pause (Settings, on by default): playing an '
+          'audiobook again goes back 2 to 30 seconds, more after a longer '
+          'pause',
+      'Predicted rating: a book you have not rated shows the stars you would '
+          'probably give it, from the rated books most like it',
+      'Reading time: how long a book takes you at your own speed (from your '
+          'reading log and the reader), or an audiobook at your playback '
+          'speed, and how much is left',
+      'Time I have (What should I read next?): only books you could read in '
+          '1, 3, 6 or 12 hours, and books you are reading that you could '
+          'finish in that time',
+      'Stalled books: books on In progress you have not touched for much '
+          'longer than usual get a note on the Library, to keep reading, put '
+          'back on For later or mark Unfinished',
+      'Library health (Library menu): invalid ISBNs (and ISBN-10s to change '
+          'to ISBN-13 in one click), missing finish dates, dates the wrong way '
+          'round, missing pages, authors and covers, duplicates and stalled '
+          'books',
+      'Check covers (Library health): finds different books with the same '
+          'cover picture, and covers that are tiny, blank or the wrong shape',
+      'Search notes and quotes (Library menu): searches your notes, quotes, '
+          'highlights and audiobook bookmark notes, best match first, typos '
+          'forgiven',
+      'Quote of the day at the top of the Library: one of your quotes or '
+          'highlights, the one you have not seen for longest first (turn it '
+          'off in Settings)',
+      'Smarter sync: when a book was changed on both the PC and the phone, '
+          'each change is kept (for example a rating on the PC and tags on '
+          'the phone) instead of only the newest copy. Nothing changes on '
+          'the phone app',
+    ],
+  ),
+  ChangelogEntry(
+    version: '1.9.0',
     date: '2026-10-31',
     changes: [
-      'Choose a books folder and an audiobooks folder in Settings, and '
-          'Chapterly links the EPUB, PDF and audiobook files in them to the '
-          'matching books in your library',
-      'Scan now, or let it scan a few seconds after Chapterly opens (you can '
-          'switch that off)',
-      'Only clear matches are linked, a file is never put over one that is '
-          'already linked, and no book is added without asking',
-      'Files it is not sure about wait in a list where you link, choose '
-          'another book, add as a new book, or skip',
       'Works with a Calibre library: when a book sits in a Calibre folder, '
           'its metadata.opf is used to find the right book, and a blank '
           'cover, series, tags, ISBN or year is filled in from Calibre '
@@ -42,6 +121,21 @@ const changelog = [
       'Settings is tidier: grouped into Appearance, Adding books and your '
           'library, Folders and importing, Backup and sync, Privacy, and '
           'About and updates. Click a group to open it',
+    ],
+  ),
+  ChangelogEntry(
+    version: '1.8.0',
+    date: '2026-10-31',
+    changes: [
+      'Choose a books folder and an audiobooks folder in Settings, and '
+          'Chapterly links the EPUB, PDF and audiobook files in them to the '
+          'matching books in your library',
+      'Scan now, or let it scan a few seconds after Chapterly opens (you can '
+          'switch that off)',
+      'Only clear matches are linked, a file is never put over one that is '
+          'already linked, and no book is added without asking',
+      'Files it is not sure about wait in a list where you link, choose '
+          'another book, add as a new book, or skip',
     ],
   ),
   ChangelogEntry(

@@ -1,17 +1,23 @@
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
 import '../data/book_sorting.dart';
 import '../data/collections.dart';
+import '../data/details_refresh.dart';
 import '../data/file_io.dart';
+import '../data/forecast.dart';
 import '../data/open_library_client.dart';
 import '../data/pc_sync.dart';
+import '../data/quote_of_day.dart';
 import '../data/rating_text.dart';
+import '../data/saved_filters.dart';
+import '../data/stalled.dart';
+import '../data/statistics.dart';
 import '../data/update_check.dart';
+import '../ebook/ebook_reading.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
@@ -19,17 +25,23 @@ import '../models/wish_priority.dart';
 import '../widgets/book_cover.dart';
 import 'add_book_dialog.dart';
 import 'book_detail_screen.dart';
+import 'book_insights.dart';
 import 'book_table.dart';
 import 'bulk_add_screen.dart';
 import 'cover_size_dialog.dart';
 import 'duplicates_screen.dart';
 import 'file_drop.dart';
+import 'library_health_screen.dart';
 import 'manage_shelves_screen.dart';
+import 'notes_search_screen.dart';
 import 'search_screen.dart';
+import 'series_screen.dart';
 import 'settings_screen.dart';
 import 'shelf_picker.dart';
 import 'sync_preview.dart';
+import 'tags_screen.dart';
 import 'trash_screen.dart';
+import 'update_dialog.dart';
 
 enum _AddChoice { search, isbn, bulk, manual }
 
@@ -76,6 +88,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final _searchController = TextEditingController();
   bool _searching = false;
   bool _favoritesOnly = false;
+  int _quoteSkip = 0;
   final Set<String> _excludedTags = {};
   bool _matchAllTags = true;
   int? _finishYear;
@@ -147,11 +160,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
         duration: const Duration(seconds: 12),
         content: Text('Chapterly ${update.version} is available.'),
         action: SnackBarAction(
-          label: 'Download',
-          onPressed: () => launchUrl(
-            Uri.parse(update.url),
-            mode: LaunchMode.externalApplication,
-          ),
+          label: 'Update',
+          onPressed: () {
+            if (mounted) showUpdateDialog(context, update);
+          },
         ),
       ),
     );
@@ -475,7 +487,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void _openDuplicates() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => DuplicatesScreen(repository: widget.repository),
+        builder: (_) => DuplicatesScreen(
+          repository: widget.repository,
+          settings: widget.settings,
+        ),
       ),
     );
   }
@@ -544,6 +559,455 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
     await widget.repository.addToCollectionAll({..._selected}, name);
     if (mounted) setState(_selected.clear);
+  }
+
+  /// Fills in blank ISBNs, years, covers and pages of the selected books
+  /// from Open Library.
+  Future<void> _refreshSelected() async {
+    final books = [
+      for (final id in _selected)
+        ?widget.repository.byId(id),
+    ];
+    if (books.isEmpty) return;
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final done = ValueNotifier<int>(0);
+    var stopped = false;
+    var shown = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Refreshing details'),
+        content: SizedBox(
+          width: 360,
+          child: ValueListenableBuilder<int>(
+            valueListenable: done,
+            builder: (context, count, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LinearProgressIndicator(value: count / books.length),
+                const SizedBox(height: 12),
+                Text('$count of ${books.length} books'),
+                const SizedBox(height: 4),
+                const Text(
+                  'Only blank details are filled in.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              stopped = true;
+              Navigator.pop(dialog);
+            },
+            child: const Text('Stop'),
+          ),
+        ],
+      ),
+    ).whenComplete(() => shown = false);
+    final counts = {for (final outcome in RefreshOutcome.values) outcome: 0};
+    for (final book in books) {
+      if (stopped) break;
+      final outcome =
+          await refreshBookDetails(widget.repository, widget.client, book);
+      counts[outcome] = counts[outcome]! + 1;
+      done.value++;
+      // Offline: no point asking for the rest.
+      if (outcome == RefreshOutcome.failed) break;
+    }
+    if (shown) navigator.pop();
+    done.dispose();
+    final updated = counts[RefreshOutcome.updated]!;
+    final parts = [
+      'Filled in details for $updated ${updated == 1 ? 'book' : 'books'}',
+      if (counts[RefreshOutcome.unchanged]! > 0)
+        '${counts[RefreshOutcome.unchanged]} already complete',
+      if (counts[RefreshOutcome.notFound]! > 0)
+        '${counts[RefreshOutcome.notFound]} not found',
+      if (counts[RefreshOutcome.failed]! > 0)
+        'Open Library could not be reached',
+    ];
+    messenger.showSnackBar(SnackBar(content: Text('${parts.join(', ')}.')));
+    if (mounted) setState(_selected.clear);
+  }
+
+  void _openTags() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TagsScreen(
+          repository: widget.repository,
+          settings: widget.settings,
+        ),
+      ),
+    );
+  }
+
+  void _openHealth() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LibraryHealthScreen(
+          repository: widget.repository,
+          settings: widget.settings,
+          onOpenBook: (book) {
+            if (mounted) _openBook(book);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _openNotesSearch() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NotesSearchScreen(
+          repository: widget.repository,
+          onOpenBook: (book) {
+            if (mounted) _openBook(book);
+          },
+        ),
+      ),
+    );
+  }
+
+  /// A quote or highlight to read again, one a day (Windows app).
+  Widget? _quoteCard() {
+    if (!widget.settings.quoteOnLibrary) return null;
+    final now = DateTime.now();
+    if (widget.settings.quoteHiddenToday(now)) return null;
+    final quotes = allQuotes(
+      widget.repository.books,
+      ebooks: EbookReading.library?.links ?? const {},
+    );
+    final quote = quoteOfTheDay(
+      quotes,
+      seen: widget.settings.quoteSeen,
+      now: now,
+      skip: _quoteSkip,
+    );
+    if (quote == null) return null;
+    if (_quoteSkip == 0) widget.settings.markQuoteSeen(quote.key, now);
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 4, 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Icon(Icons.format_quote, size: 20),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      quote.text,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodyMedium
+                          ?.copyWith(fontStyle: FontStyle.italic),
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                      onPressed: () => _openBook(quote.book),
+                      child: Text(
+                        '${quote.book.title}'
+                        '${quote.book.author.isEmpty ? '' : ', ${quote.book.author}'}',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (quotes.length > 1)
+                IconButton(
+                  tooltip: 'Another quote',
+                  icon: const Icon(Icons.refresh, size: 18),
+                  onPressed: () => setState(() => _quoteSkip++),
+                ),
+              IconButton(
+                tooltip: 'Hide for today (turn it off in Settings)',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () => widget.settings.hideQuoteToday(now),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Books on In progress that have not moved for a while (Windows app).
+  Widget? _stalledBanner() {
+    final stalled = stalledBooks(
+      widget.repository.books,
+      ebooks: EbookReading.library?.links ?? const {},
+      snoozed: widget.settings.stalledSnoozed,
+    );
+    if (stalled.isEmpty) return null;
+    final count = stalled.length;
+    return MaterialBanner(
+      leading: const Icon(Icons.hourglass_bottom),
+      content: Text(
+        count == 1
+            ? '"${stalled.first.book.title}" has not moved in '
+                '${stalled.first.idleDays} days.'
+            : '$count books on In progress have not moved in a while.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            final now = DateTime.now();
+            for (final s in stalled) {
+              widget.settings.snoozeStalled(s.book.id, now);
+            }
+          },
+          child: const Text('Keep reading'),
+        ),
+        TextButton(onPressed: _openHealth, child: const Text('Review')),
+      ],
+    );
+  }
+
+  void _openSeries() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SeriesScreen(
+          repository: widget.repository,
+          onOpenBook: (book) {
+            if (mounted) _openBook(book);
+          },
+        ),
+      ),
+    );
+  }
+
+  // ---- Saved filters
+
+  void _applySavedFilter(SavedFilter filter) {
+    final allTags = widget.repository.allTags.toSet();
+    setState(() {
+      _selectedTags
+        ..clear()
+        ..addAll(filter.tags.where(allTags.contains));
+      _excludedTags
+        ..clear()
+        ..addAll(filter.excludedTags.where(allTags.contains));
+      _matchAllTags = filter.matchAllTags;
+      _formats
+        ..clear()
+        ..addAll(filter.formats);
+      _favoritesOnly = filter.favoritesOnly;
+      _finishYear = filter.finishYear;
+      _searchController.text = filter.query;
+      _searching = filter.query.isNotEmpty;
+    });
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _selectedTags.clear();
+      _excludedTags.clear();
+      _matchAllTags = true;
+      _formats.clear();
+      _favoritesOnly = false;
+      _finishYear = null;
+      _searchController.clear();
+      _searching = false;
+    });
+  }
+
+  Future<void> _saveFilters() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Save these filters'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Name',
+            hintText: 'For example: Unread fantasy',
+          ),
+          onSubmitted: (value) => Navigator.pop(dialog, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialog, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final clean = name?.trim() ?? '';
+    if (clean.isEmpty) return;
+    final filter = SavedFilter(
+      name: clean,
+      tags: {..._selectedTags},
+      excludedTags: {..._excludedTags},
+      matchAllTags: _matchAllTags,
+      formats: {..._formats},
+      favoritesOnly: _favoritesOnly,
+      finishYear: _finishYear,
+      query: _searchController.text.trim(),
+    );
+    widget.settings.setSavedFilters([
+      for (final f in widget.settings.savedFilters)
+        if (f.name.toLowerCase() != clean.toLowerCase()) f,
+      filter,
+    ]);
+  }
+
+  Future<void> _manageSavedFilters() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialog) => ListenableBuilder(
+        listenable: widget.settings,
+        builder: (dialog, _) {
+          final filters = widget.settings.savedFilters;
+          return AlertDialog(
+            title: const Text('Saved filters'),
+            content: SizedBox(
+              width: 420,
+              child: filters.isEmpty
+                  ? const Text('No saved filters.')
+                  : ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final filter in filters)
+                          ListTile(
+                            title: Text(filter.name),
+                            subtitle: Text(filter.describe()),
+                            trailing: IconButton(
+                              tooltip: 'Delete',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => widget.settings.setSavedFilters([
+                                for (final f in filters)
+                                  if (f.name != filter.name) f,
+                              ]),
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialog),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _savedFiltersChip() {
+    final filters = widget.settings.savedFilters;
+    return MenuAnchor(
+      menuChildren: [
+        for (final filter in filters)
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.filter_alt_outlined),
+            onPressed: () => _applySavedFilter(filter),
+            child: Text(filter.name),
+          ),
+        if (filters.isNotEmpty) const Divider(height: 1),
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.bookmark_add_outlined),
+          onPressed: _filtering ? _saveFilters : null,
+          child: const Text('Save these filters...'),
+        ),
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.filter_alt_off_outlined),
+          onPressed: _filtering ? _clearFilters : null,
+          child: const Text('Clear filters'),
+        ),
+        if (filters.isNotEmpty)
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.edit_outlined),
+            onPressed: _manageSavedFilters,
+            child: const Text('Manage saved filters...'),
+          ),
+      ],
+      builder: (context, controller, _) => ActionChip(
+        avatar: const Icon(Icons.bookmarks_outlined, size: 18),
+        label: const Text('Saved filters'),
+        onPressed: () =>
+            controller.isOpen ? controller.close() : controller.open(),
+      ),
+    );
+  }
+
+  /// This year's reading goal, at the top of the Library.
+  Widget? _goalStrip() {
+    if (!widget.settings.goalOnLibrary) return null;
+    final year = DateTime.now().year;
+    final goal = widget.settings.goalFor(year);
+    if (goal == null || goal <= 0) return null;
+    final stats = computeStats(widget.repository.books, year: year);
+    final status = challengeStatus(
+      finished: stats.finishedCount,
+      goal: goal,
+      year: year,
+    );
+    final outlook = forecastGoal(
+      widget.repository.books,
+      goal: goal,
+      year: year,
+      finishDates: [
+        for (final book in widget.repository.booksOn(Shelf.inProgress))
+          if (forecastFor(book) case final forecast?) forecast.date,
+      ],
+    );
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+      Row(
+        children: [
+          const Icon(Icons.flag_outlined, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            '$year goal: ${status.finished} of $goal',
+            style: textTheme.titleSmall,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: LinearProgressIndicator(value: status.progress),
+          ),
+          const SizedBox(width: 12),
+          Text(status.describe(), style: textTheme.bodySmall),
+          IconButton(
+            tooltip: 'Hide (turn it back on in Settings)',
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: () => widget.settings.setGoalOnLibrary(false),
+          ),
+        ],
+      ),
+          if (outlook != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 28, bottom: 4),
+              child: Text(outlook.describe(), style: textTheme.bodySmall),
+            ),
+        ],
+      ),
+    );
   }
 
   void _openTrash() {
@@ -1040,6 +1504,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 value: _setPrioritySelected,
                 child: const Text('Set priority'),
               ),
+              PopupMenuItem(
+                value: _refreshSelected,
+                child: const Text('Refresh details from Open Library'),
+              ),
             ],
           ),
         ],
@@ -1127,6 +1595,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
             PopupMenuItem(
               value: _openShelves,
               child: const Text('Your shelves'),
+            ),
+            PopupMenuItem(value: _openTags, child: const Text('Tags')),
+            PopupMenuItem(value: _openSeries, child: const Text('Series')),
+            PopupMenuItem(
+              value: _openNotesSearch,
+              child: const Text('Search notes and quotes'),
+            ),
+            PopupMenuItem(
+              value: _openHealth,
+              child: const Text('Library health'),
             ),
             PopupMenuItem(
               value: _openDuplicates,
@@ -1236,8 +1714,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ),
                         ],
                       ),
+                    ?_goalStrip(),
+                    ?_stalledBanner(),
+                    ?_quoteCard(),
                     _FilterBar(
                       chips: [
+                        _savedFiltersChip(),
                         FilterChip(
                           avatar: const Icon(Icons.favorite, size: 18),
                           label: const Text('Favorites'),

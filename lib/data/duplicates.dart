@@ -1,5 +1,6 @@
 import '../models/book.dart';
 import '../models/quote.dart';
+import 'fuzzy.dart';
 
 String _normalize(String text) =>
     text.toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), '');
@@ -174,4 +175,141 @@ Book mergeDuplicateGroup(List<Book> group) {
     merged = _absorb(merged, other);
   }
   return merged;
+}
+
+// ---- Windows app: books that may be the same, found with fuzzy matching.
+
+/// Two books that may be the same book, and why.
+class PossibleDuplicate {
+  const PossibleDuplicate(this.first, this.second, this.reason);
+
+  final Book first;
+  final Book second;
+  final String reason;
+
+  /// The same for (a, b) and (b, a), for remembering "Not the same".
+  String get key => pairKey(first.id, second.id);
+
+  static String pairKey(String a, String b) =>
+      a.compareTo(b) <= 0 ? '$a|$b' : '$b|$a';
+}
+
+String _foldTitle(String text) {
+  var value = foldText(text);
+  value = value.replaceFirst(RegExp(r'^(the|a|an) '), '');
+  return value;
+}
+
+String _mainPart(String title) =>
+    title.split(RegExp(r'\s*[:(\[]\s*|\s+[-–—]\s+')).first;
+
+/// Words that tell editions apart but not books, left out when comparing.
+final _editionWords = RegExp(
+  r'\b(deluxe|special|anniversary|illustrated|collectors?|annotated|'
+  r'unabridged|abridged|edition|paperback|hardcover)\b',
+);
+
+Set<String> _digitsIn(String text) =>
+    {for (final m in RegExp(r'\d+').allMatches(text)) m.group(0)!};
+
+Set<String> _authorWords(String author) => {
+      for (final word in foldedWords(author))
+        if (word.length >= 2) word,
+    };
+
+bool _sameAuthor(Book a, Book b) {
+  final wordsA = _authorWords(a.author);
+  final wordsB = _authorWords(b.author);
+  if (wordsA.isEmpty || wordsB.isEmpty) return true;
+  if (wordsA.intersection(wordsB).isNotEmpty) return true;
+  // A typo in the surname.
+  return wordsA.any((x) => x.length >= 5 && wordsB.any((y) => isNearWord(x, y)));
+}
+
+/// Why [a] and [b] may be the same book, or null when they do not look
+/// alike. Different series numbers, or different numbers in the titles
+/// ("Book 1" and "Book 2"), are never the same.
+String? _whyAlike(Book a, Book b) {
+  if (a.seriesNumber != null &&
+      b.seriesNumber != null &&
+      a.seriesNumber != b.seriesNumber) {
+    return null;
+  }
+  final titleA = _foldTitle(a.title);
+  final titleB = _foldTitle(b.title);
+  if (titleA.isEmpty || titleB.isEmpty) return null;
+  if (_digitsIn(titleA).length + _digitsIn(titleB).length > 0 &&
+      !_sameSet(_digitsIn(titleA), _digitsIn(titleB))) {
+    return null;
+  }
+  if (!_sameAuthor(a, b)) return null;
+  final mainA = _foldTitle(_mainPart(a.title));
+  final mainB = _foldTitle(_mainPart(b.title));
+  final hasSubA = mainA != titleA;
+  final hasSubB = mainB != titleB;
+  if (hasSubA != hasSubB && mainA == mainB && mainA.length >= 3) {
+    return 'Same title, one with a subtitle';
+  }
+  final plainA = titleA.replaceAll(_editionWords, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  final plainB = titleB.replaceAll(_editionWords, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (plainA.isNotEmpty && plainA == plainB) {
+    return 'Same title apart from the edition';
+  }
+  final squashedA = plainA.replaceAll(' ', '');
+  final squashedB = plainB.replaceAll(' ', '');
+  if (squashedA.length >= 5 && similarity(squashedA, squashedB) >= 0.85) {
+    return 'Almost the same title';
+  }
+  return null;
+}
+
+bool _sameSet(Set<String> a, Set<String> b) =>
+    a.length == b.length && a.containsAll(b);
+
+/// Pairs of books that may be the same book even though their titles are
+/// not exactly the same: a typo, a subtitle on one, "Deluxe Edition".
+/// Books already in an exact group ([findDuplicateGroups]) and pairs in
+/// [dismissed] (see [PossibleDuplicate.key]) are left out. Only books by
+/// the same author (or without one) are compared, so it stays quick.
+List<PossibleDuplicate> findPossibleDuplicates(
+  List<Book> books, {
+  Set<String> dismissed = const {},
+}) {
+  final live = [
+    for (final book in books)
+      if (book.deletedAt == null) book,
+  ];
+  final exact = <String>{
+    for (final group in findDuplicateGroups(live))
+      for (var i = 0; i < group.length; i++)
+        for (var j = i + 1; j < group.length; j++)
+          PossibleDuplicate.pairKey(group[i].id, group[j].id),
+  };
+  // Blocks: by surname, or by the start of the title for books without one.
+  final blocks = <String, List<Book>>{};
+  for (final book in live) {
+    final words = foldedWords(book.author);
+    final block = words.isNotEmpty
+        ? 'a:${words.last}'
+        : 't:${_foldTitle(book.title).padRight(3).substring(0, 3)}';
+    blocks.putIfAbsent(block, () => []).add(book);
+  }
+  final found = <PossibleDuplicate>[];
+  final seen = <String>{};
+  for (final block in blocks.values) {
+    for (var i = 0; i < block.length; i++) {
+      for (var j = i + 1; j < block.length; j++) {
+        final a = block[i];
+        final b = block[j];
+        final key = PossibleDuplicate.pairKey(a.id, b.id);
+        if (exact.contains(key) || dismissed.contains(key) || !seen.add(key)) {
+          continue;
+        }
+        final reason = _whyAlike(a, b);
+        if (reason != null) found.add(PossibleDuplicate(a, b, reason));
+      }
+    }
+  }
+  found.sort((x, y) => x.first.title.toLowerCase().compareTo(y.first.title.toLowerCase()));
+  return found;
 }

@@ -47,6 +47,25 @@ Made for a PC:
   list for you. Pointing the books folder at a Calibre library also fills
   blank covers, series, tags, ISBN and year from Calibre, and Import from
   Calibre library adds the books you do not have yet
+- This year's reading goal at the top of the Library, saved filters, a tag
+  manager (rename, merge, delete) and a series tracker with missing numbers
+- Audiobook bookmarks with notes, a mini player that stays on top, media
+  keys and Windows' media pop-up, and keep running in the tray
+- Export a book's notes, quotes, highlights and bookmarks as Markdown or PDF,
+  and refresh blank details of selected books from Open Library
+- Install updates from inside Chapterly
+- Smart, offline helpers: a finish forecast for the books you are reading
+  and for your yearly goal, typo-tolerant search, possible duplicates,
+  "best match" in What should I read next? and similar books, your taste in
+  Statistics, suggested tags, series found in titles, carrying on between
+  an audiobook and its book file, and a short rewind after a pause
+- More of the same: a predicted rating and reading time on each book, "Time
+  I have" in What should I read next?, stalled-book notes, Library health
+  (with ISBN checks and a cover check), search across your notes and quotes,
+  and a quote of the day
+- When a book was changed on both the PC and the phone since the last sync,
+  the PC merges the two copies field by field before syncing, so both
+  changes are kept (the last-synced copy is in `sync_base.json`)
 - Keyboard shortcuts: Ctrl+F search, Ctrl+N add a book, Ctrl+Shift+N add
   several, Ctrl+O add a book file or audiobook, Ctrl+S sync, Ctrl+V paste a
   cover, Ctrl+, Settings, Esc to close

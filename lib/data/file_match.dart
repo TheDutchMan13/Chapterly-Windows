@@ -1,4 +1,5 @@
 import '../models/book.dart';
+import 'fuzzy.dart';
 
 /// A title and author found inside a file, or guessed from its name.
 class FoundBookInfo {
@@ -91,7 +92,57 @@ int titleScore(String bookTitle, String candidate) {
   final shorter = book.length <= found.length ? book : found;
   final longer = shorter == book ? found : book;
   if (shorter.length >= 6 && longer.contains(shorter)) return 65;
+  return _nearTitleScore(bookTitle, candidate);
+}
+
+/// Words in file names and tags that are not part of the title.
+final _noise = RegExp(
+  r'\b(unabridged|abridged|audiobook|audio book|retail|epub|ebook|e book|'
+  r'kindle|mp3|m4b|a novel|full cast|dramatized|dramatised)\b',
+);
+
+String _plainTitle(String text) =>
+    titleKey(foldText(text).replaceAll(_noise, ' '));
+
+Set<String> _numbers(String text) =>
+    {for (final m in RegExp(r'\d+').allMatches(text)) m.group(0)!};
+
+/// Windows app: titles that are nearly the same. 80 when they only differ
+/// by words such as "Unabridged", 75 for a typo or two, 70 for the same
+/// words in another order or the same title without subtitles but with a
+/// typo, 0 otherwise. Different numbers ("Book 1", "Book 2") never match.
+int _nearTitleScore(String bookTitle, String candidate) {
+  final a = foldText(bookTitle);
+  final b = foldText(candidate);
+  final numbersA = _numbers(a);
+  final numbersB = _numbers(b);
+  if (numbersA.isNotEmpty &&
+      numbersB.isNotEmpty &&
+      !(numbersA.length == numbersB.length && numbersA.containsAll(numbersB))) {
+    return 0;
+  }
+  final plainA = _plainTitle(bookTitle);
+  final plainB = _plainTitle(candidate);
+  if (plainA.length >= 4 && plainA == plainB) return 80;
+  if (plainA.length >= 6 && similarity(plainA, plainB) >= 0.88) return 75;
+  final mainA = titleKey(mainTitle(bookTitle));
+  final mainB = titleKey(mainTitle(candidate));
+  if (mainA.length >= 6 && similarity(mainA, mainB) >= 0.9) return 70;
+  final wordsA = _words(a.replaceAll(_noise, ' '));
+  final wordsB = _words(b.replaceAll(_noise, ' '));
+  if (wordsA.length >= 2 && wordsB.length >= 2) {
+    final shared = wordsA.intersection(wordsB).length;
+    final all = wordsA.union(wordsB).length;
+    if (shared / all >= 0.75) return 70;
+  }
   return 0;
+}
+
+/// Whether two sets of author words are the same person: a shared word,
+/// or a surname with a typo.
+bool _authorsMeet(Set<String> a, Set<String> b) {
+  if (a.intersection(b).isNotEmpty) return true;
+  return a.any((x) => x.length >= 5 && b.any((y) => isNearWord(x, y)));
 }
 
 /// A book that may be the one in a file, and how sure we are.
@@ -133,9 +184,7 @@ List<BookMatch> findMatchingBooks(
     final bookAuthorWords = _words(book.author);
     if (bookAuthorWords.isNotEmpty) {
       if (fileAuthorWords.isNotEmpty) {
-        score += bookAuthorWords.intersection(fileAuthorWords).isNotEmpty
-            ? 15
-            : -25;
+        score += _authorsMeet(bookAuthorWords, fileAuthorWords) ? 15 : -25;
       } else if (bookAuthorWords.intersection(nameWords).isNotEmpty) {
         score += 15;
       }

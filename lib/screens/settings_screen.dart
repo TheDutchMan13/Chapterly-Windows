@@ -20,6 +20,7 @@ import 'pin_dialogs.dart';
 import 'scan_settings.dart';
 import 'shelf_order_screen.dart';
 import 'sync_preview.dart';
+import 'update_dialog.dart';
 import 'whats_new_screen.dart';
 
 /// Accent colour and font, backup and restore, and CSV import and export.
@@ -285,11 +286,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SnackBar(
             content: Text('Chapterly ${update.version} is available.'),
             action: SnackBarAction(
-              label: 'Download',
-              onPressed: () => launchUrl(
-                Uri.parse(update.url),
-                mode: LaunchMode.externalApplication,
-              ),
+              label: 'Update',
+              onPressed: () {
+                if (mounted) showUpdateDialog(context, update);
+              },
             ),
           ),
         );
@@ -528,6 +528,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ),
               ),
+              ListenableBuilder(
+                listenable: widget.settings,
+                builder: (context, _) => SwitchListTile(
+                  secondary: const Icon(Icons.keyboard_hide_outlined),
+                  title: const Text('Keep running in the tray'),
+                  subtitle: const Text(
+                    'Closing the window keeps Chapterly (and your audiobook) '
+                    'running in the system tray. Click the tray icon to '
+                    'bring it back; right-click it to quit.',
+                  ),
+                  value: widget.settings.closeToTray,
+                  onChanged: widget.settings.setCloseToTray,
+                ),
+              ),
+              ListenableBuilder(
+                listenable: widget.settings,
+                builder: (context, _) => SwitchListTile(
+                  secondary: const Icon(Icons.replay_5),
+                  title: const Text('Rewind a little after a pause'),
+                  subtitle: const Text(
+                    'When you play an audiobook again, go back a few '
+                    'seconds: 2 after a short pause, up to 30 after a day.',
+                  ),
+                  value: widget.settings.smartRewind,
+                  onChanged: widget.settings.setSmartRewind,
+                ),
+              ),
             ],
           ),
           _SettingsGroup(
@@ -593,6 +620,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 listenable: widget.settings,
                 builder: (context, _) => Column(
                   children: [
+                    SwitchListTile(
+                      title: const Text("Show this year's goal on the Library"),
+                      subtitle: const Text(
+                        'A progress bar above the filters, when you have set '
+                        'a reading goal in Statistics',
+                      ),
+                      value: widget.settings.goalOnLibrary,
+                      onChanged: widget.settings.setGoalOnLibrary,
+                    ),
+                    SwitchListTile(
+                      title: const Text('Quote of the day on the Library'),
+                      subtitle: const Text(
+                        'One of your quotes or highlights each day, the one '
+                        'you have not seen for longest first',
+                      ),
+                      value: widget.settings.quoteOnLibrary,
+                      onChanged: widget.settings.setQuoteOnLibrary,
+                    ),
                     SwitchListTile(
                       title: const Text('Show ratings as numbers'),
                       subtitle: const Text('4/5 instead of stars'),

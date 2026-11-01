@@ -9,6 +9,7 @@ import '../models/book.dart';
 import 'app_settings.dart';
 import 'book_repository.dart';
 import 'phone_finder.dart';
+import 'sync_three_way.dart';
 import 'sync_merge.dart';
 import 'sync_plan.dart';
 import 'sync_protocol.dart';
@@ -213,12 +214,18 @@ class PcSync extends ChangeNotifier {
     required this.settings,
     required this.codeStore,
     SyncClient? client,
-  }) : client = client ?? SyncClient();
+    SyncBase? base,
+  })  : client = client ?? SyncClient(),
+        base = base ?? SyncBase();
 
   final BookRepository repository;
   final AppSettings settings;
   final CodeStore codeStore;
   final SyncClient client;
+
+  /// The books as they were after the last sync, for merging books changed
+  /// on both sides field by field (Windows app).
+  final SyncBase base;
 
   bool _busy = false;
   bool _hasCode = false;
@@ -287,6 +294,8 @@ class PcSync extends ChangeNotifier {
     settings.setSyncAddress(formatPhoneAddress(base));
     _hasCode = true;
     _busy = false;
+    // A new pairing starts without a last-synced copy.
+    await this.base.save(const []);
     final problem = await syncNow();
     // Only keep the pairing when the first sync worked, so a wrong code is
     // not saved.
@@ -306,7 +315,33 @@ class PcSync extends ChangeNotifier {
     }
     _setBusy(true);
     try {
-      final sent = repository.snapshot();
+      SyncPayload? phone;
+      if (!base.isEmpty) {
+        // Ask for the phone's library (sending none changes nothing there)
+        // to merge books changed on both sides before sending.
+        phone = await client.sync(
+          address,
+          code,
+          encodeSyncPayload(const [], const {}),
+        );
+      }
+      // Taken after that, so a change made meanwhile is sent too.
+      var sent = repository.snapshot();
+      if (phone != null) {
+        final resolved = resolveConflicts(
+          base: base.books,
+          local: sent.books,
+          remote: phone.books,
+          now: DateTime.now(),
+        );
+        if (resolved.isNotEmpty) {
+          final byId = {for (final book in resolved) book.id: book};
+          sent = (
+            books: [for (final book in sent.books) byId[book.id] ?? book],
+            tombstones: sent.tombstones,
+          );
+        }
+      }
       final reply = await client.sync(
         address,
         code,
@@ -324,6 +359,9 @@ class PcSync extends ChangeNotifier {
       );
       final changed = countSyncChanges(now.books, merged.books);
       await repository.applySynced(merged.books, merged.tombstones);
+      // What the phone holds now. A change made on this PC during the sync
+      // is not in it, so the next sync still sees it as a PC change.
+      await base.save(reply.books);
       settings.recordSync(at: DateTime.now(), changed: changed);
       _pending = null;
       return null;
@@ -359,10 +397,20 @@ class PcSync extends ChangeNotifier {
         encodeSyncPayload(const [], const {}),
       );
       final now = repository.snapshot();
+      // Books changed on both sides are shown as the sync will merge them.
+      final resolved = base.isEmpty
+          ? const <Book>[]
+          : resolveConflicts(
+              base: base.books,
+              local: now.books,
+              remote: phone.books,
+              now: DateTime.now(),
+            );
+      final byId = {for (final book in resolved) book.id: book};
       final plan = planSync(
         phoneBooks: phone.books,
         phoneTombstones: phone.tombstones,
-        pcBooks: now.books,
+        pcBooks: [for (final book in now.books) byId[book.id] ?? book],
         pcTombstones: now.tombstones,
       );
       return (plan: plan, problem: null);
@@ -500,6 +548,7 @@ class PcSync extends ChangeNotifier {
       // Already gone.
     }
     settings.setSyncAddress(null);
+    await base.save(const []);
     _hasCode = false;
     _pending = null;
     notifyListeners();
