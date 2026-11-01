@@ -38,8 +38,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Chapterly"; Filename: "{app}\chapterly.exe"
+Name: "{autoprograms}\Chapterly"; Filename: "{app}\chapterly.exe"; AppUserModelID: "HansDeKryger.Chapterly"
 Name: "{autodesktop}\Chapterly"; Filename: "{app}\chapterly.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\chapterly.exe"; Description: "{cm:LaunchProgram,Chapterly}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\chapterly.exe"; Description: "{cm:LaunchProgram,Chapterly}"; Flags: nowait postinstall

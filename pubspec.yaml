@@ -3,7 +3,7 @@ description: "Chapterly for Windows: a private book tracker that syncs with the 
 publish_to: 'none'
 
 # Keep in step with appVersion in lib/data/app_info.dart.
-version: 1.8.0+9
+version: 1.10.0+11
 
 environment:
   sdk: ^3.13.5
@@ -44,6 +44,10 @@ dependencies:
   html: ^0.15.4
   flutter_widget_from_html_core: ^0.17.4
   pdfrx: ^2.11.0
+  # The keyboard's media keys and Windows' media pop-up for audiobooks.
+  flutter_media_session: ^3.0.9
+  # Keep running in the system tray. 0.6 and newer changed the whole API.
+  tray_manager: ^0.5.3
 
 dev_dependencies:
   flutter_test:
@@ -52,3 +56,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # The system tray icon (a copy of the app icon).
+    - assets/tray_icon.ico

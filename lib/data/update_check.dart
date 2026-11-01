@@ -11,13 +11,45 @@ const latestReleaseApi =
     'https://api.github.com/repos/TheDutchMan13/Chapterly-Windows/releases/latest';
 
 class AvailableUpdate {
-  const AvailableUpdate({required this.version, required this.url});
+  const AvailableUpdate({
+    required this.version,
+    required this.url,
+    this.installerUrl,
+    this.installerBytes,
+  });
 
   /// Such as 1.2.0.
   final String version;
 
   /// The release page on GitHub.
   final String url;
+
+  /// The release's `Chapterly-Setup-<version>.exe`, when it has one, so the
+  /// update can be downloaded and installed from inside Chapterly.
+  final String? installerUrl;
+
+  /// Its size, for the progress bar.
+  final int? installerBytes;
+}
+
+final _installerName = RegExp(r'^Chapterly-Setup-[0-9][0-9.]*\.exe$');
+
+/// The installer among a release's files: the right name, from GitHub.
+({String url, int? bytes})? _installerAsset(Object? assets) {
+  if (assets is! List) return null;
+  for (final asset in assets) {
+    if (asset is! Map) continue;
+    final name = asset['name'];
+    final url = asset['browser_download_url'];
+    final size = asset['size'];
+    if (name is String &&
+        url is String &&
+        _installerName.hasMatch(name) &&
+        url.startsWith('https://github.com/')) {
+      return (url: url, bytes: size is int ? size : null);
+    }
+  }
+  return null;
 }
 
 /// GitHub could not be asked.
@@ -71,7 +103,13 @@ AvailableUpdate? parseLatestRelease(String body, {String current = appVersion}) 
   if (!isNewerVersion(tag, current)) return null;
   final version =
       tag.startsWith('v') || tag.startsWith('V') ? tag.substring(1) : tag;
-  return AvailableUpdate(version: version, url: url);
+  final installer = _installerAsset(data['assets']);
+  return AvailableUpdate(
+    version: version,
+    url: url,
+    installerUrl: installer?.url,
+    installerBytes: installer?.bytes,
+  );
 }
 
 /// Once a day at most.

@@ -35,6 +35,12 @@ class ListenController extends ChangeNotifier {
   /// Called when a book has been listened to the end.
   void Function(Book book)? onFinished;
 
+  /// Windows app: going back a few seconds when you play again after a
+  /// pause, more the longer the pause (see [rewindAfterPause]). Set from
+  /// the settings in main.dart; off in tests.
+  bool smartRewind = false;
+  DateTime? _pausedAt;
+
   AudioEngine? _engine;
   StreamSubscription<void>? _changes;
   StreamSubscription<void>? _done;
@@ -150,6 +156,8 @@ class ListenController extends ChangeNotifier {
     _bookId = bookId;
     _finished = false;
     _lastSaved = book.audio;
+    // When it was last saved: the end of the last listen, roughly.
+    _pausedAt = book.audio == null ? null : book.updatedAt;
     _lastLog = _now();
     _changes = engine.changes.listen((_) => _onChange());
     _done = engine.completed.listen((_) => _onCompleted());
@@ -178,9 +186,14 @@ class ListenController extends ChangeNotifier {
   Future<void> play() async {
     final engine = _engine;
     if (engine == null) return;
+    final pausedAt = _pausedAt;
+    _pausedAt = null;
     if (_finished) {
       _finished = false;
       await engine.seek(0, Duration.zero);
+    } else if (smartRewind && pausedAt != null) {
+      final back = rewindAfterPause(_now().difference(pausedAt));
+      if (back > Duration.zero) await skip(-back);
     }
     await engine.play();
   }
@@ -194,6 +207,7 @@ class ListenController extends ChangeNotifier {
   /// Jumps forward (or back, with a negative [delta]), into the next or
   /// previous file when needed.
   Future<void> skip(Duration delta) async {
+    _pausedAt = null;
     final engine = _engine;
     final link = this.link;
     if (engine == null || link == null) return;
@@ -220,8 +234,24 @@ class ListenController extends ChangeNotifier {
     await engine.seek(index, target);
   }
 
+  /// Jumps to a place in the book: a file and where in it.
+  Future<void> seekTo(int track, Duration position) async {
+    _pausedAt = null;
+    final engine = _engine;
+    final link = this.link;
+    if (engine == null || link == null) return;
+    if (track < 0 || track >= link.tracks.length) return;
+    _finished = false;
+    await engine.seek(
+      track,
+      position < Duration.zero ? Duration.zero : position,
+    );
+    notifyListeners();
+  }
+
   /// Moves within the file playing now.
   Future<void> seekInTrack(Duration position) async {
+    _pausedAt = null;
     await _engine?.seek(
       track,
       position < Duration.zero ? Duration.zero : position,
@@ -230,6 +260,7 @@ class ListenController extends ChangeNotifier {
   }
 
   Future<void> goToChapter(int index) async {
+    _pausedAt = null;
     final list = chapters;
     if (index < 0 || index >= list.length) return;
     final chapter = list[index];
@@ -339,6 +370,7 @@ class ListenController extends ChangeNotifier {
       _saveTimer?.cancel();
       _saveTimer = Timer.periodic(saveEvery, (_) => _tick());
     } else if (!nowPlaying && _wasPlaying) {
+      _pausedAt = _now();
       _countListening();
       _saveTimer?.cancel();
       _saveTimer = null;
@@ -439,4 +471,17 @@ class ListenController extends ChangeNotifier {
     _engine?.dispose();
     super.dispose();
   }
+}
+
+/// Windows app: how far to go back when playing again after a pause of
+/// [paused]: nothing for a few seconds, then 2 seconds, up to 30 seconds
+/// after a day or more, so you pick up the thread again.
+Duration rewindAfterPause(Duration paused) {
+  final seconds = paused.inSeconds;
+  if (seconds < 10) return Duration.zero;
+  if (seconds < 60) return const Duration(seconds: 2);
+  if (seconds < 10 * 60) return const Duration(seconds: 5);
+  if (seconds < 60 * 60) return const Duration(seconds: 10);
+  if (seconds < 24 * 60 * 60) return const Duration(seconds: 20);
+  return const Duration(seconds: 30);
 }
