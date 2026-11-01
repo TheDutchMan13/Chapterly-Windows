@@ -129,6 +129,37 @@ class _ListenCardState extends State<ListenCard> {
     if (sure == true) await controller.removeAudio(widget.book.id);
   }
 
+  Future<void> _restart() async {
+    final controller = Listening.controller;
+    if (controller == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Start from the beginning?'),
+        content: const Text(
+          'The audiobook goes back to the start and begins playing. Where '
+          'you are now is not kept.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Restart'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true) return;
+    final problem = await controller.restart(widget.book.id);
+    if (problem != null) {
+      messenger.showSnackBar(SnackBar(content: Text(problem)));
+    }
+  }
+
   Future<void> _listen() async {
     final controller = Listening.controller;
     if (controller == null) return;
@@ -276,6 +307,12 @@ class _ListenCardState extends State<ListenCard> {
                                     : 'Listen',
                           ),
                         ),
+                        if (current || (progress?.positionMs ?? 0) > 0)
+                          OutlinedButton.icon(
+                            onPressed: _restart,
+                            icon: const Icon(Icons.replay),
+                            label: const Text('Restart'),
+                          ),
                         if (current)
                           OutlinedButton.icon(
                             onPressed: () => openPlayer(context),

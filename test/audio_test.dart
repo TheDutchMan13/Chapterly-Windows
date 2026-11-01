@@ -546,6 +546,27 @@ void main() {
       expect((engine.index, engine.position), (0, Duration.zero));
     });
 
+    test('restart goes back to the start and plays', () async {
+      await controller.open(id, autoplay: false);
+      engine
+        ..index = 1
+        ..position = const Duration(seconds: 40);
+      expect(await controller.restart(id), isNull);
+      expect((engine.index, engine.position), (0, Duration.zero));
+      expect(engine.playing, isTrue);
+    });
+
+    test('restart on a book that is not open begins at zero', () async {
+      await repository.setAudioProgress(
+        id,
+        const AudioProgress(positionMs: 70000, trackCount: 3),
+      );
+      expect(await controller.restart(id), isNull);
+      expect((engine.index, engine.position), (0, Duration.zero));
+      expect(repository.byId(id)!.audio!.positionMs, 0);
+      expect(await controller.restart('missing'), isNotNull);
+    });
+
     test('moves between chapters', () async {
       await controller.open(id, autoplay: false);
       await controller.nextChapter();

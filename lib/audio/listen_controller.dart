@@ -158,6 +158,23 @@ class ListenController extends ChangeNotifier {
     return null;
   }
 
+  /// Starts the book again from the beginning and plays it. Returns null
+  /// when it worked, or the message to show.
+  Future<String?> restart(String bookId) async {
+    final link = library.linkFor(bookId);
+    if (link == null) return 'This book has no audio on this device.';
+    final engine = _engine;
+    if (_bookId == bookId && engine != null) {
+      _finished = false;
+      await engine.seek(0, Duration.zero);
+      notifyListeners();
+      await play();
+      return null;
+    }
+    await repository.setAudioProgress(bookId, link.progressAt(0, 0));
+    return open(bookId);
+  }
+
   Future<void> play() async {
     final engine = _engine;
     if (engine == null) return;
