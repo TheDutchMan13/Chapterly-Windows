@@ -35,6 +35,9 @@ const changelog = [
           'library, scan your folders now, or from a CSV file',
       'A progress window with a bar and the book being worked on while a '
           'scan or Calibre import runs',
+      'Settings is tidier: grouped into Appearance, Adding books and your '
+          'library, Folders and importing, Backup and sync, Privacy, and '
+          'About and updates. Click a group to open it',
     ],
   ),
   ChangelogEntry(

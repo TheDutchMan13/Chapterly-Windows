@@ -428,389 +428,429 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         children: [
           if (_busy) const LinearProgressIndicator(),
-          const _SectionHeader('Appearance'),
-          ListenableBuilder(
-            listenable: widget.settings,
-            builder: (context, _) => Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: SegmentedButton<ThemeMode>(
-                    segments: const [
-                      ButtonSegment(
-                        value: ThemeMode.system,
-                        label: Text('System'),
+          _SettingsGroup(
+            icon: Icons.palette_outlined,
+            title: 'Appearance',
+            subtitle: 'Light or dark, colours, fonts',
+            initiallyExpanded: true,
+            children: [
+              ListenableBuilder(
+                listenable: widget.settings,
+                builder: (context, _) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: SegmentedButton<ThemeMode>(
+                        segments: const [
+                          ButtonSegment(
+                            value: ThemeMode.system,
+                            label: Text('System'),
+                          ),
+                          ButtonSegment(
+                            value: ThemeMode.light,
+                            label: Text('Light'),
+                          ),
+                          ButtonSegment(
+                            value: ThemeMode.dark,
+                            label: Text('Dark'),
+                          ),
+                        ],
+                        selected: {widget.settings.themeMode},
+                        onSelectionChanged: (choice) =>
+                            widget.settings.setThemeMode(choice.first),
                       ),
-                      ButtonSegment(
-                        value: ThemeMode.light,
-                        label: Text('Light'),
+                    ),
+                    SwitchListTile(
+                      title: const Text('Pure black in dark mode'),
+                      subtitle: const Text(
+                        'True black instead of dark grey. Can save battery on '
+                        'OLED screens.',
                       ),
-                      ButtonSegment(
-                        value: ThemeMode.dark,
-                        label: Text('Dark'),
+                      value: widget.settings.pureBlack,
+                      onChanged: widget.settings.setPureBlack,
+                    ),
+                    SwitchListTile(
+                      title: const Text('Paper look in light mode'),
+                      subtitle: const Text(
+                        'A warm, cream page colour instead of white.',
+                      ),
+                      value: widget.settings.paperLight,
+                      onChanged: widget.settings.setPaperLight,
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          for (final choice in accentChoices)
+                            _AccentDot(
+                              choice: choice,
+                              selected:
+                                  choice.color.toARGB32() == widget.settings.accent,
+                              onTap: () => widget.settings
+                                  .setAccent(choice.color.toARGB32()),
+                            ),
+                          _CustomAccentDot(
+                            current: Color(widget.settings.accent),
+                            selected: !accentChoices.any(
+                              (choice) =>
+                                  choice.color.toARGB32() ==
+                                  widget.settings.accent,
+                            ),
+                            onPick: (colour) =>
+                                widget.settings.setAccent(colour.toARGB32()),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    RadioGroup<String>(
+                      groupValue: widget.settings.fontFamily ?? '',
+                      onChanged: (value) => widget.settings.setFontFamily(
+                        value == null || value.isEmpty ? null : value,
+                      ),
+                      child: Column(
+                        children: [
+                          for (final font in fontChoices)
+                            RadioListTile<String>(
+                              value: font.family ?? '',
+                              title: Text(
+                                font.label,
+                                style: TextStyle(fontFamily: font.family),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          _SettingsGroup(
+            icon: Icons.library_books_outlined,
+            title: 'Adding books and your library',
+            subtitle: 'Defaults for new books, shelves, trash',
+            children: [
+              const _SectionHeader('Adding books'),
+              ListenableBuilder(
+                listenable: widget.settings,
+                builder: (context, _) => Column(
+                  children: [
+                    ListTile(
+                      title: const Text('Put new books on'),
+                      trailing: DropdownButton<Shelf?>(
+                        value: widget.settings.defaultShelf,
+                        items: [
+                          const DropdownMenuItem(
+                            value: null,
+                            child: Text('Ask every time'),
+                          ),
+                          for (final shelf in Shelf.values)
+                            DropdownMenuItem(
+                              value: shelf,
+                              child: Text(shelf.label),
+                            ),
+                        ],
+                        onChanged: widget.settings.setDefaultShelf,
+                      ),
+                    ),
+                    ListTile(
+                      title: const Text('Format of new books'),
+                      trailing: DropdownButton<BookFormat?>(
+                        value: widget.settings.defaultFormat,
+                        items: [
+                          const DropdownMenuItem(
+                            value: null,
+                            child: Text('Not set'),
+                          ),
+                          for (final format in BookFormat.values)
+                            DropdownMenuItem(
+                              value: format,
+                              child: Text(format.label),
+                            ),
+                        ],
+                        onChanged: widget.settings.setDefaultFormat,
+                      ),
+                    ),
+                    ListTile(
+                      title: const Text('Tags for new books'),
+                      subtitle: Text(
+                        widget.settings.defaultTags.isEmpty
+                            ? 'None'
+                            : widget.settings.defaultTags.join(', '),
+                      ),
+                      onTap: _editDefaultTags,
+                    ),
+                  ],
+                ),
+              ),
+              const _SectionHeader('Library'),
+              ListenableBuilder(
+                listenable: widget.settings,
+                builder: (context, _) => Column(
+                  children: [
+                    SwitchListTile(
+                      title: const Text('Show ratings as numbers'),
+                      subtitle: const Text('4/5 instead of stars'),
+                      value: widget.settings.ratingAsNumber,
+                      onChanged: widget.settings.setRatingAsNumber,
+                    ),
+                    SwitchListTile(
+                      title: const Text('Show format on book cards'),
+                      value: widget.settings.showFormatOnCards,
+                      onChanged: widget.settings.setShowFormatOnCards,
+                    ),
+                    SwitchListTile(
+                      title: const Text('Show tags on book cards'),
+                      value: widget.settings.showTagsOnCards,
+                      onChanged: widget.settings.setShowTagsOnCards,
+                    ),
+                    ListTile(
+                      title: const Text('Order of shelf tabs'),
+                      subtitle: Text(
+                        [for (final s in widget.settings.shelfOrder) s.label]
+                            .join(' · '),
+                      ),
+                      onTap: _openShelfOrder,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          _SettingsGroup(
+            icon: Icons.folder_copy_outlined,
+            title: 'Folders and importing',
+            subtitle: 'Book folders, Calibre, CSV, Kindle',
+            children: [
+              if (LibraryScanning.scanner case final scanner?) ...[
+                const _SectionHeader('Book and audiobook folders'),
+                ScanSettings(
+                  settings: widget.settings,
+                  repository: widget.repository,
+                  scanner: scanner,
+                ),
+              ],
+              const _SectionHeader('Spreadsheet (CSV)'),
+              ListTile(
+                leading: const Icon(Icons.table_chart_outlined),
+                title: const Text('Export as CSV'),
+                subtitle: const Text('Open your books in a spreadsheet app.'),
+                onTap: _exportCsv,
+              ),
+              ListTile(
+                leading: const Icon(Icons.file_download_outlined),
+                title: const Text('Import from CSV'),
+                subtitle: const Text(
+                  'Add books from a Goodreads, StoryGraph or Libib export, or a '
+                  'Chapterly CSV. Books you already have are skipped.',
+                ),
+                onTap: _importCsv,
+              ),
+              const _SectionHeader('Kindle'),
+              ListTile(
+                leading: const Icon(Icons.format_quote_outlined),
+                title: const Text('Import Kindle highlights'),
+                subtitle: const Text(
+                  'Plug in your Kindle and pick its documents\\My Clippings.txt '
+                  'file. Highlights become quotes on books you already have.',
+                ),
+                onTap: _importKindle,
+              ),
+            ],
+          ),
+          _SettingsGroup(
+            icon: Icons.backup_outlined,
+            title: 'Backup and sync',
+            subtitle: 'Backups, reminders, syncing with your phone',
+            children: [
+              const _SectionHeader('Backup'),
+              ListTile(
+                leading: const Icon(Icons.upload_file),
+                title: const Text('Export backup'),
+                subtitle: const Text(
+                  'Save your whole library as a file. Send it to Drive, email '
+                  'or Files to keep it safe.',
+                ),
+                onTap: _exportBackup,
+              ),
+              ListTile(
+                leading: const Icon(Icons.restore),
+                title: const Text('Restore backup'),
+                subtitle: const Text(
+                  'Replace your library with a backup file made by Chapterly.',
+                ),
+                onTap: _restoreBackup,
+              ),
+              const _SectionHeader('Automatic backups'),
+              ListenableBuilder(
+                listenable: widget.settings,
+                builder: (context, _) => Column(
+                  children: [
+                    SwitchListTile(
+                      title: const Text('Back up by itself'),
+                      subtitle: const Text(
+                        'Saves a backup file in Documents\\Chapterly when you open '
+                        'the app, and keeps the last $autoBackupKeep. That folder '
+                        'stays when the app is uninstalled.',
+                      ),
+                      value: widget.settings.autoBackup,
+                      onChanged: widget.settings.setAutoBackup,
+                    ),
+                    if (widget.settings.autoBackup) ...[
+                      ListTile(
+                        title: const Text('How often'),
+                        trailing: DropdownButton<int>(
+                          value: widget.settings.autoBackupDays,
+                          items: const [
+                            DropdownMenuItem(value: 1, child: Text('Every day')),
+                            DropdownMenuItem(value: 7, child: Text('Every week')),
+                            DropdownMenuItem(value: 30, child: Text('Every month')),
+                          ],
+                          onChanged: (days) {
+                            if (days != null) widget.settings.setAutoBackupDays(days);
+                          },
+                        ),
+                      ),
+                      ListTile(
+                        title: const Text('Last automatic backup'),
+                        subtitle: Text(_autoBackupText()),
+                        trailing: TextButton(
+                          onPressed: _backUpNow,
+                          child: const Text('Back up now'),
+                        ),
                       ),
                     ],
-                    selected: {widget.settings.themeMode},
-                    onSelectionChanged: (choice) =>
-                        widget.settings.setThemeMode(choice.first),
-                  ),
+                  ],
                 ),
-                SwitchListTile(
-                  title: const Text('Pure black in dark mode'),
-                  subtitle: const Text(
-                    'True black instead of dark grey. Can save battery on '
-                    'OLED screens.',
-                  ),
-                  value: widget.settings.pureBlack,
-                  onChanged: widget.settings.setPureBlack,
-                ),
-                SwitchListTile(
-                  title: const Text('Paper look in light mode'),
-                  subtitle: const Text(
-                    'A warm, cream page colour instead of white.',
-                  ),
-                  value: widget.settings.paperLight,
-                  onChanged: widget.settings.setPaperLight,
-                ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
+              ),
+              const _SectionHeader('Backup reminder'),
+              ListenableBuilder(
+                listenable: widget.settings,
+                builder: (context, _) {
+                  final last = widget.settings.lastBackup;
+                  return Column(
                     children: [
-                      for (final choice in accentChoices)
-                        _AccentDot(
-                          choice: choice,
-                          selected:
-                              choice.color.toARGB32() == widget.settings.accent,
-                          onTap: () => widget.settings
-                              .setAccent(choice.color.toARGB32()),
+                      SwitchListTile(
+                        title: const Text('Remind me to back up'),
+                        subtitle: Text(
+                          last == null
+                              ? 'No backup made yet'
+                              : 'Last backup: ${formatDate(last)}',
                         ),
-                      _CustomAccentDot(
-                        current: Color(widget.settings.accent),
-                        selected: !accentChoices.any(
-                          (choice) =>
-                              choice.color.toARGB32() ==
-                              widget.settings.accent,
-                        ),
-                        onPick: (colour) =>
-                            widget.settings.setAccent(colour.toARGB32()),
+                        value: widget.settings.backupReminder,
+                        onChanged: widget.settings.setBackupReminder,
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                RadioGroup<String>(
-                  groupValue: widget.settings.fontFamily ?? '',
-                  onChanged: (value) => widget.settings.setFontFamily(
-                    value == null || value.isEmpty ? null : value,
-                  ),
-                  child: Column(
-                    children: [
-                      for (final font in fontChoices)
-                        RadioListTile<String>(
-                          value: font.family ?? '',
-                          title: Text(
-                            font.label,
-                            style: TextStyle(fontFamily: font.family),
+                      if (widget.settings.backupReminder)
+                        ListTile(
+                          title: const Text('Remind me after'),
+                          trailing: DropdownButton<int>(
+                            value: widget.settings.backupDays,
+                            items: const [
+                              DropdownMenuItem(value: 14, child: Text('2 weeks')),
+                              DropdownMenuItem(value: 30, child: Text('1 month')),
+                              DropdownMenuItem(value: 60, child: Text('2 months')),
+                              DropdownMenuItem(value: 90, child: Text('3 months')),
+                            ],
+                            onChanged: (days) {
+                              if (days != null) widget.settings.setBackupDays(days);
+                            },
                           ),
                         ),
                     ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const _SectionHeader('Adding books'),
-          ListenableBuilder(
-            listenable: widget.settings,
-            builder: (context, _) => Column(
-              children: [
-                ListTile(
-                  title: const Text('Put new books on'),
-                  trailing: DropdownButton<Shelf?>(
-                    value: widget.settings.defaultShelf,
-                    items: [
-                      const DropdownMenuItem(
-                        value: null,
-                        child: Text('Ask every time'),
-                      ),
-                      for (final shelf in Shelf.values)
-                        DropdownMenuItem(
-                          value: shelf,
-                          child: Text(shelf.label),
-                        ),
-                    ],
-                    onChanged: widget.settings.setDefaultShelf,
-                  ),
-                ),
-                ListTile(
-                  title: const Text('Format of new books'),
-                  trailing: DropdownButton<BookFormat?>(
-                    value: widget.settings.defaultFormat,
-                    items: [
-                      const DropdownMenuItem(
-                        value: null,
-                        child: Text('Not set'),
-                      ),
-                      for (final format in BookFormat.values)
-                        DropdownMenuItem(
-                          value: format,
-                          child: Text(format.label),
-                        ),
-                    ],
-                    onChanged: widget.settings.setDefaultFormat,
-                  ),
-                ),
-                ListTile(
-                  title: const Text('Tags for new books'),
-                  subtitle: Text(
-                    widget.settings.defaultTags.isEmpty
-                        ? 'None'
-                        : widget.settings.defaultTags.join(', '),
-                  ),
-                  onTap: _editDefaultTags,
-                ),
-              ],
-            ),
-          ),
-          const _SectionHeader('Library'),
-          ListenableBuilder(
-            listenable: widget.settings,
-            builder: (context, _) => Column(
-              children: [
-                SwitchListTile(
-                  title: const Text('Show ratings as numbers'),
-                  subtitle: const Text('4/5 instead of stars'),
-                  value: widget.settings.ratingAsNumber,
-                  onChanged: widget.settings.setRatingAsNumber,
-                ),
-                SwitchListTile(
-                  title: const Text('Show format on book cards'),
-                  value: widget.settings.showFormatOnCards,
-                  onChanged: widget.settings.setShowFormatOnCards,
-                ),
-                SwitchListTile(
-                  title: const Text('Show tags on book cards'),
-                  value: widget.settings.showTagsOnCards,
-                  onChanged: widget.settings.setShowTagsOnCards,
-                ),
-                ListTile(
-                  title: const Text('Order of shelf tabs'),
-                  subtitle: Text(
-                    [for (final s in widget.settings.shelfOrder) s.label]
-                        .join(' · '),
-                  ),
-                  onTap: _openShelfOrder,
-                ),
-              ],
-            ),
-          ),
-          const _SectionHeader('Backup'),
-          ListTile(
-            leading: const Icon(Icons.upload_file),
-            title: const Text('Export backup'),
-            subtitle: const Text(
-              'Save your whole library as a file. Send it to Drive, email '
-              'or Files to keep it safe.',
-            ),
-            onTap: _exportBackup,
-          ),
-          ListTile(
-            leading: const Icon(Icons.restore),
-            title: const Text('Restore backup'),
-            subtitle: const Text(
-              'Replace your library with a backup file made by Chapterly.',
-            ),
-            onTap: _restoreBackup,
-          ),
-          const _SectionHeader('Automatic backups'),
-          ListenableBuilder(
-            listenable: widget.settings,
-            builder: (context, _) => Column(
-              children: [
-                SwitchListTile(
-                  title: const Text('Back up by itself'),
-                  subtitle: const Text(
-                    'Saves a backup file in Documents\\Chapterly when you open '
-                    'the app, and keeps the last $autoBackupKeep. That folder '
-                    'stays when the app is uninstalled.',
-                  ),
-                  value: widget.settings.autoBackup,
-                  onChanged: widget.settings.setAutoBackup,
-                ),
-                if (widget.settings.autoBackup) ...[
-                  ListTile(
-                    title: const Text('How often'),
-                    trailing: DropdownButton<int>(
-                      value: widget.settings.autoBackupDays,
-                      items: const [
-                        DropdownMenuItem(value: 1, child: Text('Every day')),
-                        DropdownMenuItem(value: 7, child: Text('Every week')),
-                        DropdownMenuItem(value: 30, child: Text('Every month')),
-                      ],
-                      onChanged: (days) {
-                        if (days != null) widget.settings.setAutoBackupDays(days);
-                      },
-                    ),
-                  ),
-                  ListTile(
-                    title: const Text('Last automatic backup'),
-                    subtitle: Text(_autoBackupText()),
-                    trailing: TextButton(
-                      onPressed: _backUpNow,
-                      child: const Text('Back up now'),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const _SectionHeader('Backup reminder'),
-          ListenableBuilder(
-            listenable: widget.settings,
-            builder: (context, _) {
-              final last = widget.settings.lastBackup;
-              return Column(
-                children: [
-                  SwitchListTile(
-                    title: const Text('Remind me to back up'),
-                    subtitle: Text(
-                      last == null
-                          ? 'No backup made yet'
-                          : 'Last backup: ${formatDate(last)}',
-                    ),
-                    value: widget.settings.backupReminder,
-                    onChanged: widget.settings.setBackupReminder,
-                  ),
-                  if (widget.settings.backupReminder)
-                    ListTile(
-                      title: const Text('Remind me after'),
-                      trailing: DropdownButton<int>(
-                        value: widget.settings.backupDays,
-                        items: const [
-                          DropdownMenuItem(value: 14, child: Text('2 weeks')),
-                          DropdownMenuItem(value: 30, child: Text('1 month')),
-                          DropdownMenuItem(value: 60, child: Text('2 months')),
-                          DropdownMenuItem(value: 90, child: Text('3 months')),
-                        ],
-                        onChanged: (days) {
-                          if (days != null) widget.settings.setBackupDays(days);
-                        },
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-          const _SectionHeader('Privacy'),
-          ListenableBuilder(
-            listenable: widget.settings,
-            builder: (context, _) => _lockSettings(),
-          ),
-          const _SectionHeader('Sync with your phone'),
-          ListenableBuilder(
-            listenable: Listenable.merge([widget.settings, widget.pcSync]),
-            builder: (context, _) => _SyncSettings(
-              settings: widget.settings,
-              pcSync: widget.pcSync,
-            ),
-          ),
-          if (LibraryScanning.scanner case final scanner?) ...[
-            const _SectionHeader('Book and audiobook folders'),
-            ScanSettings(
-              settings: widget.settings,
-              repository: widget.repository,
-              scanner: scanner,
-            ),
-          ],
-          const _SectionHeader('Spreadsheet (CSV)'),
-          ListTile(
-            leading: const Icon(Icons.table_chart_outlined),
-            title: const Text('Export as CSV'),
-            subtitle: const Text('Open your books in a spreadsheet app.'),
-            onTap: _exportCsv,
-          ),
-          ListTile(
-            leading: const Icon(Icons.file_download_outlined),
-            title: const Text('Import from CSV'),
-            subtitle: const Text(
-              'Add books from a Goodreads, StoryGraph or Libib export, or a '
-              'Chapterly CSV. Books you already have are skipped.',
-            ),
-            onTap: _importCsv,
-          ),
-          const _SectionHeader('Kindle'),
-          ListTile(
-            leading: const Icon(Icons.format_quote_outlined),
-            title: const Text('Import Kindle highlights'),
-            subtitle: const Text(
-              'Plug in your Kindle and pick its documents\\My Clippings.txt '
-              'file. Highlights become quotes on books you already have.',
-            ),
-            onTap: _importKindle,
-          ),
-          const _SectionHeader('About'),
-          const ListTile(
-            leading: Icon(Icons.lock_outline),
-            title: Text('Your library stays on this PC'),
-            subtitle: Text(
-              'Chapterly has no account, ads or tracking. The only internet '
-              'use is searching Open Library, loading cover images and, if '
-              'switched on, checking GitHub for updates. Sync talks only to '
-              'your own phone on your home network.',
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.rocket_launch_outlined),
-            title: Text('Version'),
-            subtitle: Text(appVersion),
-          ),
-          ListTile(
-            leading: const Icon(Icons.keyboard_outlined),
-            title: const Text('Keyboard shortcuts'),
-            subtitle: const Text(
-              'Ctrl+F search, Ctrl+N add, Ctrl+S sync, Ctrl+V paste a cover',
-            ),
-            onTap: _showShortcuts,
-          ),
-          ListenableBuilder(
-            listenable: widget.settings,
-            builder: (context, _) => SwitchListTile(
-              secondary: const Icon(Icons.system_update_outlined),
-              title: const Text('Check for updates'),
-              subtitle: const Text(
-                'Once a day, asks GitHub whether a newer Chapterly for '
-                'Windows is out. Nothing about you or your books is sent.',
+                  );
+                },
               ),
-              value: widget.settings.checkUpdates,
-              onChanged: widget.settings.setCheckUpdates,
-            ),
+              const _SectionHeader('Sync with your phone'),
+              ListenableBuilder(
+                listenable: Listenable.merge([widget.settings, widget.pcSync]),
+                builder: (context, _) => _SyncSettings(
+                  settings: widget.settings,
+                  pcSync: widget.pcSync,
+                ),
+              ),
+            ],
           ),
-          ListTile(
-            leading: const Icon(Icons.refresh),
-            title: const Text('Check for updates now'),
-            onTap: _checkNow,
+          _SettingsGroup(
+            icon: Icons.lock_outline,
+            title: 'Privacy',
+            subtitle: 'App lock and your data',
+            children: [
+              ListenableBuilder(
+                listenable: widget.settings,
+                builder: (context, _) => _lockSettings(),
+              ),
+            ],
           ),
-          ListTile(
-            leading: const Icon(Icons.auto_awesome_outlined),
-            title: const Text('Changelog'),
-            subtitle: const Text("See what's new in Chapterly"),
-            onTap: _openChangelog,
-          ),
-          ListTile(
-            leading: const Icon(Icons.code),
-            title: const Text('Source code'),
-            subtitle: const Text('See on GitHub'),
-            onTap: _openSource,
-          ),
-          ListTile(
-            leading: const Icon(Icons.copyright_outlined),
-            title: const Text('Licence'),
-            subtitle: const Text(licenceName),
-            onTap: _openLicence,
+          _SettingsGroup(
+            icon: Icons.info_outline,
+            title: 'About and updates',
+            subtitle: 'Version, updates, shortcuts, licence',
+            children: [
+              const ListTile(
+                leading: Icon(Icons.lock_outline),
+                title: Text('Your library stays on this PC'),
+                subtitle: Text(
+                  'Chapterly has no account, ads or tracking. The only internet '
+                  'use is searching Open Library, loading cover images and, if '
+                  'switched on, checking GitHub for updates. Sync talks only to '
+                  'your own phone on your home network.',
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.rocket_launch_outlined),
+                title: Text('Version'),
+                subtitle: Text(appVersion),
+              ),
+              ListTile(
+                leading: const Icon(Icons.keyboard_outlined),
+                title: const Text('Keyboard shortcuts'),
+                subtitle: const Text(
+                  'Ctrl+F search, Ctrl+N add, Ctrl+S sync, Ctrl+V paste a cover',
+                ),
+                onTap: _showShortcuts,
+              ),
+              ListenableBuilder(
+                listenable: widget.settings,
+                builder: (context, _) => SwitchListTile(
+                  secondary: const Icon(Icons.system_update_outlined),
+                  title: const Text('Check for updates'),
+                  subtitle: const Text(
+                    'Once a day, asks GitHub whether a newer Chapterly for '
+                    'Windows is out. Nothing about you or your books is sent.',
+                  ),
+                  value: widget.settings.checkUpdates,
+                  onChanged: widget.settings.setCheckUpdates,
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('Check for updates now'),
+                onTap: _checkNow,
+              ),
+              ListTile(
+                leading: const Icon(Icons.auto_awesome_outlined),
+                title: const Text('Changelog'),
+                subtitle: const Text("See what's new in Chapterly"),
+                onTap: _openChangelog,
+              ),
+              ListTile(
+                leading: const Icon(Icons.code),
+                title: const Text('Source code'),
+                subtitle: const Text('See on GitHub'),
+                onTap: _openSource,
+              ),
+              ListTile(
+                leading: const Icon(Icons.copyright_outlined),
+                title: const Text('Licence'),
+                subtitle: const Text(licenceName),
+                onTap: _openLicence,
+              ),
+            ],
           ),
         ],
       ),
@@ -1299,6 +1339,43 @@ class _SyncSettingsState extends State<_SyncSettings> {
             'first sync merges both libraries; nothing is deleted.',
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A titled, collapsible group of settings.
+class _SettingsGroup extends StatelessWidget {
+  const _SettingsGroup({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.children,
+    this.initiallyExpanded = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool initiallyExpanded;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        shape: const Border(),
+        collapsedShape: const Border(),
+        maintainState: true,
+        initiallyExpanded: initiallyExpanded,
+        leading: Icon(icon),
+        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+        subtitle: Text(subtitle),
+        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        children: children,
       ),
     );
   }
