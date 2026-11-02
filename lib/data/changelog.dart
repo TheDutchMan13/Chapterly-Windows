@@ -13,6 +13,17 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.12.0',
+    date: '2026-11-02',
+    changes: [
+      'Wish list (Library menu): books you want but do not have yet, with a '
+          'priority and where to get each one. Search it, and move a book '
+          'into your library (For later) when you get it',
+      'The wish list syncs with Chapterly for Android 1.16.0 or later: added, '
+          'edited and deleted on either side (the newer change wins)',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.11.0',
     date: '2026-11-01',
     changes: [
