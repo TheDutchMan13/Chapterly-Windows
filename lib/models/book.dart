@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'audio_bookmark.dart';
 import 'audio_progress.dart';
 import 'book_format.dart';
 import 'quote.dart';
@@ -34,7 +35,7 @@ const _knownJsonKeys = {
   'firstPublishYear', 'pages', 'rating', 'startedAt', 'finishedAt', 'format',
   'favorite', 'notes', 'deletedAt', 'series', 'seriesNumber', 'readingLog',
   'previousReadings', 'collections', 'quotes', 'currentPage', 'aspectRatings',
-  'priority', 'buyAt', 'queuePosition', 'audio', 'updatedAt',
+  'priority', 'buyAt', 'queuePosition', 'audio', 'audioBookmarks', 'updatedAt',
 };
 
 /// Fields from a newer Chapterly that this app does not know yet.
@@ -46,6 +47,20 @@ Map<String, Object?> _extrasFrom(Map<String, dynamic> json) => {
 Map<String, Object?> _objectMap(Object? value) => value is Map
     ? {for (final entry in value.entries) entry.key.toString(): entry.value}
     : const {};
+
+/// Saved extras without the fields this app now knows itself. An older app
+/// kept a field it did not know (such as audioBookmarks) in extras; once
+/// this app knows it, the real field is used and the stale copy dropped.
+Map<String, Object?> _unknownOnly(Map<String, Object?> extras) => {
+      for (final entry in extras.entries)
+        if (!_knownJsonKeys.contains(entry.key)) entry.key: entry.value,
+    };
+
+/// Bookmarks from their own column or, saved by an older app that did not
+/// know them yet, from extras.
+Object? _bookmarksFrom(Map<String, Object?> map) =>
+    _decode(map['audio_bookmarks']) ??
+    _objectMap(_decode(map['extras']))['audioBookmarks'];
 
 List<String> _stringList(Object? value) =>
     value is List ? [for (final item in value) item.toString()] : const [];
@@ -95,6 +110,7 @@ class Book {
     this.buyAt,
     this.queuePosition,
     this.audio,
+    this.audioBookmarks = const [],
     this.extras = const {},
     DateTime? updatedAt,
   }) : updatedAt = updatedAt ?? addedAt;
@@ -157,6 +173,9 @@ class Book {
 
   /// Where you are in the audiobook, or null if you have not listened.
   final AudioProgress? audio;
+
+  /// Places in the audiobook you saved, with your notes. Synced.
+  final List<AudioBookmark> audioBookmarks;
 
   /// Fields sent by a newer phone app that this Windows app does not know.
   /// They are saved and sent back unchanged, so a sync never wipes them.
@@ -233,6 +252,7 @@ class Book {
     String? Function()? buyAt,
     int? Function()? queuePosition,
     AudioProgress? Function()? audio,
+    List<AudioBookmark>? audioBookmarks,
     DateTime? updatedAt,
   }) =>
       Book(
@@ -269,6 +289,7 @@ class Book {
         queuePosition:
             queuePosition != null ? queuePosition() : this.queuePosition,
         audio: audio != null ? audio() : this.audio,
+        audioBookmarks: audioBookmarks ?? this.audioBookmarks,
         extras: extras,
         updatedAt: updatedAt ?? this.updatedAt,
       );
@@ -308,6 +329,9 @@ class Book {
           null => null,
           final AudioProgress progress => jsonEncode(progress.toJson()),
         },
+        'audio_bookmarks': audioBookmarks.isEmpty
+            ? null
+            : jsonEncode([for (final m in audioBookmarks) m.toJson()]),
         'extras': extras.isEmpty ? null : jsonEncode(extras),
         'updated_at': updatedAt.millisecondsSinceEpoch,
       };
@@ -342,13 +366,14 @@ class Book {
         buyAt: map['buy_at'] as String?,
         queuePosition: map['queue_position'] as int?,
         audio: AudioProgress.fromJson(_decode(map['audio'])),
-        extras: _objectMap(_decode(map['extras'])),
+        audioBookmarks: audioBookmarksFromJson(_bookmarksFrom(map)),
+        extras: _unknownOnly(_objectMap(_decode(map['extras']))),
         updatedAt: _dateFromMillis(map['updated_at']),
       );
 
   /// Readable JSON used in backup files and sync.
   Map<String, Object?> toJson() => {
-        ...extras,
+        ..._unknownOnly(extras),
         'id': id,
         'title': title,
         'author': author,
@@ -378,6 +403,10 @@ class Book {
         'buyAt': buyAt,
         'queuePosition': queuePosition,
         'audio': audio?.toJson(),
+        // Left out when empty, so a book without bookmarks looks the same
+        // to an older app.
+        if (audioBookmarks.isNotEmpty)
+          'audioBookmarks': [for (final m in audioBookmarks) m.toJson()],
         'updatedAt': updatedAt.toIso8601String(),
       };
 
@@ -413,6 +442,7 @@ class Book {
         buyAt: json['buyAt'] as String?,
         queuePosition: json['queuePosition'] as int?,
         audio: AudioProgress.fromJson(json['audio']),
+        audioBookmarks: audioBookmarksFromJson(json['audioBookmarks']),
         extras: _extrasFrom(json),
         updatedAt: _dateFromIso(json['updatedAt']),
       );

@@ -36,9 +36,15 @@ books it has permanently deleted:
     {
       "app": "chapterly",
       "protocol": 1,
+      "features": ["audioBookmarks"],
       "books": [ { ...book... } ],
       "tombstones": { "<book id>": "2026-03-01T12:00:00.000" }
     }
+
+`features` lists what this app's book data can carry. Apps before Android
+1.15.0 and Windows 1.11.0 send none and ignore the list. `audioBookmarks`
+means the app keeps a book's audiobook bookmarks and sends them back; the PC
+does not trust the bookmarks in a reply without it and keeps its own.
 
 Reply `200`: the merged library in the same shape. The PC should replace its
 library with it.
@@ -69,10 +75,16 @@ Fields (all optional except `id`, `title`, `shelf`, `addedAt`, `updatedAt`):
     queuePosition (place in the Next up order, 0 is first),
     audio ({positionMs, lengthMs, track, trackMs, trackCount}: where you are
       in the audiobook; the audio files themselves never sync),
+    audioBookmarks (list of {track, trackMs, positionMs, addedAt, note}:
+      places saved in the audiobook; `addedAt` tells two apart. Left out
+      when a book has none),
     readingLog (list of {date, pages, minutes}),
     previousReadings (list of {startedAt, finishedAt, rating, log})
 
 Dates are ISO 8601 text.
+
+A field an app does not know (sent by a newer Chapterly) is kept with the
+book and sent back unchanged, so a sync with an older app never wipes it.
 
 `coverUrl` is usually a web address. A cover added on the PC from a picture is
 stored in the book itself as a small JPEG data address

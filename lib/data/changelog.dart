@@ -13,6 +13,19 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.11.0',
+    date: '2026-11-01',
+    changes: [
+      'Audiobook bookmarks now sync with your phone (Chapterly for Android '
+          '1.15.0 or later): added, edited and deleted on either side',
+      'Your bookmarks move into your books the first time this version '
+          'starts; the old file is kept as audio_bookmarks.moved.json '
+          '(bookmarks of books no longer in your library stay only there)',
+      'With an older phone app, the bookmarks on this PC are kept as they '
+          'are; update the phone to sync them',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.10.0',
     date: '2026-11-01',
     changes: [

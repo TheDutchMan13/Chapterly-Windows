@@ -292,13 +292,14 @@ void main() {
         _quote('Nothing about the sea today.'),
       ]),
       _book('2', title: 'Other', notes: 'I loved the ending, the storm scene '
-          'was long and slow and the sea went on and on and on for pages.'),
+          'was long and slow and the sea went on and on and on for pages.')
+          .copyWith(audioBookmarks: [
+        AudioBookmark(
+          track: 0, trackMs: 0, positionMs: 0, addedAt: DateTime(2026),
+          note: 'Remember the lighthouse keeper',
+        ),
+      ]),
     ];
-    final bookmarks = AudioBookmarks()
-      ..add('2', AudioBookmark(
-        track: 0, trackMs: 0, positionMs: 0, addedAt: DateTime(2026),
-        note: 'Remember the lighthouse keeper',
-      ));
     final ebooks = {
       '1': EbookLink(
         path: 'x', name: 'x', bytes: 1, format: EbookFormat.epub,
@@ -313,12 +314,12 @@ void main() {
     };
 
     test('collects notes, quotes, highlights and bookmark notes', () {
-      final docs = collectNotes(books, ebooks: ebooks, bookmarks: bookmarks);
+      final docs = collectNotes(books, ebooks: ebooks);
       expect([for (final d in docs) d.source], containsAll(NoteSource.values));
     });
 
     test('rare words and short texts rank higher, typos are forgiven', () {
-      final docs = collectNotes(books, ebooks: ebooks, bookmarks: bookmarks);
+      final docs = collectNotes(books, ebooks: ebooks);
       final storm = searchNotes(docs, 'lighthouse storm');
       expect(storm.first.document.text, startsWith('The lighthouse kept'));
       final typo = searchNotes(docs, 'lighthose');

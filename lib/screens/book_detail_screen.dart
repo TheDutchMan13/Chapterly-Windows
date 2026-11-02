@@ -285,7 +285,7 @@ class BookDetailScreen extends StatelessWidget {
           EbookReading.library?.linkFor(book.id)?.highlights ?? const [],
       marks: [
         for (final mark
-            in AudioBookmarking.store?.forBook(book.id) ?? const <AudioBookmark>[])
+            in sortedBookmarks(book.audioBookmarks))
           ExportedMark(place: place(mark), note: mark.note),
       ],
     );

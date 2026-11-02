@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../models/audio_bookmark.dart';
 import '../models/audio_progress.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
@@ -434,6 +435,32 @@ class BookRepository extends ChangeNotifier {
   /// Where you are in the audiobook. Null clears it.
   Future<void> setAudioProgress(String id, AudioProgress? progress) =>
       _update(id, (book) => book.copyWith(audio: () => progress));
+
+  /// A book's audiobook bookmarks, from the start of the book.
+  List<AudioBookmark> bookmarksFor(String id) =>
+      sortedBookmarks(byId(id)?.audioBookmarks ?? const []);
+
+  Future<void> addBookmark(String id, AudioBookmark mark) => _update(
+        id,
+        (book) => book.copyWith(audioBookmarks: [...book.audioBookmarks, mark]),
+      );
+
+  Future<void> setBookmarkNote(String id, AudioBookmark mark, String note) =>
+      _update(
+        id,
+        (book) => book.copyWith(audioBookmarks: [
+          for (final m in book.audioBookmarks)
+            m.sameAs(mark) ? m.withNote(note.trim()) : m,
+        ]),
+      );
+
+  Future<void> removeBookmark(String id, AudioBookmark mark) => _update(
+        id,
+        (book) => book.copyWith(audioBookmarks: [
+          for (final m in book.audioBookmarks)
+            if (!m.sameAs(mark)) m,
+        ]),
+      );
 
   /// Adds minutes listened on [date] to the reading log, keeping one
   /// listening entry (no pages) per day.

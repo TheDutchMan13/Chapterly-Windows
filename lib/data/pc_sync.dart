@@ -333,6 +333,7 @@ class PcSync extends ChangeNotifier {
           local: sent.books,
           remote: phone.books,
           now: DateTime.now(),
+          phoneKeepsBookmarks: phone.features.contains('audioBookmarks'),
         );
         if (resolved.isNotEmpty) {
           final byId = {for (final book in resolved) book.id: book};
@@ -357,8 +358,13 @@ class PcSync extends ChangeNotifier {
         remote: now.books,
         remoteTombstones: now.tombstones,
       );
-      final changed = countSyncChanges(now.books, merged.books);
-      await repository.applySynced(merged.books, merged.tombstones);
+      // A phone app older than 1.15.0 drops audiobook bookmarks: keep this
+      // PC's.
+      final books = reply.features.contains('audioBookmarks')
+          ? merged.books
+          : keepPcBookmarks(merged.books, now.books);
+      final changed = countSyncChanges(now.books, books);
+      await repository.applySynced(books, merged.tombstones);
       // What the phone holds now. A change made on this PC during the sync
       // is not in it, so the next sync still sees it as a PC change.
       await base.save(reply.books);
@@ -405,6 +411,7 @@ class PcSync extends ChangeNotifier {
               local: now.books,
               remote: phone.books,
               now: DateTime.now(),
+              phoneKeepsBookmarks: phone.features.contains('audioBookmarks'),
             );
       final byId = {for (final book in resolved) book.id: book};
       final plan = planSync(

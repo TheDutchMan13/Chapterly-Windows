@@ -1,11 +1,11 @@
 import 'dart:math' as math;
 
-import '../audio/audio_bookmarks.dart';
 import '../ebook/ebook_library.dart';
+import '../models/audio_bookmark.dart';
 import '../models/book.dart';
 import 'fuzzy.dart';
 
-// Windows app only.
+// The same code is in both apps; keep the two copies alike.
 
 /// Where a piece of text comes from.
 enum NoteSource {
@@ -69,7 +69,6 @@ List<String> _terms(String text) => [
 List<NoteDocument> collectNotes(
   List<Book> books, {
   Map<String, EbookLink> ebooks = const {},
-  AudioBookmarks? bookmarks,
 }) {
   final docs = <NoteDocument>[];
   for (final book in books) {
@@ -96,7 +95,7 @@ List<NoteDocument> collectNotes(
         docs.add(NoteDocument(book: book, source: NoteSource.highlightNote, text: note));
       }
     }
-    for (final mark in bookmarks?.forBook(book.id) ?? const <AudioBookmark>[]) {
+    for (final mark in sortedBookmarks(book.audioBookmarks)) {
       if (mark.note.trim().isNotEmpty) {
         docs.add(NoteDocument(
           book: book,
