@@ -254,7 +254,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (chosen != null) await _c.goToChapter(chosen);
   }
 
-  // ---- Bookmarks (Windows app only)
+  // ---- Bookmarks (kept with the book, so they sync)
 
   String _placeLabel(AudioBookmark mark) {
     final clock = formatPlayerClock(Duration(milliseconds: mark.positionMs));
@@ -265,7 +265,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _addBookmark() async {
-    final store = AudioBookmarking.store;
+    final store = AudioBookmarking.repository;
     final id = _c.bookId;
     final progress = _c.progress;
     if (store == null || id == null || progress == null) return;
@@ -309,7 +309,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ),
     );
     if (note == null) return;
-    await store.add(
+    await store.addBookmark(
       id,
       AudioBookmark(
         track: track,
@@ -323,7 +323,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _editNote(String id, AudioBookmark mark) async {
-    final store = AudioBookmarking.store;
+    final store = AudioBookmarking.repository;
     if (store == null) return;
     final controller = TextEditingController(text: mark.note);
     final note = await showDialog<String>(
@@ -348,11 +348,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ],
       ),
     );
-    if (note != null) await store.setNote(id, mark, note);
+    if (note != null) await store.setBookmarkNote(id, mark, note);
   }
 
   Future<void> _showBookmarks() async {
-    final store = AudioBookmarking.store;
+    final store = AudioBookmarking.repository;
     final id = _c.bookId;
     if (store == null || id == null) return;
     await showModalBottomSheet<void>(
@@ -365,7 +365,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         builder: (context, scroll) => ListenableBuilder(
           listenable: store,
           builder: (context, _) {
-            final marks = store.forBook(id);
+            final marks = store.bookmarksFor(id);
             if (marks.isEmpty) {
               return const Center(
                 child: Padding(
@@ -405,7 +405,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       IconButton(
                         tooltip: 'Delete',
                         icon: const Icon(Icons.delete_outline),
-                        onPressed: () => store.remove(id, mark),
+                        onPressed: () => store.removeBookmark(id, mark),
                       ),
                     ],
                   ),
@@ -665,7 +665,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 label: 'Chapters',
               ),
             ),
-          if (AudioBookmarking.store case final store?) ...[
+          if (AudioBookmarking.repository case final store?) ...[
             InkWell(
               borderRadius: BorderRadius.circular(12),
               onTap: _addBookmark,
@@ -682,7 +682,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 builder: (context, _) {
                   final count = _c.bookId == null
                       ? 0
-                      : store.forBook(_c.bookId!).length;
+                      : store.bookmarksFor(_c.bookId!).length;
                   return _PlayerAction(
                     icon: Icons.bookmarks_outlined,
                     label: count == 0 ? 'Bookmarks' : 'Bookmarks ($count)',

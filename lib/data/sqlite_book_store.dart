@@ -42,7 +42,8 @@ class SqliteBookStore implements BookStore {
       buy_at TEXT,
       queue_position INTEGER,
       extras TEXT,
-      audio TEXT
+      audio TEXT,
+      audio_bookmarks TEXT
     )
   ''';
 
@@ -58,7 +59,7 @@ class SqliteBookStore implements BookStore {
     final db = await databaseFactoryFfi.openDatabase(
       path,
       options: OpenDatabaseOptions(
-      version: 10,
+      version: 11,
       onCreate: (db, version) async {
         await db.execute(_createBooksTable);
         await db.execute(_createTombstonesTable);
@@ -130,6 +131,12 @@ class SqliteBookStore implements BookStore {
         // Version 10 added where you are in the audiobook.
         if (oldVersion < 10) {
           await db.execute('ALTER TABLE books ADD COLUMN audio TEXT');
+        }
+        // Version 11 keeps audiobook bookmarks with the book, so they sync.
+        if (oldVersion < 11) {
+          await db.execute(
+            'ALTER TABLE books ADD COLUMN audio_bookmarks TEXT',
+          );
         }
       },
       ),

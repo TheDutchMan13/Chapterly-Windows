@@ -80,9 +80,16 @@ Future<void> main() async {
   final mediaControls = SystemMediaControls(listenController);
   MediaControlsHolder.controls = mediaControls;
   unawaited(mediaControls.start());
-  AudioBookmarking.store = await AudioBookmarks.load(
-    File(p.join(dataDir.path, 'audio_bookmarks.json')),
-  );
+  // Audiobook bookmarks live with the books (and sync). Bookmarks from
+  // before 1.11.0 are moved over from their old file, once.
+  AudioBookmarking.repository = repository;
+  if (!settings.bookmarksMoved) {
+    await moveOldBookmarks(
+      File(p.join(dataDir.path, 'audio_bookmarks.json')),
+      repository,
+    );
+    settings.markBookmarksMoved();
+  }
   // The reader: which book file belongs to which book on this PC, and the
   // folder with Chapterly's copies of the files.
   EbookReading.library = await EbookLibrary.load(

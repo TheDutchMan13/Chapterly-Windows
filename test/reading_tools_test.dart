@@ -35,32 +35,83 @@ void main() {
     setUp(() => temp = Directory.systemTemp.createTempSync('marks_test'));
     tearDown(() => temp.deleteSync(recursive: true));
 
-    test('are kept in order, edited, removed and saved', () async {
-      final file = File('${temp.path}/marks.json');
-      final store = AudioBookmarks(file: file);
-      final later = AudioBookmark(
-        track: 1,
-        trackMs: 5000,
-        positionMs: 65000,
-        addedAt: DateTime(2026, 1, 1),
+    AudioBookmark mark(int day, int positionMs, {String note = ''}) =>
+        AudioBookmark(
+          track: 0,
+          trackMs: positionMs,
+          positionMs: positionMs,
+          addedAt: DateTime(2026, 1, day),
+          note: note,
+        );
+
+    Future<BookRepository> library() async {
+      final repository = BookRepository(InMemoryBookStore());
+      await repository.load();
+      await repository.replaceAll([
+        Book(
+          id: 'b',
+          title: 'Dune',
+          author: 'Frank Herbert',
+          shelf: Shelf.inProgress,
+          addedAt: DateTime(2026),
+        ),
+      ]);
+      return repository;
+    }
+
+    test('are kept with the book in order, edited and removed', () async {
+      final repository = await library();
+      final later = mark(1, 65000);
+      final early = mark(2, 1000, note: 'Start');
+      await repository.addBookmark('b', later);
+      await repository.addBookmark('b', early);
+      expect(
+        [for (final m in repository.bookmarksFor('b')) m.positionMs],
+        [1000, 65000],
       );
-      final early = AudioBookmark(
-        track: 0,
-        trackMs: 1000,
-        positionMs: 1000,
-        addedAt: DateTime(2026, 1, 2),
-        note: 'Start',
+      await repository.setBookmarkNote('b', later, '  The twist ');
+      expect(repository.bookmarksFor('b').last.note, 'The twist');
+      expect(repository.bookmarksFor('b').first.note, 'Start');
+      await repository.removeBookmark('b', early);
+      expect(repository.bookmarksFor('b'), hasLength(1));
+      expect(repository.bookmarksFor('other'), isEmpty);
+      // Saved in the book's JSON (backups and sync) and read back.
+      final json = repository.byId('b')!.toJson();
+      expect(Book.fromJson(json).audioBookmarks.single.note, 'The twist');
+    });
+
+    test('a book without bookmarks has no bookmark field in its JSON', () {
+      final book = Book(
+        id: 'x',
+        title: 'T',
+        author: 'A',
+        shelf: Shelf.forLater,
+        addedAt: DateTime(2026),
       );
-      await store.add('b', later);
-      await store.add('b', early);
-      expect([for (final m in store.forBook('b')) m.positionMs], [1000, 65000]);
-      await store.setNote('b', later, '  The twist ');
-      final loaded = await AudioBookmarks.load(file);
-      expect(loaded.forBook('b').last.note, 'The twist');
-      expect(loaded.forBook('b').first.note, 'Start');
-      await loaded.remove('b', early);
-      expect(loaded.forBook('b'), hasLength(1));
-      expect(loaded.forBook('other'), isEmpty);
+      expect(book.toJson().containsKey('audioBookmarks'), isFalse);
+    });
+
+    test('the old bookmark file is moved into the books once', () async {
+      final repository = await library();
+      await repository.addBookmark('b', mark(1, 5000, note: 'Already here'));
+      final file = File('${temp.path}/audio_bookmarks.json');
+      file.writeAsStringSync(jsonEncode({
+        'b': [
+          mark(1, 5000, note: 'Already here').toJson(),
+          mark(3, 9000, note: 'Moved').toJson(),
+        ],
+        'gone': [mark(4, 1).toJson()],
+      }));
+      expect(await moveOldBookmarks(file, repository), 1);
+      expect(
+        [for (final m in repository.bookmarksFor('b')) m.note],
+        ['Already here', 'Moved'],
+      );
+      expect(file.existsSync(), isFalse);
+      expect(File('${temp.path}/audio_bookmarks.moved.json').existsSync(),
+          isTrue);
+      // A second start finds nothing to move.
+      expect(await moveOldBookmarks(file, repository), 0);
     });
   });
 

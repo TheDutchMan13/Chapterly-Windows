@@ -117,10 +117,16 @@ Book _absorb(Book base, Book other) {
   } else {
     notes = base.notes;
   }
+  final marks = [
+    ...base.audioBookmarks,
+    for (final mark in other.audioBookmarks)
+      if (!base.audioBookmarks.any(mark.sameAs)) mark,
+  ];
   return base.copyWith(
     tags: tags,
     collections: collections,
     quotes: quotes,
+    audioBookmarks: marks,
     previousReadings: [...base.previousReadings, ...other.previousReadings],
     favorite: base.favorite || other.favorite,
     currentPage: base.currentPage == null && other.currentPage != null

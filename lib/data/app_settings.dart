@@ -86,6 +86,7 @@ class AppSettings extends ChangeNotifier {
   bool _goalOnLibrary = true;
   bool _closeToTray = false;
   bool _smartRewind = true;
+  bool _bookmarksMoved = false;
   Set<String> _notDuplicates = {};
   bool _quoteOnLibrary = true;
   DateTime? _quoteHiddenOn;
@@ -193,6 +194,14 @@ class AppSettings extends ChangeNotifier {
 
   /// Go back a few seconds when playing an audiobook again after a pause.
   bool get smartRewind => _smartRewind;
+
+  /// The bookmarks from before 1.11.0 were moved into the books (once).
+  bool get bookmarksMoved => _bookmarksMoved;
+
+  void markBookmarksMoved() {
+    _bookmarksMoved = true;
+    prefs?.setBool('bookmarksMoved', true);
+  }
 
   /// Pairs of books you said are not the same (see PossibleDuplicate.key).
   Set<String> get notDuplicates => Set.unmodifiable(_notDuplicates);
@@ -314,6 +323,7 @@ class AppSettings extends ChangeNotifier {
     settings._goalOnLibrary = prefs.getBool('goalOnLibrary') ?? true;
     settings._closeToTray = prefs.getBool('closeToTray') ?? false;
     settings._smartRewind = prefs.getBool('smartRewind') ?? true;
+    settings._bookmarksMoved = prefs.getBool('bookmarksMoved') ?? false;
     settings._notDuplicates = {...?prefs.getStringList('notDuplicates')};
     settings._quoteOnLibrary = prefs.getBool('quoteOnLibrary') ?? true;
     settings._quoteHiddenOn = _fromMillis(prefs.getInt('quoteHiddenOn'));

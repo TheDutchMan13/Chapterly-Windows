@@ -85,10 +85,12 @@ List<Object?> mergeLists(List<Object?> base, List<Object?> local, List<Object?> 
 
 /// Lists whose items have an identity of their own, so an item changed on
 /// one side is matched with its earlier self: the reading log by day,
-/// quotes by when they were added, earlier readings by their dates.
+/// quotes and audiobook bookmarks by when they were added, earlier
+/// readings by their dates.
 const _itemKeys = {
   'readingLog': ['date'],
   'quotes': ['addedAt'],
+  'audioBookmarks': ['addedAt'],
   'previousReadings': ['startedAt', 'finishedAt'],
 };
 
@@ -239,11 +241,16 @@ Map<String, Object?> _json(Book book) =>
 /// that is off). Books without a [base] copy are left to the usual rule.
 /// The stamp is [now], or a second after both copies when a clock is ahead,
 /// so the merged book is always the newest.
+///
+/// [phoneKeepsBookmarks] is false for a phone app older than 1.15.0, which
+/// drops audiobook bookmarks: they are then left out of the comparison and
+/// each book keeps this PC's bookmarks.
 List<Book> resolveConflicts({
   required Map<String, Map<String, Object?>> base,
   required List<Book> local,
   required List<Book> remote,
   required DateTime now,
+  bool phoneKeepsBookmarks = true,
 }) {
   final remoteById = {for (final book in remote) book.id: book};
   final resolved = <Book>[];
@@ -253,12 +260,28 @@ List<Book> resolveConflicts({
     if (theirs == null || before == null) continue;
     final l = _json(mine)..remove('updatedAt');
     final r = _json(theirs)..remove('updatedAt');
-    if (_same(l, r)) continue;
     final b = Map.of(before)..remove('updatedAt');
+    if (!phoneKeepsBookmarks) {
+      for (final copy in [l, r, b]) {
+        copy.remove('audioBookmarks');
+      }
+    }
+    if (_same(l, r)) continue;
     final localNewer = !theirs.updatedAt.isAfter(mine.updatedAt);
     final merged = mergeBookJson(b, l, r, preferLocal: localNewer);
+    // A field one copy leaves out when empty (such as audioBookmarks)
+    // merged to nothing is left out too, so the copies compare equal.
+    merged.removeWhere(
+      (key, value) =>
+          value == null && !(l.containsKey(key) && r.containsKey(key)),
+    );
     // What the newest-copy rule would give anyway: nothing to do.
     if (_same(merged, localNewer ? l : r)) continue;
+    if (!phoneKeepsBookmarks && mine.audioBookmarks.isNotEmpty) {
+      merged['audioBookmarks'] = [
+        for (final mark in mine.audioBookmarks) mark.toJson(),
+      ];
+    }
     var stamp = now;
     for (final other in [mine.updatedAt, theirs.updatedAt]) {
       if (!other.isBefore(stamp)) stamp = other.add(const Duration(seconds: 1));
@@ -267,4 +290,18 @@ List<Book> resolveConflicts({
     resolved.add(Book.fromJson(merged));
   }
   return resolved;
+}
+
+/// [merged] books with this PC's audiobook bookmarks put back, for a sync
+/// with a phone app older than 1.15.0, which drops them.
+List<Book> keepPcBookmarks(List<Book> merged, List<Book> pc) {
+  final pcById = {for (final book in pc) book.id: book};
+  return [
+    for (final book in merged)
+      switch (pcById[book.id]) {
+        final mine? when mine.audioBookmarks.isNotEmpty =>
+          book.copyWith(audioBookmarks: mine.audioBookmarks),
+        _ => book,
+      },
+  ];
 }

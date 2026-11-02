@@ -49,8 +49,9 @@ Made for a PC:
   Calibre library adds the books you do not have yet
 - This year's reading goal at the top of the Library, saved filters, a tag
   manager (rename, merge, delete) and a series tracker with missing numbers
-- Audiobook bookmarks with notes, a mini player that stays on top, media
-  keys and Windows' media pop-up, and keep running in the tray
+- Audiobook bookmarks with notes (synced with the phone), a mini player
+  that stays on top, media keys and Windows' media pop-up, and keep running
+  in the tray
 - Export a book's notes, quotes, highlights and bookmarks as Markdown or PDF,
   and refresh blank details of selected books from Open Library
 - Install updates from inside Chapterly

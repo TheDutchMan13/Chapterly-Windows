@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../audio/audio_bookmarks.dart';
 import '../data/book_repository.dart';
 import '../data/notes_search.dart';
 import '../ebook/ebook_reading.dart';
@@ -31,7 +30,6 @@ class _NotesSearchScreenState extends State<NotesSearchScreen> {
   List<NoteDocument> _collect() => collectNotes(
         widget.repository.books,
         ebooks: EbookReading.library?.links ?? const {},
-        bookmarks: AudioBookmarking.store,
       );
 
   @override
