@@ -19,6 +19,8 @@ const changelog = [
       'Wish list (Library menu): books you want but do not have yet, with a '
           'priority and where to get each one. Search it, and move a book '
           'into your library (For later) when you get it',
+      'The wish list syncs with Chapterly for Android 1.16.0 or later: added, '
+          'edited and deleted on either side (the newer change wins)',
     ],
   ),
   ChangelogEntry(

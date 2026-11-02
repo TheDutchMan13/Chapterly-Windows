@@ -15,7 +15,9 @@ class Wish {
     this.priority,
     this.where,
     this.note = '',
-  });
+    DateTime? updatedAt,
+    this.deletedAt,
+  }) : updatedAt = updatedAt ?? addedAt;
 
   final String id;
   final String title;
@@ -28,6 +30,13 @@ class Wish {
   final String note;
   final DateTime addedAt;
 
+  /// When this wish last changed. Syncing keeps the newer copy.
+  final DateTime updatedAt;
+
+  /// Set when the wish is deleted. The wish is kept (and synced) for a while
+  /// so the delete reaches the other device.
+  final DateTime? deletedAt;
+
   Wish copyWith({
     String? title,
     String? author,
@@ -35,6 +44,8 @@ class Wish {
     WishPriority? Function()? priority,
     String? Function()? where,
     String? note,
+    DateTime? updatedAt,
+    DateTime? Function()? deletedAt,
   }) =>
       Wish(
         id: id,
@@ -45,6 +56,8 @@ class Wish {
         where: where != null ? where() : this.where,
         note: note ?? this.note,
         addedAt: addedAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        deletedAt: deletedAt != null ? deletedAt() : this.deletedAt,
       );
 
   /// The words a search looks at, without accents.
@@ -61,6 +74,8 @@ class Wish {
         'where': where,
         'note': note,
         'addedAt': addedAt.toIso8601String(),
+        'updatedAt': updatedAt.toIso8601String(),
+        if (deletedAt != null) 'deletedAt': deletedAt!.toIso8601String(),
       };
 
   static Wish? fromJson(Object? value) {
@@ -74,6 +89,8 @@ class Wish {
     final isbn = value['isbn'];
     final where = value['where'];
     final note = value['note'];
+    final updatedAt = DateTime.tryParse('${value['updatedAt']}');
+    final deletedAt = DateTime.tryParse('${value['deletedAt']}');
     return Wish(
       id: id,
       title: title,
@@ -85,8 +102,42 @@ class Wish {
           : null,
       where: where is String && where.trim().isNotEmpty ? where : null,
       note: note is String ? note : '',
+      updatedAt: updatedAt,
+      deletedAt: deletedAt,
     );
   }
+}
+
+/// The wishes that are not deleted.
+List<Wish> activeWishes(List<Wish> wishes) => [
+      for (final wish in wishes)
+        if (wish.deletedAt == null) wish,
+    ];
+
+/// Reads a list of wishes, skipping damaged entries.
+List<Wish> wishesFromJson(Object? value) =>
+    value is List ? [for (final item in value) ?Wish.fromJson(item)] : const [];
+
+/// How long a deleted wish is kept so the delete can reach another device.
+const wishTombstoneKeep = Duration(days: 180);
+
+/// [mine] and [theirs] combined: for each wish the newer copy wins (on a
+/// tie, [mine]). A deleted wish is a copy like any other, so a delete on one
+/// device removes the wish on the other. Deleted wishes older than
+/// [wishTombstoneKeep] are dropped.
+List<Wish> mergeWishes(List<Wish> mine, List<Wish> theirs, {DateTime? now}) {
+  final byId = <String, Wish>{for (final wish in mine) wish.id: wish};
+  for (final wish in theirs) {
+    final have = byId[wish.id];
+    if (have == null || wish.updatedAt.isAfter(have.updatedAt)) {
+      byId[wish.id] = wish;
+    }
+  }
+  final cutoff = (now ?? DateTime.now()).subtract(wishTombstoneKeep);
+  return [
+    for (final wish in byId.values)
+      if (wish.deletedAt == null || wish.deletedAt!.isAfter(cutoff)) wish,
+  ];
 }
 
 /// The wish list as saved in settings. Damaged entries are skipped.

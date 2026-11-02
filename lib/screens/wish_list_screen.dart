@@ -116,11 +116,7 @@ class _WishListScreenState extends State<WishListScreen> {
         note: note.text.trim(),
         addedAt: existing?.addedAt ?? DateTime.now(),
       );
-      widget.settings.setWishes([
-        for (final w in widget.settings.wishes)
-          if (w.id == wish.id) wish else w,
-        if (existing == null) wish,
-      ]);
+      widget.settings.saveWish(wish);
     }
   }
 
@@ -141,21 +137,13 @@ class _WishListScreenState extends State<WishListScreen> {
     if (wish.where != null) {
       await widget.repository.setBuyAt(id, wish.where);
     }
-    widget.settings.setWishes([
-      for (final w in widget.settings.wishes)
-        if (w.id != wish.id) w,
-    ]);
+    widget.settings.deleteWish(wish.id);
     messenger.showSnackBar(
       SnackBar(content: Text('"${wish.title}" is in your library')),
     );
   }
 
-  void _delete(Wish wish) {
-    widget.settings.setWishes([
-      for (final w in widget.settings.wishes)
-        if (w.id != wish.id) w,
-    ]);
-  }
+  void _delete(Wish wish) => widget.settings.deleteWish(wish.id);
 
   @override
   Widget build(BuildContext context) {

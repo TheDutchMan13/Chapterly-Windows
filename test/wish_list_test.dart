@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:chapterly/data/app_settings.dart';
 import 'package:chapterly/data/book_repository.dart';
 import 'package:chapterly/data/book_store.dart';
+import 'package:chapterly/data/sync_protocol.dart';
 import 'package:chapterly/data/wish_list.dart';
 import 'package:chapterly/models/shelf.dart';
 import 'package:chapterly/models/wish_priority.dart';
@@ -53,6 +56,93 @@ void main() {
     expect(decodeWishes('[{"id": 5}, 3, {"id":"x","title":"Ok","addedAt":"2026-01-01"}]')
         .map((w) => w.title), ['Ok']);
     expect(decodeWishes('not json'), isEmpty);
+  });
+
+  group('syncing the wish list', () {
+    Wish w(String id, String title, DateTime updated,
+            {DateTime? deleted, String where = ''}) =>
+        Wish(
+          id: id,
+          title: title,
+          addedAt: DateTime(2026),
+          updatedAt: updated,
+          deletedAt: deleted,
+          where: where.isEmpty ? null : where,
+        );
+    final day1 = DateTime(2026, 3, 1);
+    final day2 = DateTime(2026, 3, 2);
+    final now = DateTime(2026, 3, 10);
+
+    test('the newer copy of a wish wins, a tie keeps mine', () {
+      final merged = mergeWishes(
+        [w('1', 'Mine old', day1), w('2', 'Tie mine', day1)],
+        [w('1', 'Theirs new', day2), w('2', 'Tie theirs', day1), w('3', 'New', day1)],
+        now: now,
+      );
+      final titles = {for (final x in merged) x.id: x.title};
+      expect(titles, {'1': 'Theirs new', '2': 'Tie mine', '3': 'New'});
+    });
+
+    test('a delete on one side removes the wish on the other', () {
+      final mine = [w('1', 'Dune', day1)];
+      final theirs = [w('1', 'Dune', day2, deleted: day2)];
+      final merged = mergeWishes(mine, theirs, now: now);
+      expect(merged.single.deletedAt, day2);
+      expect(activeWishes(merged), isEmpty);
+      // An edit made after the delete brings it back.
+      final edited = mergeWishes(
+        merged,
+        [w('1', 'Dune again', DateTime(2026, 3, 5))],
+        now: now,
+      );
+      expect(activeWishes(edited).single.title, 'Dune again');
+    });
+
+    test('old deletes are dropped, recent ones kept', () {
+      final old = DateTime(2025, 1, 1);
+      final merged = mergeWishes(
+        [w('1', 'A', old, deleted: old)],
+        [w('2', 'B', day1, deleted: day1)],
+        now: now,
+      );
+      expect(merged.map((x) => x.id), ['2']);
+    });
+
+    test('settings keep deleted wishes for sync but hide them', () {
+      final settings = AppSettings();
+      settings.saveWish(w('1', 'Dune', day1));
+      expect(settings.wishes.single.updatedAt.isAfter(day1), isTrue);
+      settings.deleteWish('1');
+      expect(settings.wishes, isEmpty);
+      expect(settings.allWishes.single.deletedAt, isNotNull);
+      // A wish from the other device arrives and one of ours is replaced.
+      settings.mergeWishesFrom([
+        w('2', 'Emma', DateTime.now()),
+        w('1', 'Dune', day1),
+      ]);
+      expect(settings.wishes.map((x) => x.id), ['2']);
+      // An empty list changes nothing.
+      settings.mergeWishesFrom(const []);
+      expect(settings.allWishes, hasLength(2));
+    });
+
+    test('wishes go through a sync message; an older app sends none', () {
+      final text = encodeSyncPayload(
+        const [],
+        const {},
+        wishes: [w('1', 'Dune', day1, where: 'Library')],
+      );
+      final payload = decodeSyncPayload(text);
+      expect(payload.features, contains('wishes'));
+      expect(payload.wishes.single.where, 'Library');
+      expect(payload.wishes.single.updatedAt, day1);
+      final old = jsonDecode(text) as Map<String, dynamic>
+        ..remove('wishes')
+        ..remove('features');
+      final fromOld = decodeSyncPayload(jsonEncode(old));
+      expect(fromOld.wishes, isEmpty);
+      expect(fromOld.features, isEmpty);
+    });
   });
 
   testWidgets('add, search, and move a wish into the library', (tester) async {

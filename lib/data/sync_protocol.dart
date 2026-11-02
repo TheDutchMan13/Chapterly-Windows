@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../models/book.dart';
+import 'wish_list.dart';
 
 /// The version of the sync messages. The phone and the PC must agree on it.
 const syncProtocolVersion = 1;
@@ -8,7 +9,8 @@ const syncProtocolVersion = 1;
 /// What this app's book data can carry, sent with every sync message. An
 /// older app sends none of these, and ignores this list when it reads it.
 /// "audioBookmarks": the book's audiobook bookmarks are kept and sent back.
-const syncFeatures = ['audioBookmarks'];
+/// "wishes": the wish list is sent in `wishes` and merged.
+const syncFeatures = ['audioBookmarks', 'wishes'];
 
 /// The port the phone listens on for sync. Shown in Settings.
 const defaultSyncPort = 8765;
@@ -18,6 +20,7 @@ class SyncPayload {
     required this.books,
     required this.tombstones,
     this.features = const {},
+    this.wishes = const [],
   });
 
   final List<Book> books;
@@ -25,6 +28,10 @@ class SyncPayload {
 
   /// What the other app's book data can carry (see [syncFeatures]).
   final Set<String> features;
+
+  /// The other device's wish list, deleted wishes included. Empty from an
+  /// app that has no wish list.
+  final List<Wish> wishes;
 }
 
 const _notSync = FormatException('Not a Chapterly sync message.');
@@ -42,11 +49,13 @@ String encodeSyncPayload(
   List<Book> books,
   Map<String, DateTime> tombstones, {
   List<String> features = syncFeatures,
+  List<Wish> wishes = const [],
 }) =>
     jsonEncode({
       'app': 'chapterly',
       'protocol': syncProtocolVersion,
       'features': features,
+      'wishes': [for (final wish in wishes) wish.toJson()],
       'books': [for (final book in books) book.toJson()],
       'tombstones': {
         for (final entry in tombstones.entries)
@@ -85,6 +94,7 @@ SyncPayload decodeSyncPayload(String text) {
         if (features is List)
           for (final feature in features) feature.toString(),
       },
+      wishes: wishesFromJson(data['wishes']),
     );
   } on TypeError {
     throw const FormatException('This sync message is damaged.');

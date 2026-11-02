@@ -36,10 +36,16 @@ books it has permanently deleted:
     {
       "app": "chapterly",
       "protocol": 1,
-      "features": ["audioBookmarks"],
+      "features": ["audioBookmarks", "wishes"],
       "books": [ { ...book... } ],
+      "wishes": [ { ...wish... } ],
       "tombstones": { "<book id>": "2026-03-01T12:00:00.000" }
     }
+
+`wishes` is the wish list (books you want but do not own yet), deleted ones
+included. `features` lists what this app can carry; "wishes" means it keeps
+and returns the wish list. An app without a wish list ignores `wishes` and
+sends none, which leaves the other device's list as it is.
 
 `features` lists what this app's book data can carry. Apps before Android
 1.15.0 and Windows 1.11.0 send none and ignore the list. `audioBookmarks`
@@ -90,6 +96,16 @@ book and sent back unchanged, so a sync with an older app never wipes it.
 stored in the book itself as a small JPEG data address
 (`data:image/jpeg;base64,...`, about 400 pixels wide), so it syncs like any
 other field. Both apps show either kind.
+
+## A wish
+
+    id, title, author, isbn, priority ("low" | "medium" | "high"),
+    where (shop, library or link), note, addedAt, updatedAt, deletedAt
+
+Wishes are merged by `id`: the copy with the newer `updatedAt` wins (on a tie
+the device that is merging wins). A deleted wish keeps its `deletedAt` and is
+kept for 180 days so the delete reaches the other device; an edit made after
+a delete brings the wish back.
 
 ## Merging rules
 

@@ -346,7 +346,11 @@ class PcSync extends ChangeNotifier {
       final reply = await client.sync(
         address,
         code,
-        encodeSyncPayload(sent.books, sent.tombstones),
+        encodeSyncPayload(
+          sent.books,
+          sent.tombstones,
+          wishes: settings.allWishes,
+        ),
       );
       // Merge the reply with the library as it is now, so a change made on
       // this PC while the sync was running is not lost. The phone's copy wins
@@ -365,6 +369,9 @@ class PcSync extends ChangeNotifier {
           : keepPcBookmarks(merged.books, now.books);
       final changed = countSyncChanges(now.books, books);
       await repository.applySynced(books, merged.tombstones);
+      // The wish list: the newer copy of each wish wins, including a wish
+      // changed on this PC while the sync was running.
+      settings.mergeWishesFrom(reply.wishes);
       // What the phone holds now. A change made on this PC during the sync
       // is not in it, so the next sync still sees it as a PC change.
       await base.save(reply.books);
