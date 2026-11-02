@@ -8,6 +8,7 @@ import '../models/shelf.dart';
 import 'pin_lock.dart';
 import 'quote_of_day.dart';
 import 'saved_filters.dart';
+import 'wish_list.dart';
 
 enum SortField {
   dateAdded,
@@ -83,6 +84,7 @@ class AppSettings extends ChangeNotifier {
   bool _scanOnOpen = true;
   double? _listPaneShare;
   List<SavedFilter> _savedFilters = [];
+  List<Wish> _wishes = [];
   bool _goalOnLibrary = true;
   bool _closeToTray = false;
   bool _smartRewind = true;
@@ -187,6 +189,9 @@ class AppSettings extends ChangeNotifier {
   /// Filters saved under a name, shown at the start of the Library's
   /// filter chips.
   List<SavedFilter> get savedFilters => List.unmodifiable(_savedFilters);
+
+  /// Books you want but do not have yet. Not in the library until moved.
+  List<Wish> get wishes => List.unmodifiable(_wishes);
 
   /// Closing the window keeps Chapterly running in the system tray (so an
   /// audiobook keeps playing) instead of quitting.
@@ -320,6 +325,7 @@ class AppSettings extends ChangeNotifier {
     settings._audiobooksFolder = prefs.getString('audiobooksFolder');
     settings._scanOnOpen = prefs.getBool('scanOnOpen') ?? true;
     settings._savedFilters = decodeSavedFilters(prefs.getString('savedFilters'));
+    settings._wishes = decodeWishes(prefs.getString('wishes'));
     settings._goalOnLibrary = prefs.getBool('goalOnLibrary') ?? true;
     settings._closeToTray = prefs.getBool('closeToTray') ?? false;
     settings._smartRewind = prefs.getBool('smartRewind') ?? true;
@@ -657,6 +663,12 @@ class AppSettings extends ChangeNotifier {
     } else {
       prefs?.setString('audiobooksFolder', folder);
     }
+    notifyListeners();
+  }
+
+  void setWishes(List<Wish> wishes) {
+    _wishes = [...wishes];
+    prefs?.setString('wishes', encodeWishes(_wishes));
     notifyListeners();
   }
 

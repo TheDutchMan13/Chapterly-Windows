@@ -41,6 +41,7 @@ import 'shelf_picker.dart';
 import 'sync_preview.dart';
 import 'tags_screen.dart';
 import 'trash_screen.dart';
+import 'wish_list_screen.dart';
 import 'update_dialog.dart';
 
 enum _AddChoice { search, isbn, bulk, manual }
@@ -640,6 +641,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => TagsScreen(
+          repository: widget.repository,
+          settings: widget.settings,
+        ),
+      ),
+    );
+  }
+
+  void _openWishes() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => WishListScreen(
           repository: widget.repository,
           settings: widget.settings,
         ),
@@ -1598,6 +1610,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
             PopupMenuItem(value: _openTags, child: const Text('Tags')),
             PopupMenuItem(value: _openSeries, child: const Text('Series')),
+            PopupMenuItem(value: _openWishes, child: const Text('Wish list')),
             PopupMenuItem(
               value: _openNotesSearch,
               child: const Text('Search notes and quotes'),
