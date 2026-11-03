@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
+import '../data/sync_covers.dart';
 import '../data/sync_merge.dart';
 import '../data/sync_protocol.dart';
 import '../data/sync_three_way.dart';
@@ -90,15 +91,24 @@ class LibrarySync {
       );
     }
 
+    // Books are merged with cover references, never the pictures: those are
+    // in [pool] (this device's own) and are fetched only when a book needs
+    // one this device lacks. A library saved before covers became
+    // references is read the same way.
+    final pool = CoverPool();
+    final serverBooks =
+        server == null ? const <Book>[] : withCoverRefs(server.books, pool);
+
     // This device's library, with books changed on both sides merged field
     // by field.
     final start = repository.snapshot();
-    var mine = start;
+    final startBooks = withCoverRefs(start.books, pool);
+    var mine = (books: startBooks, tombstones: start.tombstones);
     if (server != null && !base.isEmpty) {
       final resolved = resolveConflicts(
         base: base.books,
         local: mine.books,
-        remote: server.books,
+        remote: serverBooks,
         now: _now(),
       );
       if (resolved.isNotEmpty) {
@@ -112,7 +122,7 @@ class LibrarySync {
     var merged = (books: mine.books, tombstones: mine.tombstones);
     if (server != null) {
       final m = mergeLibraries(
-        local: server.books,
+        local: serverBooks,
         localTombstones: server.tombstones,
         remote: mine.books,
         remoteTombstones: mine.tombstones,
@@ -120,6 +130,14 @@ class LibrarySync {
       merged = (books: m.books, tombstones: m.tombstones);
     }
     final wishes = mergeWishes(server?.wishes ?? const [], settings.allWishes);
+
+    // The server keeps the pictures too: it gets the ones it lacks first, so
+    // a library it holds never names a cover it does not have.
+    final lacking = await client.missingCovers(coverHashesOf(merged.books));
+    await forEachLimited(lacking, (hash) async {
+      final picture = pool[hash];
+      if (picture != null) await client.putCover(hash, picture);
+    });
 
     try {
       await client.putLibrary(
@@ -136,18 +154,19 @@ class LibrarySync {
     // changed too is merged field by field (the copy from before the sync
     // is what both started from), so neither change is lost.
     final now = repository.snapshot();
+    final nowBooks = withCoverRefs(now.books, pool);
     final before = {for (final book in start.books) book.id: book};
     final touched = [
-      for (final book in now.books)
+      for (final book in nowBooks)
         if (before[book.id] case final was?
             when !was.updatedAt.isAtSameMomentAs(book.updatedAt))
           book,
     ];
-    var nowBooks = now.books;
+    var applyBooks = nowBooks;
     if (touched.isNotEmpty) {
       final resolved = resolveConflicts(
         base: {
-          for (final book in start.books)
+          for (final book in startBooks)
             book.id: jsonDecode(jsonEncode(book.toJson())) as Map<String, Object?>,
         },
         local: touched,
@@ -156,17 +175,37 @@ class LibrarySync {
       );
       if (resolved.isNotEmpty) {
         final byId = {for (final book in resolved) book.id: book};
-        nowBooks = [for (final book in now.books) byId[book.id] ?? book];
+        applyBooks = [for (final book in nowBooks) byId[book.id] ?? book];
       }
     }
     final applied = mergeLibraries(
       local: merged.books,
       localTombstones: merged.tombstones,
-      remote: nowBooks,
+      remote: applyBooks,
       remoteTombstones: now.tombstones,
     );
-    final changed = countLibraryChanges(now.books, applied.books);
-    await repository.applySynced(applied.books, applied.tombstones);
+    // The pictures this device does not have yet come from the server. One
+    // it no longer has (a book whose picture was lost) is left without a
+    // cover rather than holding up the sync.
+    await forEachLimited(missingCovers(applied.books, pool), (hash) async {
+      final picture = await client.getCover(hash);
+      if (picture == null) return;
+      try {
+        pool.put(hash, picture);
+      } on FormatException {
+        // A damaged picture: the book is left without a cover.
+      }
+    });
+    final lost = missingCovers(applied.books, pool).toSet();
+    final books = withCoverPictures([
+      for (final book in applied.books)
+        if (lost.contains(hashOfCoverRef(book.coverUrl)))
+          book.copyWith(coverUrl: () => null)
+        else
+          book,
+    ], pool);
+    final changed = countLibraryChanges(now.books, books);
+    await repository.applySynced(books, applied.tombstones);
     settings.mergeWishesFrom(wishes);
     await base.save(merged.books);
     await sync.state.recordLibrarySync(_now());

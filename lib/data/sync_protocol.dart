@@ -4,7 +4,9 @@ import '../models/book.dart';
 import 'wish_list.dart';
 
 /// The version of the sync messages. The phone and the PC must agree on it.
-const syncProtocolVersion = 1;
+/// Version 2: books carry a cover reference instead of the picture (see
+/// sync_covers.dart). An app on version 1 asks for the other to be updated.
+const syncProtocolVersion = 2;
 
 /// What this app's book data can carry, sent with every sync message. An
 /// older app sends none of these, and ignores this list when it reads it.

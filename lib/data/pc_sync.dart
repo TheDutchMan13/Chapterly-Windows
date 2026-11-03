@@ -10,6 +10,7 @@ import 'app_settings.dart';
 import 'book_repository.dart';
 import 'phone_finder.dart';
 import 'sync_three_way.dart';
+import 'sync_covers.dart';
 import 'sync_merge.dart';
 import 'sync_plan.dart';
 import 'sync_protocol.dart';
@@ -203,6 +204,8 @@ class SyncClient {
         throw SyncFailure(message ?? 'Your phone could not read the sync.');
       case 404:
         throw _notChapterly;
+      case 409:
+        throw MissingCovers(_hashesIn(text));
       default:
         throw SyncFailure(
           _errorText(text) ?? 'Your phone could not finish the sync. Try again.',
@@ -215,6 +218,110 @@ class SyncClient {
       throw SyncFailure(error.message);
     }
   }
+
+  Map<String, String> _coverHeaders(String code, {bool json = false}) => {
+        'Authorization': 'Bearer $code',
+        if (json) 'Content-Type': 'application/json',
+      };
+
+  /// Which of [hashes] the phone does not have a cover picture for.
+  Future<List<String>> missingCovers(
+    Uri address,
+    String code,
+    List<String> hashes,
+  ) async {
+    if (hashes.isEmpty) return const [];
+    final response = await _send(
+      () => _client.post(
+        address.replace(path: '/v1/covers/missing'),
+        headers: _coverHeaders(code, json: true),
+        body: jsonEncode({'hashes': hashes}),
+      ),
+      syncTimeout,
+      'covers',
+    );
+    _checkCovers(response);
+    return _hashesIn(utf8.decode(response.bodyBytes, allowMalformed: true));
+  }
+
+  /// Gives the phone one cover picture.
+  Future<void> putCover(
+    Uri address,
+    String code,
+    String hash,
+    String dataUrl,
+  ) async {
+    final response = await _send(
+      () => _client.put(
+        address.replace(path: '/v1/covers/$hash'),
+        headers: _coverHeaders(code),
+        body: dataUrl,
+      ),
+      syncTimeout,
+      'covers',
+    );
+    _checkCovers(response);
+  }
+
+  /// Takes one cover picture from the phone, or null when it has none by
+  /// that name.
+  Future<String?> getCover(Uri address, String code, String hash) async {
+    final response = await _send(
+      () => _client.get(
+        address.replace(path: '/v1/covers/$hash'),
+        headers: _coverHeaders(code),
+      ),
+      syncTimeout,
+      'covers',
+    );
+    if (response.statusCode == 404 &&
+        _errorText(utf8.decode(response.bodyBytes, allowMalformed: true)) ==
+            'No such cover.') {
+      return null;
+    }
+    _checkCovers(response);
+    return utf8.decode(response.bodyBytes, allowMalformed: true);
+  }
+
+  void _checkCovers(http.Response response) {
+    switch (response.statusCode) {
+      case 200:
+      case 204:
+        return;
+      case 401:
+        throw const SyncFailure(
+          'The pairing code is wrong. Check it on your phone under '
+          'Settings > Sync with a PC.',
+        );
+      case 404:
+        throw const SyncFailure(
+          'Your phone does not know this way of syncing covers. Update '
+          'Chapterly on your phone.',
+        );
+      default:
+        throw SyncFailure(
+          _errorText(utf8.decode(response.bodyBytes, allowMalformed: true)) ??
+              'Your phone could not take the covers. Try again.',
+        );
+    }
+  }
+}
+
+/// The cover names in a reply such as `{"missing": [...]}`.
+List<String> _hashesIn(String text) {
+  try {
+    final data = jsonDecode(text);
+    final list = data is Map ? data['missing'] : null;
+    if (list is List) {
+      return [
+        for (final item in list)
+          if (item is String && isCoverHash(item)) item,
+      ];
+    }
+  } on FormatException {
+    // Not JSON.
+  }
+  return const [];
 }
 
 /// Where the pairing code is kept. The app uses Windows Credential Manager
@@ -339,6 +446,82 @@ class PcSync extends ChangeNotifier {
     return problem;
   }
 
+  /// Sends [body] (books with cover references) after giving the phone the
+  /// pictures it lacks, and returns its reply with references too.
+  Future<SyncPayload> _exchange(
+    Uri address,
+    String code,
+    String body,
+    List<String> covers,
+    CoverPool pool,
+  ) async {
+    Future<SyncPayload> post() async {
+      final reply = await client.sync(address, code, body);
+      return SyncPayload(
+        books: withCoverRefs(reply.books, pool),
+        tombstones: reply.tombstones,
+        features: reply.features,
+        wishes: reply.wishes,
+      );
+    }
+
+    await _giveCovers(address, code, covers, pool);
+    try {
+      return await post();
+    } on MissingCovers catch (lacking) {
+      // The phone lost some pictures since it was asked: give them again.
+      await _giveCovers(address, code, lacking.hashes, pool, ask: false);
+      return await post();
+    }
+  }
+
+  Future<void> _giveCovers(
+    Uri address,
+    String code,
+    List<String> hashes,
+    CoverPool pool, {
+    bool ask = true,
+  }) async {
+    if (hashes.isEmpty) return;
+    final lacking =
+        ask ? await client.missingCovers(address, code, hashes) : hashes;
+    await forEachLimited(lacking, (hash) async {
+      final picture = pool[hash];
+      if (picture == null) {
+        throw const SyncFailure('A cover could not be read on this PC.');
+      }
+      await client.putCover(address, code, hash, picture);
+    });
+  }
+
+  /// Takes the pictures this PC lacks from the phone. A book whose picture
+  /// the phone no longer has comes back without a cover rather than holding
+  /// up the sync.
+  Future<List<Book>> _withPictures(
+    Uri address,
+    String code,
+    List<Book> books,
+    CoverPool pool,
+  ) async {
+    await forEachLimited(missingCovers(books, pool), (hash) async {
+      final picture = await client.getCover(address, code, hash);
+      if (picture == null) return;
+      try {
+        pool.put(hash, picture);
+      } on FormatException {
+        // A damaged picture: the book is left without a cover.
+      }
+    });
+    final lost = missingCovers(books, pool).toSet();
+    return withCoverPictures([
+      for (final book in books)
+        if (lost.contains(hashOfCoverRef(book.coverUrl)))
+          book.copyWith(coverUrl: () => null)
+        else
+          book,
+    ], pool);
+  }
+
   /// Sends this library to the phone and takes back the merged library.
   /// Returns null when it worked, or the message to show.
   Future<String?> syncNow() async {
@@ -351,18 +534,27 @@ class PcSync extends ChangeNotifier {
     }
     _setBusy(true);
     try {
+      // Books travel with cover references; the pictures are given to the
+      // phone, or taken from it, only when one side lacks them.
+      final pool = CoverPool();
       SyncPayload? phone;
       if (!base.isEmpty) {
         // Ask for the phone's library (sending none changes nothing there)
         // to merge books changed on both sides before sending.
-        phone = await client.sync(
+        phone = await _exchange(
           address,
           code,
           encodeSyncPayload(const [], const {}),
+          const [],
+          pool,
         );
       }
       // Taken after that, so a change made meanwhile is sent too.
       var sent = repository.snapshot();
+      sent = (
+        books: withCoverRefs(sent.books, pool),
+        tombstones: sent.tombstones,
+      );
       if (phone != null) {
         final resolved = resolveConflicts(
           base: base.books,
@@ -379,7 +571,7 @@ class PcSync extends ChangeNotifier {
           );
         }
       }
-      final reply = await client.sync(
+      final reply = await _exchange(
         address,
         code,
         encodeSyncPayload(
@@ -387,22 +579,27 @@ class PcSync extends ChangeNotifier {
           sent.tombstones,
           wishes: settings.allWishes,
         ),
+        coverHashesOf(sent.books),
+        pool,
       );
       // Merge the reply with the library as it is now, so a change made on
       // this PC while the sync was running is not lost. The phone's copy wins
       // a tie, so both sides end up the same.
       final now = repository.snapshot();
+      final nowBooks = withCoverRefs(now.books, pool);
       final merged = mergeLibraries(
         local: reply.books,
         localTombstones: reply.tombstones,
-        remote: now.books,
+        remote: nowBooks,
         remoteTombstones: now.tombstones,
       );
       // A phone app older than 1.15.0 drops audiobook bookmarks: keep this
       // PC's.
-      final books = reply.features.contains('audioBookmarks')
+      final refBooks = reply.features.contains('audioBookmarks')
           ? merged.books
-          : keepPcBookmarks(merged.books, now.books);
+          : keepPcBookmarks(merged.books, nowBooks);
+      // The pictures this PC does not have yet come from the phone.
+      final books = await _withPictures(address, code, refBooks, pool);
       final changed = countSyncChanges(now.books, books);
       await repository.applySynced(books, merged.tombstones);
       // The wish list: the newer copy of each wish wins, including a wish

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/book.dart';
+import 'sync_covers.dart';
 
 // Windows app only. The phone keeps the newest copy of each book; before a
 // sync the PC merges books changed on both sides field by field, against
@@ -28,8 +29,11 @@ class SyncBase {
         if (data is Map) {
           for (final entry in data.entries) {
             if (entry.value is Map) {
-              base._books[entry.key.toString()] =
-                  Map<String, Object?>.from(entry.value as Map);
+              // A copy saved before covers became references has the
+              // pictures in it: they are kept as references.
+              base._books[entry.key.toString()] = jsonWithCoverRef(
+                Map<String, Object?>.from(entry.value as Map),
+              );
             }
           }
         }
@@ -43,7 +47,9 @@ class SyncBase {
   Future<void> save(List<Book> books) async {
     _books = {
       for (final book in books)
-        book.id: jsonDecode(jsonEncode(book.toJson())) as Map<String, Object?>,
+        book.id: jsonWithCoverRef(
+          jsonDecode(jsonEncode(book.toJson())) as Map<String, Object?>,
+        ),
     };
     final target = file;
     if (target == null) return;

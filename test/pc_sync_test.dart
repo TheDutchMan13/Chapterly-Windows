@@ -5,7 +5,7 @@ import 'package:chapterly/data/app_settings.dart';
 import 'package:chapterly/data/book_repository.dart';
 import 'package:chapterly/data/book_store.dart';
 import 'package:chapterly/data/pc_sync.dart';
-import 'package:chapterly/data/sync_merge.dart';
+import 'package:chapterly/data/sync_covers.dart';
 import 'package:chapterly/data/sync_protocol.dart';
 import 'package:chapterly/data/sync_server.dart';
 import 'package:chapterly/models/book.dart';
@@ -13,6 +13,8 @@ import 'package:chapterly/models/shelf.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import 'phone_sync_core.dart';
 
 const _code = 'ABCDEFGHJKMNPQRS';
 
@@ -28,30 +30,62 @@ Book _book(String id, {DateTime? updated, int? rating}) => Book(
 
 List<String> _ids(List<Book> books) => [for (final b in books) b.id]..sort();
 
-/// A phone running the real sync server, with the same merge steps as the
-/// phone app's PhoneSync.
+/// The phone's covers, counting what moves, and able to misbehave.
+class _CountingCovers implements SyncCovers {
+  _CountingCovers(this.inner);
+
+  final SyncCovers inner;
+  int puts = 0;
+  int gets = 0;
+
+  /// Say nothing is missing, as a phone that lost its cache would.
+  bool lieAboutMissing = false;
+
+  /// Pictures the phone no longer has, and pictures it returns damaged.
+  final lost = <String>{};
+  final damaged = <String>{};
+
+  @override
+  Future<List<String>> missing(List<String> hashes) async =>
+      lieAboutMissing ? const [] : inner.missing(hashes);
+
+  @override
+  Future<void> put(String hash, String dataUrl) async {
+    puts++;
+    await inner.put(hash, dataUrl);
+  }
+
+  @override
+  Future<String?> get(String hash) async {
+    gets++;
+    if (lost.contains(hash)) return null;
+    if (damaged.contains(hash)) return 'data:image/jpeg;base64,damaged';
+    return inner.get(hash);
+  }
+}
+
+/// A phone running the real sync server and the phone app's own merge steps
+/// (PhoneSyncCore, the same code as in the Android app).
 class _Phone {
   final repository = BookRepository(InMemoryBookStore());
+  final settings = AppSettings();
+  late final PhoneSyncCore core;
+  late final _CountingCovers covers;
   late final SyncServer server;
   Future<void> Function()? duringSync;
 
   Future<void> start() async {
     await repository.load();
+    core = PhoneSyncCore(repository: repository, settings: settings);
+    covers = _CountingCovers(core);
     server = SyncServer(
       token: _code,
       handleSync: (body) async {
-        final remote = decodeSyncPayload(body);
-        final local = repository.snapshot();
-        final merged = mergeLibraries(
-          local: local.books,
-          localTombstones: local.tombstones,
-          remote: remote.books,
-          remoteTombstones: remote.tombstones,
-        );
-        await repository.applySynced(merged.books, merged.tombstones);
+        final reply = await core.handleSync(body);
         await duringSync?.call();
-        return encodeSyncPayload(merged.books, merged.tombstones);
+        return reply;
       },
+      covers: covers,
     );
     await server.start(port: 0);
   }
@@ -225,6 +259,107 @@ void main() {
       expect(sync.paired, isFalse);
       expect(await codes.read(), isNull);
       expect(settings.syncAddress, isNull);
+    });
+  });
+
+  group('covers', () {
+    late _Phone phone;
+    late BookRepository pc;
+    late PcSync sync;
+
+    String picture(String seed, [int size = 3000]) =>
+        'data:image/jpeg;base64,${seed * size}';
+
+    Book withCover(String id, String cover) =>
+        _book(id).copyWith(coverUrl: () => cover);
+
+    setUp(() async {
+      phone = _Phone();
+      await phone.start();
+      pc = BookRepository(InMemoryBookStore());
+      await pc.load();
+      sync = PcSync(
+        repository: pc,
+        settings: AppSettings(),
+        codeStore: MemoryCodeStore(),
+        client: SyncClient(pingTimeout: const Duration(seconds: 2)),
+      );
+    });
+
+    tearDown(() => phone.server.stop());
+
+    Future<String?> pair() =>
+        sync.pair(address: phone.address, code: _code);
+
+    test('a cover on each side reaches the other', () async {
+      await pc.replaceAll([withCover('pc', picture('a'))]);
+      await phone.repository.replaceAll([withCover('phone', picture('b'))]);
+
+      expect(await pair(), isNull);
+
+      for (final books in [pc.allBooks, phone.repository.allBooks]) {
+        final covers = {for (final b in books) b.id: b.coverUrl};
+        expect(covers, {'pc': picture('a'), 'phone': picture('b')});
+      }
+    });
+
+    test('a library of a thousand books with pictures syncs', () async {
+      await pc.replaceAll([
+        for (var i = 0; i < 1000; i++)
+          withCover('b$i', picture(String.fromCharCode(97 + i % 26), 1000 + i)),
+      ]);
+
+      expect(await pair(), isNull);
+
+      expect(phone.repository.allBooks, hasLength(1000));
+      expect(
+        phone.repository.allBooks.where((b) => isDataCoverUrl(b.coverUrl)),
+        hasLength(1000),
+      );
+      // Each picture went once. The same picture on two books is one.
+      expect(phone.covers.puts, 1000);
+      expect(phone.covers.gets, 0);
+
+      // Nothing moves on the next sync.
+      phone.covers.puts = 0;
+      expect(await sync.syncNow(), isNull);
+      expect(phone.covers.puts, 0);
+      expect(phone.covers.gets, 0);
+    });
+
+    test('a picture the phone lost since it was asked is sent again', () async {
+      await pc.replaceAll([withCover('pc', picture('a'))]);
+      phone.covers.lieAboutMissing = true;
+
+      expect(await pair(), isNull);
+      expect(phone.repository.byId('pc')!.coverUrl, picture('a'));
+    });
+
+    test('a picture the phone no longer has leaves that book without a cover',
+        () async {
+      await phone.repository.replaceAll([
+        withCover('one', picture('a')),
+        withCover('two', picture('b')),
+      ]);
+      phone.covers.lost.add(coverHash(picture('a')));
+
+      expect(await pair(), isNull);
+      expect(pc.byId('one')!.coverUrl, isNull);
+      expect(pc.byId('two')!.coverUrl, picture('b'));
+    });
+
+    test('a damaged picture from the phone is not kept as a cover', () async {
+      await phone.repository.replaceAll([withCover('one', picture('a'))]);
+      phone.covers.damaged.add(coverHash(picture('a')));
+
+      expect(await pair(), isNull);
+      expect(pc.byId('one')!.coverUrl, isNull);
+    });
+
+    test('the copy of the last sync keeps references, not pictures', () async {
+      await pc.replaceAll([withCover('pc', picture('a', 20000))]);
+      expect(await pair(), isNull);
+      expect(sync.base.books['pc']!['coverUrl'], startsWith(coverRefPrefix));
     });
   });
 

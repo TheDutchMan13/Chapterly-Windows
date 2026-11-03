@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:chapterly/data/sync_covers.dart';
 import 'package:chapterly/server/server_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -23,6 +24,9 @@ class FakeServer {
   /// The stored library: its version and sync text.
   int libraryVersion = 0;
   String? library;
+
+  /// Cover pictures kept for the library, by name.
+  final covers = <String, String>{};
 
   /// Books sent to other devices: book id to the device that sent it.
   final sends = <String, String>{};
@@ -183,6 +187,29 @@ class FakeServer {
         reset: body['reset'] == true,
         base: body['base'] as String?,
       ));
+    }
+    if (path == '/v1/covers/missing' && request.method == 'POST') {
+      final body = jsonDecode(request.body) as Map;
+      return _json({
+        'missing': [
+          for (final hash in body['hashes'] as List)
+            if (!covers.containsKey(hash)) hash,
+        ],
+      });
+    }
+    if (parts.length == 4 && parts[2] == 'covers') {
+      final hash = parts[3];
+      if (request.method == 'PUT') {
+        if (coverHash(request.body) != hash) {
+          return _json({'detail': 'Not valid: cover'}, 422);
+        }
+        covers[hash] = request.body;
+        return http.Response('', 204);
+      }
+      final picture = covers[hash];
+      if (picture == null) return _json({'detail': 'No such cover.'}, 404);
+      return http.Response(picture, 200,
+          headers: {'content-type': 'text/plain; charset=utf-8'});
     }
     if (path == '/v1/library') {
       if (request.method == 'GET') {

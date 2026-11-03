@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../data/sync_covers.dart';
+
 // The same file is in the Android app.
 
 /// Something went wrong talking to the book server, in words to show.
@@ -30,6 +32,11 @@ class ServerFailure implements Exception {
   @override
   String toString() => message;
 }
+
+const _serverNeedsUpdate = ServerFailure(
+  'Your book server is older than this app and cannot sync covers. Copy the '
+  'new server files to the PC and restart the server.',
+);
 
 const _unreachable = ServerFailure(
   'Chapterly cannot reach your book server. Is it running, and is '
@@ -524,6 +531,61 @@ class ServerClient {
       throw const ServerFailure('The server sent something Chapterly cannot read.');
     }
     return saved;
+  }
+
+  /// Which of [hashes] (cover names, see sync_covers.dart) the server does
+  /// not have a picture for.
+  Future<List<String>> missingCovers(List<String> hashes) async {
+    if (hashes.isEmpty) return const [];
+    try {
+      final data = _json(await _send(
+        () => _client.post(
+          _uri('/v1/covers/missing'),
+          headers: {...authHeaders, 'Content-Type': 'application/json'},
+          body: jsonEncode({'hashes': hashes}),
+        ),
+        wait: libraryTimeout,
+      ));
+      final list = data is Map ? data['missing'] : null;
+      return [
+        if (list is List)
+          for (final item in list)
+            if (item is String && isCoverHash(item)) item,
+      ];
+    } on ServerFailure catch (failure) {
+      if (failure.notFound) throw _serverNeedsUpdate;
+      rethrow;
+    }
+  }
+
+  /// Gives the server one cover picture under its name.
+  Future<void> putCover(String hash, String dataUrl) async {
+    try {
+      await _send(
+        () => _client.put(
+          _uri('/v1/covers/$hash'),
+          headers: authHeaders,
+          body: dataUrl,
+        ),
+      );
+    } on ServerFailure catch (failure) {
+      if (failure.notFound) throw _serverNeedsUpdate;
+      rethrow;
+    }
+  }
+
+  /// One cover picture from the server, or null when it has none by that
+  /// name.
+  Future<String?> getCover(String hash) async {
+    try {
+      final response = await _send(
+        () => _client.get(_uri('/v1/covers/$hash'), headers: authHeaders),
+      );
+      return utf8.decode(response.bodyBytes, allowMalformed: true);
+    } on ServerFailure catch (failure) {
+      if (failure.notFound) return null;
+      rethrow;
+    }
   }
 
   /// Puts a book on your other devices: each downloads it the next time it

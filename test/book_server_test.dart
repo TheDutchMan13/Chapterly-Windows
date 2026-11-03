@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:chapterly/audio/audio_library.dart';
@@ -11,6 +12,8 @@ import 'package:chapterly/models/audio_progress.dart';
 import 'package:chapterly/models/book_format.dart';
 import 'package:chapterly/models/shelf.dart';
 import 'package:chapterly/screens/server_screen.dart';
+import 'package:chapterly/data/sync_covers.dart';
+import 'package:chapterly/data/sync_protocol.dart';
 import 'package:chapterly/data/sync_three_way.dart';
 import 'package:chapterly/data/wish_list.dart';
 import 'package:chapterly/server/library_sync.dart';
@@ -920,6 +923,142 @@ void main() {
       await phone.library.syncNow();
       await pc.library.syncNow();
       expect(pc.settings.wishes.single.title, 'Dune Messiah');
+    });
+
+    String picture(String seed, [int size = 4000]) =>
+        'data:image/jpeg;base64,${seed * size}';
+
+    test('a cover reaches the other device, and the library holds no picture',
+        () async {
+      final cover = picture('a');
+      final id = await phone.repository.add(
+          title: 'Dune', author: 'F', shelf: Shelf.forLater, coverUrl: cover);
+      await phone.library.syncNow();
+      // What the server keeps names the cover; the picture is kept apart.
+      expect(server.library, isNot(contains('data:image')));
+      expect(server.library, contains(coverRef(coverHash(cover))));
+      expect(server.covers.keys, [coverHash(cover)]);
+
+      expect(await pc.library.syncNow(), 1);
+      expect(pc.repository.byId(id)!.coverUrl, cover);
+    });
+
+    test('a cover a device has is not fetched or sent again', () async {
+      final cover = picture('a');
+      await phone.repository.add(
+          title: 'Dune', author: 'F', shelf: Shelf.forLater, coverUrl: cover);
+      await phone.library.syncNow();
+      await pc.library.syncNow();
+      server.requests.clear();
+      await phone.library.syncNow();
+      await pc.library.syncNow();
+      expect(
+        server.requests.where(
+            (r) => r.contains('/v1/covers/') && !r.endsWith('/missing')),
+        isEmpty,
+      );
+    });
+
+    test('a changed cover and a changed rating on two devices both stay',
+        () async {
+      final id = await phone.repository.add(
+          title: 'Dune', author: 'F', shelf: Shelf.forLater,
+          coverUrl: picture('a'));
+      await phone.library.syncNow();
+      await pc.library.syncNow();
+      await tick();
+      final fresh = picture('b');
+      await phone.repository.replaceAll([
+        phone.repository.byId(id)!.copyWith(
+              coverUrl: () => fresh,
+              updatedAt: DateTime.now(),
+            ),
+      ]);
+      await tick();
+      await pc.repository.setRating(id, 4);
+      await phone.library.syncNow();
+      await pc.library.syncNow();
+      await phone.library.syncNow();
+      for (final device in [phone, pc]) {
+        final book = device.repository.byId(id)!;
+        expect(book.coverUrl, fresh);
+        expect(book.rating, 4);
+      }
+    });
+
+    test('a cover the server lost leaves the book without one and the sync goes on',
+        () async {
+      final id = await phone.repository.add(
+          title: 'Dune', author: 'F', shelf: Shelf.forLater,
+          coverUrl: picture('a'));
+      await phone.repository.add(
+          title: 'Emma', author: 'J', shelf: Shelf.forLater,
+          coverUrl: picture('b'));
+      await phone.library.syncNow();
+      server.covers.remove(coverHash(picture('a')));
+
+      expect(await pc.library.syncNow(), 2);
+      expect(pc.repository.byId(id)!.coverUrl, isNull);
+      expect(
+        pc.repository.books.where((b) => b.title == 'Emma').single.coverUrl,
+        picture('b'),
+      );
+    });
+
+    test('a damaged cover is not kept', () async {
+      final id = await phone.repository.add(
+          title: 'Dune', author: 'F', shelf: Shelf.forLater,
+          coverUrl: picture('a'));
+      await phone.library.syncNow();
+      final name = coverHash(picture('a'));
+      // The server hands back something that is not that picture.
+      server.covers[name] = picture('z');
+      expect(await pc.library.syncNow(), 1);
+      expect(pc.repository.byId(id)!.coverUrl, isNull);
+    });
+
+    test('an older library with the pictures inside is still read', () async {
+      final cover = picture('a');
+      final id = await phone.repository.add(
+          title: 'Dune', author: 'F', shelf: Shelf.forLater, coverUrl: cover);
+      // As an earlier version saved it: the picture inside the book.
+      final book = phone.repository.byId(id)!;
+      server.library = jsonEncode(
+        jsonDecode(encodeSyncPayload([book], const {})),
+      );
+      server.libraryVersion = 1;
+      expect(await pc.library.syncNow(), 1);
+      expect(pc.repository.byId(id)!.coverUrl, cover);
+      // And what is saved back names it.
+      expect(server.library, isNot(contains('data:image')));
+    });
+
+    test('a library of a thousand books syncs with a small message', () async {
+      // About 40 KB of picture per book: 40 MB, as in a real library.
+      for (var i = 0; i < 1000; i++) {
+        await phone.repository.add(
+          title: 'Book $i',
+          author: 'A',
+          shelf: Shelf.forLater,
+          coverUrl: picture(String.fromCharCode(97 + i % 26), 1000 + i),
+        );
+      }
+      await phone.library.syncNow();
+      expect(server.library!.length, lessThan(900 * 1000));
+      expect(await pc.library.syncNow(), 1000);
+      expect(pc.repository.books, hasLength(1000));
+      expect(
+        pc.repository.books.where((b) => isDataCoverUrl(b.coverUrl)),
+        hasLength(1000),
+      );
+      // A second sync moves no pictures.
+      server.requests.clear();
+      await pc.library.syncNow();
+      expect(
+        server.requests.where(
+            (r) => r.contains('/v1/covers/') && !r.endsWith('/missing')),
+        isEmpty,
+      );
     });
 
     test('switched off, nothing is sent', () async {
