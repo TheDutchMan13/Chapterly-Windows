@@ -729,8 +729,18 @@ void main() {
       expect(await phone.downloads.receiveSent(), ['Dune']);
       expect(phone.repository.books.single.title, 'Dune');
       expect(phone.ebooks.linkFor(phone.repository.books.single.id), isNotNull);
-      expect(server.sends, isEmpty);
+      expect(server.received['dune'], {phone.state.device});
       // Nothing waiting: nothing happens.
+      expect(await phone.downloads.receiveSent(), isEmpty);
+    });
+
+    test('a sent book reaches every other device', () async {
+      final tablet = _Phone(server);
+      await tablet.setUp();
+      addTearDown(tablet.tearDown);
+      await pc.downloads.sendToOthers(await pc.serverBook('dune'));
+      expect(await phone.downloads.receiveSent(), ['Dune']);
+      expect(await tablet.downloads.receiveSent(), ['Dune']);
       expect(await phone.downloads.receiveSent(), isEmpty);
     });
 
@@ -738,7 +748,7 @@ void main() {
       await pc.downloads.sendToOthers(await pc.serverBook('dune'));
       server.downloadStatus = 500;
       expect(await phone.downloads.receiveSent(), isEmpty);
-      expect(server.sends, hasLength(1));
+      expect(server.received['dune'], isNull);
       server.downloadStatus = null;
       expect(await phone.downloads.receiveSent(), ['Dune']);
     });
@@ -747,7 +757,7 @@ void main() {
       await phone.download('dune');
       await pc.downloads.sendToOthers(await pc.serverBook('dune'));
       expect(await phone.downloads.receiveSent(), isEmpty);
-      expect(server.sends, isEmpty);
+      expect(server.received['dune'], {phone.state.device});
       expect(phone.repository.books, hasLength(1));
     });
 
@@ -862,6 +872,47 @@ void main() {
       await pc.library.syncNow();
       expect({for (final b in phone.repository.books) b.title}, {'Mine', 'Theirs'});
       expect({for (final b in pc.repository.books) b.title}, {'Mine', 'Theirs'});
+    });
+
+    test('a change made here while syncing keeps the other device\'s change',
+        () async {
+      final id = await phone.repository.add(
+          title: 'Dune', author: 'Frank Herbert', shelf: Shelf.inProgress);
+      await phone.library.syncNow();
+      await pc.library.syncNow();
+      await tick();
+      await pc.repository.setRating(id, 5);
+      await pc.library.syncNow();
+      server.during = (method, path) async {
+        if (method == 'PUT' && path == '/v1/library') {
+          server.during = null;
+          await tick();
+          // A note added on the phone while its upload is on the way.
+          await phone.repository.setNotes(id, 'Spice!');
+        }
+      };
+      await phone.library.syncNow();
+      expect(phone.repository.byId(id)!.rating, 5);
+      expect(phone.repository.byId(id)!.notes, 'Spice!');
+      await phone.library.syncNow();
+      await pc.library.syncNow();
+      for (final device in [phone, pc]) {
+        expect(device.repository.byId(id)!.rating, 5);
+        expect(device.repository.byId(id)!.notes, 'Spice!');
+      }
+    });
+
+    test('a library saved by a newer Chapterly says so, and changes nothing',
+        () async {
+      server.library = '{"app":"chapterly","protocol":99,"books":[]}';
+      server.libraryVersion = 3;
+      await phone.repository.add(title: 'Mine', author: 'A', shelf: Shelf.forLater);
+      await expectLater(
+        phone.library.syncNow(),
+        throwsA(isA<ServerFailure>().having((f) => f.message, 'message', contains('newer'))),
+      );
+      expect(server.libraryVersion, 3);
+      expect(phone.repository.books, hasLength(1));
     });
 
     test('the wish list comes along', () async {

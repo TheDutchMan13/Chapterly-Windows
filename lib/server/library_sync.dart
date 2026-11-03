@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
 import '../data/sync_merge.dart';
@@ -78,11 +80,20 @@ class LibrarySync {
   Future<int?> _once(ServerClient client) async {
     final stored = await client.getLibrary();
     final text = stored.library;
-    final server = text == null ? null : decodeSyncPayload(text);
+    final SyncPayload? server;
+    try {
+      server = text == null ? null : decodeSyncPayload(text);
+    } on FormatException {
+      throw const ServerFailure(
+        'Your library on the server was saved by a newer Chapterly. Update '
+        'this app to keep syncing it.',
+      );
+    }
 
     // This device's library, with books changed on both sides merged field
     // by field.
-    var mine = repository.snapshot();
+    final start = repository.snapshot();
+    var mine = start;
     if (server != null && !base.isEmpty) {
       final resolved = resolveConflicts(
         base: base.books,
@@ -98,17 +109,16 @@ class LibrarySync {
         );
       }
     }
-    final merged = server == null
-        ? (books: mine.books, tombstones: mine.tombstones)
-        : (() {
-            final m = mergeLibraries(
-              local: server.books,
-              localTombstones: server.tombstones,
-              remote: mine.books,
-              remoteTombstones: mine.tombstones,
-            );
-            return (books: m.books, tombstones: m.tombstones);
-          })();
+    var merged = (books: mine.books, tombstones: mine.tombstones);
+    if (server != null) {
+      final m = mergeLibraries(
+        local: server.books,
+        localTombstones: server.tombstones,
+        remote: mine.books,
+        remoteTombstones: mine.tombstones,
+      );
+      merged = (books: m.books, tombstones: m.tombstones);
+    }
     final wishes = mergeWishes(server?.wishes ?? const [], settings.allWishes);
 
     try {
@@ -122,12 +132,37 @@ class LibrarySync {
     }
 
     // Taken here, keeping a change made on this device while syncing; the
-    // next sync sends it.
+    // next sync sends it. A book changed here meanwhile that the merge
+    // changed too is merged field by field (the copy from before the sync
+    // is what both started from), so neither change is lost.
     final now = repository.snapshot();
+    final before = {for (final book in start.books) book.id: book};
+    final touched = [
+      for (final book in now.books)
+        if (before[book.id] case final was?
+            when !was.updatedAt.isAtSameMomentAs(book.updatedAt))
+          book,
+    ];
+    var nowBooks = now.books;
+    if (touched.isNotEmpty) {
+      final resolved = resolveConflicts(
+        base: {
+          for (final book in start.books)
+            book.id: jsonDecode(jsonEncode(book.toJson())) as Map<String, Object?>,
+        },
+        local: touched,
+        remote: merged.books,
+        now: _now(),
+      );
+      if (resolved.isNotEmpty) {
+        final byId = {for (final book in resolved) book.id: book};
+        nowBooks = [for (final book in now.books) byId[book.id] ?? book];
+      }
+    }
     final applied = mergeLibraries(
       local: merged.books,
       localTombstones: merged.tombstones,
-      remote: now.books,
+      remote: nowBooks,
       remoteTombstones: now.tombstones,
     );
     final changed = countLibraryChanges(now.books, applied.books);

@@ -18,14 +18,23 @@ class BookServer {
     final sync = BookServer.sync;
     if (sync == null || !sync.state.connected) return null;
     var changed = 0;
+    String? problem;
     try {
       changed = await library?.syncNow() ?? 0;
     } on ServerFailure catch (failure) {
-      // Places still try; a server that's away says so there.
-      if (!failure.unreachable) return failure.message;
+      // Places still sync; a server that's away says so there.
+      if (!failure.unreachable) problem = failure.message;
+    } catch (_) {
+      problem = 'Your library could not be synced this time.';
     }
-    final moved = await sync.syncNow();
-    final came = await downloads?.receiveSent() ?? const <String>[];
+    var moved = 0;
+    var came = const <String>[];
+    try {
+      moved = await sync.syncNow();
+      came = await downloads?.receiveSent() ?? const <String>[];
+    } catch (_) {
+      // Shown by the next sync.
+    }
     final text = [
       if (changed > 0)
         '$changed ${changed == 1 ? 'book' : 'books'} changed on your other devices',
@@ -34,6 +43,7 @@ class BookServer {
       if (moved > 0)
         'Carrying on in $moved ${moved == 1 ? 'book' : 'books'} from where '
             'you were on another device',
+      ?problem,
     ].join('. ');
     return text.isEmpty ? null : text;
   }

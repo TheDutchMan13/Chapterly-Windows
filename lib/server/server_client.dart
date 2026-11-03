@@ -302,10 +302,16 @@ class ServerClient {
 
   Uri coverUri(String bookId) => _uri('/v1/books/$bookId/cover');
 
-  Future<http.Response> _send(Future<http.Response> Function() request) async {
+  /// A whole library can take a while over a slow link.
+  static const libraryTimeout = Duration(minutes: 3);
+
+  Future<http.Response> _send(
+    Future<http.Response> Function() request, {
+    Duration? wait,
+  }) async {
     final http.Response response;
     try {
-      response = await request().timeout(timeout);
+      response = await request().timeout(wait ?? timeout);
     } on TimeoutException {
       throw _unreachable;
     } on SocketException {
@@ -489,6 +495,7 @@ class ServerClient {
   Future<({int version, String? library})> getLibrary() async {
     final data = _json(await _send(
       () => _client.get(_uri('/v1/library'), headers: authHeaders),
+      wait: libraryTimeout,
     ));
     if (data is! Map || data['version'] is! int) {
       throw const ServerFailure('The server sent something Chapterly cannot read.');
@@ -510,6 +517,7 @@ class ServerClient {
         // The library is sync text already; it goes in as it is.
         body: '{"version":$version,"library":$library}',
       ),
+      wait: libraryTimeout,
     ));
     final saved = data is Map ? data['version'] : null;
     if (saved is! int) {
@@ -543,10 +551,14 @@ class ServerClient {
     ];
   }
 
-  /// Takes a book off the list of books sent here.
-  Future<void> doneSend(String bookId) async {
+  /// Tells the server [device] has a sent book; your other devices still
+  /// get it.
+  Future<void> doneSend(String bookId, String device) async {
     await _send(
-      () => _client.delete(_uri('/v1/sends/$bookId'), headers: authHeaders),
+      () => _client.delete(
+        _uri('/v1/sends/$bookId', {'device': device}),
+        headers: authHeaders,
+      ),
     );
   }
 

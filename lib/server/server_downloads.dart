@@ -347,12 +347,12 @@ class ServerDownloads extends ChangeNotifier {
     for (final book in waiting) {
       try {
         if (localBookFor(book) != null || !canOpen(book)) {
-          await client.doneSend(book.id);
+          await client.doneSend(book.id, state.device);
           continue;
         }
         final result = await download(book);
         if (result.problem == null && result.bookId != null) {
-          await client.doneSend(book.id);
+          await client.doneSend(book.id, state.device);
           came.add(book.title);
         }
       } on ServerFailure catch (failure) {
