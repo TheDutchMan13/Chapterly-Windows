@@ -16,6 +16,9 @@ const changelog = [
     version: '1.13.0',
     date: '2026-11-03',
     changes: [
+      'Syncing a big library is fast and no longer fails: cover pictures '
+          'travel on their own, and only to a device that does not have them. '
+          'Update the phone, the PC and the server together',
       'Book server (Library menu): connect to your own Chapterly book '
           'server, then browse and search your library there and download '
           'ebooks and audiobooks into Chapterly',
