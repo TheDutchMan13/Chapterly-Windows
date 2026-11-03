@@ -148,18 +148,44 @@ class SyncClient {
   /// Sends this PC's library ([body], made by [encodeSyncPayload]) and
   /// returns the merged library from the phone.
   Future<SyncPayload> sync(Uri address, String code, String body) async {
-    final response = await _send(
-      () => _client.post(
-        address.replace(path: '/v1/sync'),
-        headers: {
-          'Authorization': 'Bearer $code',
-          'Content-Type': 'application/json',
-        },
-        body: body,
-      ),
-      syncTimeout,
-      'sync',
-    );
+    final url = address.replace(path: '/v1/sync');
+    final headers = {
+      'Authorization': 'Bearer $code',
+      'Content-Type': 'application/json',
+    };
+    final http.Response response;
+    try {
+      response = await _send(
+        () => _client.post(url, headers: headers, body: body),
+        syncTimeout,
+        'sync',
+      );
+    } on SyncFailure catch (failure) {
+      if (failure.message.contains('no answer in')) rethrow;
+      // A phone that refuses the pairing code answers and hangs up without
+      // reading the library, which Windows reports as a broken connection.
+      // Ask again with a tiny message to find out which it was.
+      http.Response? probe;
+      try {
+        probe = await _client
+            .post(url, headers: headers, body: '{}')
+            .timeout(pingTimeout);
+      } catch (_) {
+        probe = null;
+      }
+      if (probe?.statusCode == 401) {
+        throw const SyncFailure(
+          'The pairing code is wrong. Check it on your phone under '
+          'Settings > Sync with a PC.',
+        );
+      }
+      throw SyncFailure(
+        probe == null
+            ? failure.message
+            : '${failure.message}\n(The pairing code was accepted, but the '
+                'phone closed the connection while the library was sent.)',
+      );
+    }
     final text = utf8.decode(response.bodyBytes, allowMalformed: true);
     switch (response.statusCode) {
       case 200:

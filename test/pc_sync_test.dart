@@ -11,6 +11,8 @@ import 'package:chapterly/data/sync_server.dart';
 import 'package:chapterly/models/book.dart';
 import 'package:chapterly/models/shelf.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 const _code = 'ABCDEFGHJKMNPQRS';
 
@@ -289,6 +291,46 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('a phone that hangs up while the library is sent', () {
+    // A phone that refuses the pairing code answers and hangs up without
+    // reading the library, which Windows reports as a broken connection.
+    Future<String> problemWith(int? probeStatus) async {
+      final client = SyncClient(
+        client: MockClient((request) async {
+          if (request.body == '{}') {
+            if (probeStatus == null) throw http.ClientException('gone');
+            return http.Response('{"error":"x"}', probeStatus);
+          }
+          throw http.ClientException('connection forcibly closed');
+        }),
+      );
+      try {
+        await client.sync(Uri.parse('http://192.168.1.170:8765'), _code, '{"big":1}');
+        return '';
+      } on SyncFailure catch (error) {
+        return error.message;
+      }
+    }
+
+    test('a refused code is reported as a wrong code', () async {
+      expect(await problemWith(401), contains('pairing code is wrong'));
+    });
+
+    test('an accepted code says the phone hung up', () async {
+      final message = await problemWith(400);
+      expect(message, startsWith(unreachableMessage));
+      expect(message, contains('Details (sync)'));
+      expect(message, contains('code was accepted'));
+    });
+
+    test('a phone that cannot be asked again keeps the details', () async {
+      final message = await problemWith(null);
+      expect(message, startsWith(unreachableMessage));
+      expect(message, contains('Details (sync)'));
+      expect(message, isNot(contains('code was accepted')));
     });
   });
 
