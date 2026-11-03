@@ -313,7 +313,7 @@ class AppSettings extends ChangeNotifier {
   static const minCoverScale = 0.7;
   static const maxCoverScale = 1.6;
 
-  /// The four main shelves in the order their tabs are shown.
+  /// The main shelves in the order their tabs are shown.
   List<Shelf> get shelfOrder => List.unmodifiable(_shelfOrder);
 
   /// Whether a PIN is needed to open the app.
@@ -573,7 +573,7 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Sets the order of the four main shelf tabs. Anything missing from
+  /// Sets the order of the main shelf tabs. Anything missing from
   /// [order] is added at the end.
   void setShelfOrder(List<Shelf> order) {
     _shelfOrder = _cleanShelfOrder(order);

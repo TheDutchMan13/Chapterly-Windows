@@ -148,6 +148,7 @@ Shelf _shelfFrom(String value) => switch (value.trim().toLowerCase()) {
       'dnf' ||
       'abandoned' =>
         Shelf.unfinished,
+      'wishlist' || 'wish list' || 'wish-list' || 'wishlisted' => Shelf.wishlist,
       _ => Shelf.forLater,
     };
 

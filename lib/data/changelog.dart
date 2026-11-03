@@ -13,12 +13,21 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
-    version: '1.13.0',
+    version: '1.13.1',
     date: '2026-11-03',
     changes: [
+      'Wishlist shelf: a fifth shelf for books you want but have not got '
+          'yet. They are not counted as For later, in Next up or in your '
+          'reading statistics. Open the book file and it moves to In progress',
       'Syncing a big library is fast and no longer fails: cover pictures '
           'travel on their own, and only to a device that does not have them. '
           'Update the phone, the PC and the server together',
+    ],
+  ),
+  ChangelogEntry(
+    version: '1.13.0',
+    date: '2026-11-03',
+    changes: [
       'Book server (Library menu): connect to your own Chapterly book '
           'server, then browse and search your library there and download '
           'ebooks and audiobooks into Chapterly',

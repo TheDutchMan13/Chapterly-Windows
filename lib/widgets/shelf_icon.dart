@@ -8,4 +8,5 @@ IconData shelfIcon(Shelf shelf) => switch (shelf) {
       Shelf.inProgress => Icons.auto_stories_outlined,
       Shelf.forLater => Icons.bookmark_border,
       Shelf.unfinished => Icons.do_not_disturb_on_outlined,
+      Shelf.wishlist => Icons.card_giftcard_outlined,
     };

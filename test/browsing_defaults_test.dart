@@ -196,7 +196,7 @@ void main() {
       expect(again.showTagsOnCards, isFalse);
     });
 
-    test('shelf tab order is saved and always has all four shelves', () async {
+    test('shelf tab order is saved and always has every shelf', () async {
       final settings = await AppSettings.load();
       expect(settings.shelfOrder, Shelf.values);
       settings.setShelfOrder([Shelf.unfinished, Shelf.finished]);
@@ -205,9 +205,25 @@ void main() {
         Shelf.finished,
         Shelf.inProgress,
         Shelf.forLater,
+        Shelf.wishlist,
       ]);
       final again = await AppSettings.load();
       expect(again.shelfOrder, settings.shelfOrder);
+    });
+
+    test('an order saved before Wishlist existed gets Wishlist at the end',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'shelfOrder': ['unfinished', 'finished', 'inProgress', 'forLater'],
+      });
+      final settings = await AppSettings.load();
+      expect(settings.shelfOrder, [
+        Shelf.unfinished,
+        Shelf.finished,
+        Shelf.inProgress,
+        Shelf.forLater,
+        Shelf.wishlist,
+      ]);
     });
 
     test('the yearly pages goal is saved and can be removed', () async {

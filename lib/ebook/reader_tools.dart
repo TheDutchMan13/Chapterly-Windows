@@ -19,10 +19,10 @@ bool canLookUp(String text) {
   return words.isNotEmpty && words.length <= 60 && !words.contains('\n');
 }
 
-/// The shelf a book moves to when you open its book file: from For later or
-/// Unfinished to In progress. Null when it stays where it is.
+/// The shelf a book moves to when you open its book file: from For later,
+/// Unfinished or Wishlist to In progress. Null when it stays where it is.
 Shelf? shelfOnOpen(Shelf shelf) => switch (shelf) {
-      Shelf.forLater || Shelf.unfinished => Shelf.inProgress,
+      Shelf.forLater || Shelf.unfinished || Shelf.wishlist => Shelf.inProgress,
       Shelf.inProgress || Shelf.finished => null,
     };
 

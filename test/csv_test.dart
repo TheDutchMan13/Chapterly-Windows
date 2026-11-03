@@ -82,6 +82,23 @@ void main() {
     expect(second.tags, isEmpty);
   });
 
+  test('the Wishlist shelf is exported and imported', () {
+    final book = Book(
+      id: 'w',
+      title: 'Wanted',
+      author: 'Someone',
+      shelf: Shelf.wishlist,
+      addedAt: DateTime(2026, 11, 3),
+    );
+    final copy = importBooksFromCsv(encodeBooksCsv([book])).books.single;
+    expect(copy.shelf, Shelf.wishlist);
+
+    for (final name in ['wishlist', 'Wish list', 'wish-list']) {
+      final result = importBooksFromCsv('Title,Shelf\nA,$name');
+      expect(result.books.single.shelf, Shelf.wishlist, reason: name);
+    }
+  });
+
   test('rows without a title are skipped', () {
     final result = importBooksFromCsv('Title,Author\nDune,Frank\n,Nobody\n');
 

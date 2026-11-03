@@ -274,6 +274,7 @@ void main() {
   test('opening a book moves it to In progress; the end is the end', () {
     expect(shelfOnOpen(Shelf.forLater), Shelf.inProgress);
     expect(shelfOnOpen(Shelf.unfinished), Shelf.inProgress);
+    expect(shelfOnOpen(Shelf.wishlist), Shelf.inProgress);
     expect(shelfOnOpen(Shelf.inProgress), isNull);
     expect(shelfOnOpen(Shelf.finished), isNull);
     expect(reachedEnd(0.999), isTrue);
