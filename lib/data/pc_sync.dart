@@ -179,11 +179,13 @@ class SyncClient {
           'Settings > Sync with a PC.',
         );
       }
+      final size = '${(utf8.encode(body).length / 1048576).toStringAsFixed(1)} MB';
       throw SyncFailure(
         probe == null
-            ? failure.message
+            ? '${failure.message}\n(Library size: $size.)'
             : '${failure.message}\n(The pairing code was accepted, but the '
-                'phone closed the connection while the library was sent.)',
+                'phone closed the connection while the library was sent. '
+                'Library size: $size.)',
       );
     }
     final text = utf8.decode(response.bodyBytes, allowMalformed: true);
