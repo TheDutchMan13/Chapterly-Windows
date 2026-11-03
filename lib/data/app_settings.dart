@@ -86,6 +86,9 @@ class AppSettings extends ChangeNotifier {
   List<SavedFilter> _savedFilters = [];
   List<Wish> _wishes = [];
   bool _goalOnLibrary = true;
+  bool _reminderOn = false;
+  int _reminderMinutes = 20 * 60;
+  DateTime? _reminderShownOn;
   bool _closeToTray = false;
   bool _smartRewind = true;
   bool _bookmarksMoved = false;
@@ -235,6 +238,32 @@ class AppSettings extends ChangeNotifier {
   /// Show this year's reading goal at the top of the Library.
   bool get goalOnLibrary => _goalOnLibrary;
 
+  /// A daily reminder when you're behind this year's goal (off by default).
+  bool get reminderOn => _reminderOn;
+
+  /// When the reminder comes, in minutes after midnight.
+  int get reminderMinutes => _reminderMinutes;
+
+  /// The day the reminder was last shown (the PC shows it in the app).
+  DateTime? get reminderShownOn => _reminderShownOn;
+
+  void setReminder({bool? on, int? minutes}) {
+    if (on != null) {
+      _reminderOn = on;
+      prefs?.setBool('reminderOn', on);
+    }
+    if (minutes != null) {
+      _reminderMinutes = minutes.clamp(0, 24 * 60 - 1);
+      prefs?.setInt('reminderMinutes', _reminderMinutes);
+    }
+    notifyListeners();
+  }
+
+  void markReminderShown(DateTime day) {
+    _reminderShownOn = DateTime(day.year, day.month, day.day);
+    prefs?.setString('reminderShownOn', _reminderShownOn!.toIso8601String());
+  }
+
   /// How much of the window the book list takes when a book is open beside
   /// it (0.15 to 0.85), set by dragging the divider. Null: the usual sizes.
   double? get listPaneShare => _listPaneShare;
@@ -306,6 +335,10 @@ class AppSettings extends ChangeNotifier {
     settings._accent = prefs.getInt('accent') ?? defaultAccent;
     settings._fontFamily = prefs.getString('font');
     settings._monthlyGoal = prefs.getInt('monthly_goal');
+    settings._reminderOn = prefs.getBool('reminderOn') ?? false;
+    settings._reminderMinutes = prefs.getInt('reminderMinutes') ?? 20 * 60;
+    settings._reminderShownOn =
+        DateTime.tryParse(prefs.getString('reminderShownOn') ?? '');
     settings._themeMode =
         ThemeMode.values.asNameMap()[prefs.getString('themeMode')] ??
             ThemeMode.system;

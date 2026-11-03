@@ -18,6 +18,7 @@ import '../data/update_check.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
 import 'pin_dialogs.dart';
+import 'reminder_settings.dart';
 import 'scan_settings.dart';
 import 'shelf_order_screen.dart';
 import 'sync_preview.dart';
@@ -629,6 +630,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       value: widget.settings.goalOnLibrary,
                       onChanged: widget.settings.setGoalOnLibrary,
+                    ),
+                    ReminderSettings(
+                      settings: widget.settings,
+                      where: 'shown in Chapterly when it is open',
                     ),
                     SwitchListTile(
                       title: const Text('Quote of the day on the Library'),

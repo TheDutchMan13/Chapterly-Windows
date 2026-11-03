@@ -20,6 +20,7 @@ import 'data/file_io.dart';
 import 'data/library_scan.dart';
 import 'data/open_library_client.dart';
 import 'data/pc_sync.dart';
+import 'data/reading_nudge.dart';
 import 'data/secure_code_store.dart';
 import 'data/sqlite_book_store.dart';
 import 'data/theme_options.dart';
@@ -28,6 +29,8 @@ import 'data/window_control.dart';
 import 'ebook/ebook_library.dart';
 import 'ebook/ebook_reading.dart';
 import 'ebook/windows_ebook_files.dart';
+import 'models/shelf.dart';
+import 'screens/book_insights.dart' show forecastFor;
 import 'screens/cover_actions.dart';
 import 'screens/home_shell.dart';
 import 'screens/lock_gate.dart';
@@ -127,6 +130,8 @@ Future<void> main() async {
   );
   // Not awaited: the app opens while the backup is written.
   runAutoBackup(repository, settings);
+  // The daily reading reminder: on the PC it shows in the app.
+  _remindNowAndThen(repository, settings);
   // Closing the window can keep Chapterly in the tray (a setting).
   unawaited(AppTray(settings).start());
   runApp(
@@ -138,6 +143,39 @@ Future<void> main() async {
       fileIo: const FileIo(),
     ),
   );
+}
+
+/// Shows the reading reminder once a day after its time, while Chapterly
+/// is open, when you're behind this year's goal.
+void _remindNowAndThen(BookRepository repository, AppSettings settings) {
+  void check() {
+    if (!settings.reminderOn) return;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final shown = settings.reminderShownOn;
+    if (shown != null && !shown.isBefore(today)) return;
+    if (now.hour * 60 + now.minute < settings.reminderMinutes) return;
+    final text = reminderText(
+      repository.books,
+      goal: settings.goalFor(now.year),
+      finishDates: [
+        for (final book in repository.booksOn(Shelf.inProgress))
+          if (forecastFor(book) case final forecast?) forecast.date,
+      ],
+    );
+    if (text == null) return;
+    final messenger = _messengerKey.currentState;
+    if (messenger == null) return;
+    settings.markReminderShown(today);
+    messenger.showSnackBar(SnackBar(
+      content: Text(text),
+      duration: const Duration(seconds: 12),
+    ));
+  }
+
+  // A moment after start, once the window is up, then now and then.
+  Timer(const Duration(seconds: 20), check);
+  Timer.periodic(const Duration(minutes: 10), (_) => check());
 }
 
 Future<void> _setUpBookServer(
