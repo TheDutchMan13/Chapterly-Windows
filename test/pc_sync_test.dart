@@ -245,7 +245,7 @@ void main() {
       final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       final port = socket.port;
       await socket.close();
-      expect(await pingProblem('127.0.0.1:$port'), unreachableMessage);
+      expect(await pingProblem('127.0.0.1:$port'), startsWith(unreachableMessage));
     });
 
     test('something that is not Chapterly', () async {

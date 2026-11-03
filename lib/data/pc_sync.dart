@@ -103,23 +103,30 @@ class SyncClient {
   Future<http.Response> _send(
     Future<http.Response> Function() request,
     Duration timeout,
+    String step,
   ) async {
     try {
       return await request().timeout(timeout);
     } on TimeoutException {
-      throw const SyncFailure(unreachableMessage);
-    } on SocketException {
-      throw const SyncFailure(unreachableMessage);
-    } on http.ClientException {
-      throw const SyncFailure(unreachableMessage);
+      throw SyncFailure(_unreachable(step, 'no answer in ${timeout.inSeconds} s'));
+    } on SocketException catch (error) {
+      throw SyncFailure(_unreachable(step, error));
+    } on http.ClientException catch (error) {
+      throw SyncFailure(_unreachable(step, error));
     }
   }
+
+  /// The unreachable message, with what Windows reported, so a failure can
+  /// be told apart from another.
+  String _unreachable(String step, Object reason) =>
+      '$unreachableMessage\n\nDetails ($step): $reason';
 
   /// Checks that [address] is a Chapterly phone that speaks this protocol.
   Future<void> ping(Uri address) async {
     final response = await _send(
       () => _client.get(address.replace(path: '/v1/ping')),
       pingTimeout,
+      'ping',
     );
     Object? data;
     try {
@@ -151,6 +158,7 @@ class SyncClient {
         body: body,
       ),
       syncTimeout,
+      'sync',
     );
     final text = utf8.decode(response.bodyBytes, allowMalformed: true);
     switch (response.statusCode) {
