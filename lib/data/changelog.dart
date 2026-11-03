@@ -21,6 +21,8 @@ const changelog = [
           'into your library (For later) when you get it',
       'The wish list syncs with Chapterly for Android 1.16.0 or later: added, '
           'edited and deleted on either side (the newer change wins)',
+      'Connecting to your phone: paste the pairing code (a show/hide eye lets '
+          'you check it), and copy the saved phone address with one click',
     ],
   ),
   ChangelogEntry(
