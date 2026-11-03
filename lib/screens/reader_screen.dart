@@ -252,7 +252,12 @@ class _ReaderScreenState extends State<ReaderScreen>
         for (var i = 0; i < book.chapters.length; i++)
           book.chapterText(i).length,
       ];
-      final spot = EpubSpot.parse(link.position?.locator);
+      final locator = link.position?.locator;
+      // A place from another device's reader is found by how far through
+      // the book it is.
+      final across = progressFromLocator(locator);
+      final spot = EpubSpot.parse(locator) ??
+          (across == null ? null : spotForProgress(lengths, across));
       if (!mounted) return;
       setState(() {
         _book = book;

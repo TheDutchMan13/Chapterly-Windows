@@ -137,8 +137,17 @@ void main() {
           'epubcfi(/6/8!/4/2)');
     });
 
-    test('another reader\'s place, or the wrong kind, is not used', () {
-      expect(decodeEbookPosition(EbookFormat.epub, 'epub-other:3|120', 0.4), isNull);
+    test('another reader\'s EPUB place becomes how far through the book', () {
+      final across = decodeEbookPosition(EbookFormat.epub, 'epub-other:3|120', 0.4)!;
+      expect(across.locator, progressLocator(0.4));
+      expect(progressFromLocator(across.locator), 0.4);
+      // ...and is sent on as such, never as this reader's own place.
+      expect(encodeEbookPosition(EbookFormat.epub, across), 'epub-progress:0.40000');
+      expect(decodeEbookPosition(EbookFormat.epub, 'epub-progress:0.40000', 0.4)!.locator,
+          progressLocator(0.4));
+    });
+
+    test('the wrong kind of place is not used', () {
       expect(decodeEbookPosition(EbookFormat.pdf, '$localEpubPositionKind:x', 0.4), isNull);
       expect(decodeEbookPosition(EbookFormat.pdf, 'pdf-page:abc', 0.4), isNull);
       expect(decodeEbookPosition(EbookFormat.epub, '', 0.4), isNull);
@@ -255,14 +264,16 @@ void main() {
       expect(await phone.sync.receive(), 1);
     });
 
-    test('a place from the other device\'s reader is not jumped to', () async {
+    test('a place from the other device\'s reader is found by how far in',
+        () async {
       final other = localEpubPositionKind == 'epub-cfi' ? 'epub-win' : 'epub-cfi';
       final id = await phone.download('dune');
       await phone.readTo(id, 0.1);
       await phone.sync.send();
       server.save('dune', 0.5, '$other:3|200');
-      expect(await phone.sync.receive(), 0);
-      expect(phone.ebooks.linkFor(id)!.position!.progress, 0.1);
+      expect(await phone.sync.receive(), 1);
+      expect(phone.ebooks.linkFor(id)!.position!.locator, progressLocator(0.5));
+      expect(phone.ebooks.linkFor(id)!.position!.progress, 0.5);
     });
 
     test('PDF pages move between devices', () async {

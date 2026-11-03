@@ -45,6 +45,23 @@ double _fraction(Object? value) {
   return v < 0 ? 0 : (v > 1 ? 1 : v);
 }
 
+/// A place given only as how far through the book it is, which every
+/// reader can find: what a place saved by another device's reader becomes
+/// (EPUB places are written differently on the phone and the PC). The
+/// reader goes there when the book opens and saves its own place after.
+const _progressPrefix = 'progress:';
+
+String progressLocator(double fraction) =>
+    '$_progressPrefix${fraction.clamp(0.0, 1.0).toStringAsFixed(5)}';
+
+/// The fraction in a [progressLocator], or null for any other place.
+double? progressFromLocator(String? locator) {
+  if (locator == null || !locator.startsWith(_progressPrefix)) return null;
+  final value = double.tryParse(locator.substring(_progressPrefix.length));
+  if (value == null || value.isNaN) return null;
+  return value.clamp(0.0, 1.0);
+}
+
 /// Where you are in a book file: an EPUB location (CFI) or a PDF page
 /// number, and how far through the book that is.
 @immutable

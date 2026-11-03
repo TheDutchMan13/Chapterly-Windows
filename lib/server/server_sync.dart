@@ -18,26 +18,42 @@ import 'server_state.dart';
 const _pdfKind = 'pdf-page';
 const _audioKind = 'audio';
 
+/// A place known only by how far through the book it is ([progressLocator]),
+/// which every reader can go to.
+const _anyEpubKind = 'epub-progress';
+
 /// A place in an ebook as text for the server: "pdf-page:12", or the EPUB
 /// location with the name of the reader that wrote it.
-String encodeEbookPosition(EbookFormat format, EbookPosition position) =>
-    format == EbookFormat.pdf
-        ? '$_pdfKind:${position.locator}'
-        : '$localEpubPositionKind:${position.locator}';
+String encodeEbookPosition(EbookFormat format, EbookPosition position) {
+  if (format == EbookFormat.pdf) return '$_pdfKind:${position.locator}';
+  final across = progressFromLocator(position.locator);
+  if (across != null) return '$_anyEpubKind:${across.toStringAsFixed(5)}';
+  return '$localEpubPositionKind:${position.locator}';
+}
 
-/// A place from the server this app's reader can jump to, or null (another
-/// device's reader, or another kind of file).
+/// A place from the server for this app's reader, or null. An EPUB place
+/// written by the other device's reader becomes "this far through the
+/// book", which the reader finds when the book opens.
 EbookPosition? decodeEbookPosition(
   EbookFormat format,
   String text,
   double fraction,
 ) {
-  final kind = format == EbookFormat.pdf ? _pdfKind : localEpubPositionKind;
-  if (!text.startsWith('$kind:')) return null;
-  final locator = text.substring(kind.length + 1);
-  if (locator.isEmpty) return null;
-  if (format == EbookFormat.pdf && int.tryParse(locator) == null) return null;
-  return EbookPosition(locator: locator, progress: fraction);
+  if (format == EbookFormat.pdf) {
+    if (!text.startsWith('$_pdfKind:')) return null;
+    final page = text.substring(_pdfKind.length + 1);
+    if (int.tryParse(page) == null) return null;
+    return EbookPosition(locator: page, progress: fraction);
+  }
+  if (text.startsWith('$localEpubPositionKind:')) {
+    final locator = text.substring(localEpubPositionKind.length + 1);
+    if (locator.isEmpty) return null;
+    return EbookPosition(locator: locator, progress: fraction);
+  }
+  if (text.startsWith('epub-')) {
+    return EbookPosition(locator: progressLocator(fraction), progress: fraction);
+  }
+  return null;
 }
 
 /// Audiobook places mean the same on every device.
