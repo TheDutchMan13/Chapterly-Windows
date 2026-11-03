@@ -474,6 +474,38 @@ class ServerClient {
     return [for (final item in list) ?ServerBookmark.fromJson(item)];
   }
 
+  /// Puts a book on your other devices: each downloads it the next time it
+  /// syncs. [device] is this one, which doesn't.
+  Future<void> sendBook(String bookId, String device) async {
+    await _send(
+      () => _client.post(
+        _uri('/v1/sends'),
+        headers: {...authHeaders, 'Content-Type': 'application/json'},
+        body: jsonEncode({'bookId': bookId, 'device': device}),
+      ),
+    );
+  }
+
+  /// Books your other devices sent to this one.
+  Future<List<ServerBook>> waitingSends(String device) async {
+    final data = _json(await _send(
+      () => _client.get(_uri('/v1/sends', {'device': device}), headers: authHeaders),
+    ));
+    final list = data is Map ? data['sends'] : null;
+    if (list is! List) return const [];
+    return [
+      for (final item in list)
+        if (item is Map) ?ServerBook.fromJson(item['book']),
+    ];
+  }
+
+  /// Takes a book off the list of books sent here.
+  Future<void> doneSend(String bookId) async {
+    await _send(
+      () => _client.delete(_uri('/v1/sends/$bookId'), headers: authHeaders),
+    );
+  }
+
   /// The files of an audiobook, in playing order.
   Future<List<ServerTrack>> tracks(String bookId) async {
     final data = _json(await _send(

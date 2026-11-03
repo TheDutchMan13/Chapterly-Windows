@@ -689,6 +689,90 @@ void main() {
     });
   });
 
+  group('sending books and managing downloads', () {
+    late FakeServer server;
+    late _Phone pc;
+    late _Phone phone;
+
+    setUp(() async {
+      server = FakeServer()
+        ..addBook('dune', 'Dune', author: 'Frank Herbert')
+        ..addBook('parts', 'Project Hail Mary', author: 'Andy Weir',
+            kind: 'audiobook', format: 'mp3', parts: [[1, 1], [2, 2]]);
+      pc = _Phone(server);
+      phone = _Phone(server);
+      await pc.setUp();
+      await phone.setUp();
+    });
+
+    tearDown(() async {
+      await pc.tearDown();
+      await phone.tearDown();
+    });
+
+    test('a book sent from one device downloads on the other', () async {
+      expect(pc.state.device, isNot(phone.state.device));
+      expect(await pc.downloads.sendToOthers(await pc.serverBook('dune')), isNull);
+      // Not back to the device that sent it.
+      expect(await pc.downloads.receiveSent(), isEmpty);
+      expect(await phone.downloads.receiveSent(), ['Dune']);
+      expect(phone.repository.books.single.title, 'Dune');
+      expect(phone.ebooks.linkFor(phone.repository.books.single.id), isNotNull);
+      expect(server.sends, isEmpty);
+      // Nothing waiting: nothing happens.
+      expect(await phone.downloads.receiveSent(), isEmpty);
+    });
+
+    test('a book that could not come waits for next time', () async {
+      await pc.downloads.sendToOthers(await pc.serverBook('dune'));
+      server.downloadStatus = 500;
+      expect(await phone.downloads.receiveSent(), isEmpty);
+      expect(server.sends, hasLength(1));
+      server.downloadStatus = null;
+      expect(await phone.downloads.receiveSent(), ['Dune']);
+    });
+
+    test('a book already here is just taken off the list', () async {
+      await phone.download('dune');
+      await pc.downloads.sendToOthers(await pc.serverBook('dune'));
+      expect(await phone.downloads.receiveSent(), isEmpty);
+      expect(server.sends, isEmpty);
+      expect(phone.repository.books, hasLength(1));
+    });
+
+    test('the device id is kept', () async {
+      final dir = await Directory.systemTemp.createTemp('chapterly_device');
+      addTearDown(() => dir.delete(recursive: true));
+      final file = File('${dir.path}/book_server.json');
+      final first = await ServerState.load(file);
+      final again = await ServerState.load(file);
+      expect(again.device, first.device);
+      expect(first.device, matches(RegExp(r'^[A-Za-z0-9_-]{6,64}$')));
+    });
+
+    test('downloads show their size, and removing one keeps the book', () async {
+      final dune = await phone.download('dune');
+      final audio = await phone.download('parts');
+      final items = await phone.downloads.downloaded();
+      expect({for (final i in items) i.title: i.bytes},
+          {'Dune': 'file of Dune'.length, 'Project Hail Mary': 4});
+      final ebook = items.firstWhere((i) => i.title == 'Dune');
+      final path = phone.ebooks.linkFor(dune)!.path;
+      await phone.downloads.removeFile(ebook);
+      expect(File(path).existsSync(), isFalse);
+      expect(phone.ebooks.linkFor(dune), isNull);
+      expect(phone.repository.byId(dune), isNotNull);
+      final folder = File(_audioPath(phone.audio.linkFor(audio)!.tracks.first.location)).parent;
+      await phone.downloads.removeFile(
+          (await phone.downloads.downloaded()).single);
+      expect(folder.existsSync(), isFalse);
+      expect(await phone.downloads.downloaded(), isEmpty);
+      // ...and it can come again.
+      await phone.download('dune');
+      expect(phone.repository.books, hasLength(2));
+    });
+  });
+
   group('the server state on this device', () {
     test('is saved and read back, and a damaged file starts again', () async {
       final dir = await Directory.systemTemp.createTemp('chapterly_state');
@@ -837,6 +921,60 @@ void main() {
       await tester.drag(find.byType(ListView), const Offset(0, -20000));
       await tester.pumpAndSettle();
       expect(find.text('Book 59'), findsOneWidget);
+      await tester.runAsync(phone.tearDown);
+    });
+
+    testWidgets('sends a book on, and lists and removes downloads',
+        (tester) async {
+      await tester.runAsync(() async {
+        phone = _Phone(server);
+        await phone.setUp();
+        await phone.download('dune');
+      });
+      await pump(tester);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('More').first);
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Send to my other devices'));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pumpAndSettle();
+      expect(find.textContaining('will download on your other devices'), findsOneWidget);
+      expect(server.sends.keys, contains('dune'));
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      // The list measures files first (with a spinner), so wait for it.
+      Future<void> waitFor(Finder finder) async {
+        for (var i = 0; i < 50 && finder.evaluate().isEmpty; i++) {
+          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      await tester.tap(find.byTooltip('Downloads'));
+      await tester.pump();
+      await waitFor(find.textContaining('1 book uses'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('1 book uses'), findsOneWidget);
+      await tester.tap(find.byTooltip('Remove the file (the book stays)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+      await tester.pump();
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump(const Duration(seconds: 1));
+      expect(phone.ebooks.linkFor(phone.repository.books.single.id), isNull);
+      // Opened again, the list is empty; the book is still in the library.
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Downloads'));
+      await tester.pump();
+      await waitFor(find.text('No books from the server on this device.'));
+      expect(find.text('No books from the server on this device.'), findsOneWidget);
+      expect(phone.repository.books, hasLength(1));
+      expect(tester.takeException(), isNull);
       await tester.runAsync(phone.tearDown);
     });
 

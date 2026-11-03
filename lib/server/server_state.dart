@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -140,6 +141,7 @@ class ServerState extends ChangeNotifier {
   Uri? _address;
   String? _token;
   String? _name;
+  String? _device;
 
   /// By the server's id of the book.
   final _links = <String, ServerLink>{};
@@ -165,6 +167,7 @@ class ServerState extends ChangeNotifier {
       state._token = null;
       state._address = null;
     }
+    if (state._device == null) await state._save();
     return state;
   }
 
@@ -176,6 +179,10 @@ class ServerState extends ChangeNotifier {
       _address = parseServerAddress(address);
       _token = tokens == null && token is String ? token : null;
       _name = name is String ? name : null;
+    }
+    final device = data['device'];
+    if (device is String && RegExp(r'^[A-Za-z0-9_-]{6,64}$').hasMatch(device)) {
+      _device = device;
     }
     final links = data['links'];
     if (links is List) {
@@ -192,6 +199,16 @@ class ServerState extends ChangeNotifier {
 
   /// Your name on the server.
   String? get name => _name;
+
+  /// Names this device to the server, so a book it sends to your other
+  /// devices doesn't come back to it.
+  String get device => _device ??= _newDevice();
+
+  static String _newDevice() {
+    const letters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    final random = Random.secure();
+    return 'd-${List.generate(16, (_) => letters[random.nextInt(letters.length)]).join()}';
+  }
 
   List<ServerLink> get links => List.unmodifiable(_links.values);
 
@@ -269,6 +286,7 @@ class ServerState extends ChangeNotifier {
       if (_address != null) 'address': _address.toString(),
       if (_token != null && tokens == null) 'token': _token,
       if (_name != null) 'name': _name,
+      'device': device,
       'links': [for (final link in _links.values) link.toJson()],
     });
     return _writing = _writing.then((_) => _write(file, data));

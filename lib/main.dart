@@ -191,13 +191,17 @@ Future<void> _setUpBookServer(
 Future<void> _syncAndTell(ServerSync sync) async {
   if (!sync.state.connected) return;
   final moved = await sync.syncNow();
-  if (moved == 0) return;
-  _messengerKey.currentState?.showSnackBar(SnackBar(
-    content: Text(
+  // Books sent here from your other devices.
+  final came = await BookServer.downloads?.receiveSent() ?? const <String>[];
+  final text = [
+    if (came.length == 1) '"${came.single}" was sent here from another device',
+    if (came.length > 1) '${came.length} books were sent here from another device',
+    if (moved > 0)
       'Carrying on in $moved ${moved == 1 ? 'book' : 'books'} from where '
-      'you were on another device',
-    ),
-  ));
+          'you were on another device',
+  ].join('. ');
+  if (text.isEmpty) return;
+  _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(text)));
 }
 
 /// Syncs your places when Chapterly comes back to the front, and sends them

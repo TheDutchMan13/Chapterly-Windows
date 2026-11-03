@@ -20,6 +20,9 @@ class FakeServer {
   final bookmarks = <String, Map<String, Map<String, Object?>>>{};
   final requests = <String>[];
 
+  /// Books sent to other devices: book id to the device that sent it.
+  final sends = <String, String>{};
+
   /// Set to make every request fail as if the server were away.
   bool away = false;
 
@@ -173,6 +176,27 @@ class FakeServer {
         reset: body['reset'] == true,
         base: body['base'] as String?,
       ));
+    }
+    if (path == '/v1/sends') {
+      if (request.method == 'POST') {
+        final body = jsonDecode(request.body) as Map;
+        final id = body['bookId'] as String;
+        if (!books.containsKey(id)) return _json({'detail': 'No such book.'}, 404);
+        sends[id] = body['device'] as String;
+        return _json({'sent': id}, 201);
+      }
+      final device = request.url.queryParameters['device'];
+      return _json({
+        'sends': [
+          for (final e in sends.entries)
+            if (e.value != device && books.containsKey(e.key))
+              {'book': {...books[e.key]!, 'progress': progress[e.key]}, 'sentAt': 'now'},
+        ],
+      });
+    }
+    if (parts.length == 4 && parts[2] == 'sends' && request.method == 'DELETE') {
+      sends.remove(parts[3]);
+      return http.Response('', 204);
     }
     if (path == '/v1/progress') {
       return _json({'progress': progress.values.toList()});

@@ -6,6 +6,7 @@ import '../audio/audio_files.dart';
 import '../audio/audio_library.dart';
 import '../data/book_repository.dart';
 import '../data/file_match.dart';
+import '../ebook/ebook_files.dart';
 import '../ebook/ebook_library.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
@@ -29,6 +30,27 @@ class DownloadResult {
   /// The book was already in your library with a file of its own, so
   /// nothing was downloaded; the two are linked so your place syncs.
   final bool matchedExisting;
+}
+
+/// A book file from the server on this device, for the Downloads screen.
+class DownloadedBook {
+  const DownloadedBook({
+    required this.bookId,
+    required this.title,
+    required this.kind,
+    required this.bytes,
+  });
+
+  final String bookId;
+  final String title;
+
+  /// "ebook" or "audiobook".
+  final String kind;
+
+  /// The space its files take on this device.
+  final int bytes;
+
+  bool get isAudiobook => kind == 'audiobook';
 }
 
 /// Brings books from the server into your library: downloads the file,
@@ -294,6 +316,100 @@ class ServerDownloads extends ChangeNotifier {
         // Next sync.
       }
     }
+  }
+
+  // ---- Sending to your other devices ----
+
+  /// Puts [book] on your other devices. Returns a problem, or null.
+  Future<String?> sendToOthers(ServerBook book) async {
+    final client = sync.client;
+    if (client == null) return 'Connect to your book server first.';
+    try {
+      await client.sendBook(book.id, state.device);
+      return null;
+    } on ServerFailure catch (failure) {
+      return failure.message;
+    }
+  }
+
+  /// Downloads the books your other devices sent here. Returns the titles
+  /// of the ones that came. A book that couldn't come waits for next time.
+  Future<List<String>> receiveSent() async {
+    final client = sync.client;
+    if (client == null) return const [];
+    final List<ServerBook> waiting;
+    try {
+      waiting = await client.waitingSends(state.device);
+    } on ServerFailure {
+      return const [];
+    }
+    final came = <String>[];
+    for (final book in waiting) {
+      try {
+        if (localBookFor(book) != null || !canOpen(book)) {
+          await client.doneSend(book.id);
+          continue;
+        }
+        final result = await download(book);
+        if (result.problem == null && result.bookId != null) {
+          await client.doneSend(book.id);
+          came.add(book.title);
+        }
+      } on ServerFailure catch (failure) {
+        if (failure.unreachable) break;
+      }
+    }
+    return came;
+  }
+
+  // ---- What's on this device ----
+
+  /// Books with a file from the server on this device, biggest first.
+  Future<List<DownloadedBook>> downloaded() async {
+    final found = <DownloadedBook>[];
+    for (final link in state.links) {
+      final book = repository.byId(link.bookId);
+      if (book == null || book.deletedAt != null) continue;
+      final paths = <String>[
+        if (link.isAudiobook)
+          for (final track in audio?.linkFor(link.bookId)?.tracks ?? const <AudioTrack>[])
+            _pathOf(track.location)
+        else if (ebooks?.linkFor(link.bookId) case final file?)
+          file.path,
+      ];
+      var bytes = 0;
+      for (final path in paths) {
+        try {
+          bytes += await File(path).length();
+        } catch (_) {
+          // Gone.
+        }
+      }
+      if (paths.isEmpty) continue;
+      found.add(DownloadedBook(
+        bookId: link.bookId,
+        title: book.title,
+        kind: link.kind,
+        bytes: bytes,
+      ));
+    }
+    found.sort((a, b) => b.bytes.compareTo(a.bytes));
+    return found;
+  }
+
+  static String _pathOf(String location) =>
+      location.startsWith('file:') ? Uri.parse(location).toFilePath() : location;
+
+  /// Deletes a book's file from this device. The book stays in your
+  /// library, and can be downloaded again.
+  Future<void> removeFile(DownloadedBook item) async {
+    if (item.isAudiobook) {
+      await audio?.remove(item.bookId);
+      await cleanUp();
+    } else if (ebooks != null) {
+      await removeBookFile(ebooks!, item.bookId);
+    }
+    notifyListeners();
   }
 
   /// Deletes downloaded audiobooks no book uses any more (after you removed

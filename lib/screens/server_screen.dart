@@ -362,6 +362,25 @@ class _BrowseViewState extends State<_BrowseView> {
     ));
   }
 
+  Future<void> _sendToOthers(ServerBook book) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final problem = await widget.downloads.sendToOthers(book);
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+      content: Text(
+        problem ??
+            '"${book.title}" will download on your other devices when they '
+                'next open Chapterly',
+      ),
+    ));
+  }
+
+  void _openDownloads() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => DownloadsScreen(downloads: widget.downloads),
+    ));
+  }
+
   Future<void> _syncNow() async {
     final messenger = ScaffoldMessenger.of(context);
     final moved = await widget.sync.syncNow();
@@ -516,6 +535,11 @@ class _BrowseViewState extends State<_BrowseView> {
               onPressed: widget.sync.busy ? null : _syncNow,
             ),
           ),
+          IconButton(
+            tooltip: 'Downloads',
+            icon: const Icon(Icons.download_done_outlined),
+            onPressed: _openDownloads,
+          ),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'disconnect') _disconnect();
@@ -657,7 +681,24 @@ class _BrowseViewState extends State<_BrowseView> {
                           ].join('\n'),
                         ),
                         isThreeLine: book.author.isNotEmpty,
-                        trailing: _action(book),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _action(book),
+                            PopupMenuButton<String>(
+                              tooltip: 'More',
+                              onSelected: (value) {
+                                if (value == 'send') _sendToOthers(book);
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'send',
+                                  child: Text('Send to my other devices'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                         onTap: local != null
                             ? () => _openBook(local)
                             : widget.downloads.canOpen(book) &&
@@ -672,6 +713,99 @@ class _BrowseViewState extends State<_BrowseView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ---- Downloads ----
+
+/// Books from the server on this device and the space they take. Removing
+/// a file keeps the book in your library; download it again any time.
+class DownloadsScreen extends StatefulWidget {
+  const DownloadsScreen({super.key, required this.downloads});
+
+  final ServerDownloads downloads;
+
+  @override
+  State<DownloadsScreen> createState() => _DownloadsScreenState();
+}
+
+class _DownloadsScreenState extends State<DownloadsScreen> {
+  late Future<List<DownloadedBook>> _items = widget.downloads.downloaded();
+
+  void _refresh() => setState(() => _items = widget.downloads.downloaded());
+
+  Future<void> _remove(DownloadedBook item) async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text('Remove the file of "${item.title}"?'),
+        content: Text(
+          'This frees ${formatFileSize(item.bytes)}. The book stays in your '
+          'library with your place in it, and you can download it again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true) return;
+    await widget.downloads.removeFile(item);
+    if (mounted) _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Downloads')),
+      body: FutureBuilder<List<DownloadedBook>>(
+        future: _items,
+        builder: (context, snapshot) {
+          final items = snapshot.data;
+          if (items == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (items.isEmpty) {
+            return const Center(child: Text('No books from the server on this device.'));
+          }
+          final total = items.fold<int>(0, (sum, i) => sum + i.bytes);
+          return ListView(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Text(
+                  '${items.length} ${items.length == 1 ? 'book uses' : 'books use'} '
+                  '${formatFileSize(total)} on this device',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              for (final item in items)
+                ListTile(
+                  leading: Icon(item.isAudiobook
+                      ? Icons.headphones_outlined
+                      : Icons.menu_book_outlined),
+                  title: Text(item.title),
+                  subtitle: Text(
+                    '${item.isAudiobook ? 'Audiobook' : 'Ebook'} · '
+                    '${formatFileSize(item.bytes)}',
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Remove the file (the book stays)',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => _remove(item),
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
