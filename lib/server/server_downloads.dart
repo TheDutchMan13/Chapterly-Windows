@@ -74,9 +74,13 @@ class ServerDownloads extends ChangeNotifier {
   /// The book in your library that has [book]'s file on this device.
   String? localBookFor(ServerBook book) {
     final id = state.bookIdFor(book.id);
-    if (id == null || repository.byId(id)?.deletedAt != null) return null;
-    if (repository.byId(id) == null) return null;
+    if (id == null || !_inLibrary(id)) return null;
     return _hasFile(id, book) ? id : null;
+  }
+
+  bool _inLibrary(String bookId) {
+    final book = repository.byId(bookId);
+    return book != null && book.deletedAt == null;
   }
 
   bool _hasFile(String bookId, ServerBook book) => book.isAudiobook
@@ -84,13 +88,11 @@ class ServerDownloads extends ChangeNotifier {
       : ebooks?.linkFor(bookId) != null;
 
   /// The book in your library this is: the one linked before, or one with
-  /// the same title and author that isn't linked to another server book.
+  /// the same title and author whose ebook (or audiobook, for an
+  /// audiobook) isn't linked to another server book.
   String? _sameBook(ServerBook book) {
     final linked = state.bookIdFor(book.id);
-    if (linked != null && repository.byId(linked)?.deletedAt == null &&
-        repository.byId(linked) != null) {
-      return linked;
-    }
+    if (linked != null && _inLibrary(linked)) return linked;
     final matches = findMatchingBooks(
       repository.books,
       title: book.title,
@@ -99,7 +101,7 @@ class ServerDownloads extends ChangeNotifier {
     );
     for (final match in matches) {
       if (match.score < 95) break;
-      final other = state.linkFor(match.book.id);
+      final other = state.linkFor(match.book.id, book.kind);
       if (other == null || other.serverId == book.id) return match.book.id;
     }
     return null;
@@ -127,6 +129,7 @@ class ServerDownloads extends ChangeNotifier {
 
     _active[book.id] = null;
     notifyListeners();
+    String? created;
     final dir = book.isAudiobook ? audioDir! : booksDir!;
     final safe = book.id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     final file = File(
@@ -144,7 +147,10 @@ class ServerDownloads extends ChangeNotifier {
       );
       // Added only once the file is here, so a failed download leaves no
       // empty book behind.
-      bookId ??= await _addBook(book);
+      if (bookId == null) {
+        bookId = await _addBook(book);
+        created = bookId;
+      }
       if (book.isAudiobook) {
         final location = audioLocationFor(file.path);
         final files = audioFiles;
@@ -188,27 +194,46 @@ class ServerDownloads extends ChangeNotifier {
       await _link(bookId, book);
       return DownloadResult(bookId: bookId);
     } on ServerFailure catch (failure) {
-      await _deleteQuietly(file);
+      await _undo(file, created, book);
       return DownloadResult(problem: failure.message);
     } on FileSystemException {
-      await _deleteQuietly(file);
+      await _undo(file, created, book);
       return const DownloadResult(
         problem: 'The book could not be saved. Is there room on this device?',
       );
+    } catch (_) {
+      await _undo(file, created, book);
+      return const DownloadResult(problem: 'The book could not be added.');
     } finally {
       _active.remove(book.id);
       notifyListeners();
     }
   }
 
+  /// Leaves nothing behind after a download that didn't work out.
+  Future<void> _undo(File file, String? created, ServerBook book) async {
+    await _deleteQuietly(file);
+    if (created == null) return;
+    try {
+      if (book.isAudiobook) {
+        await audio?.remove(created);
+      } else {
+        await ebooks?.remove(created);
+      }
+      await state.unlink(book.id);
+      await repository.deleteForever(created);
+    } catch (_) {
+      // As much as could be undone.
+    }
+  }
+
   Future<String> _addBook(ServerBook book) async {
-    await repository.add(
+    final id = await repository.add(
       title: book.title,
       author: book.author,
       shelf: Shelf.forLater,
       format: book.isAudiobook ? BookFormat.audiobook : BookFormat.ebook,
     );
-    final id = repository.books.first.id;
     if (book.series != null) {
       await repository.setSeries(id, book.series, book.seriesIndex?.round());
     }
@@ -217,22 +242,21 @@ class ServerDownloads extends ChangeNotifier {
 
   /// Links the two and takes your saved place and bookmarks.
   Future<void> _link(String bookId, ServerBook book) async {
-    final before = state.linkFor(bookId);
-    if (before == null || before.serverId != book.id) {
-      await state.setLink(
-        bookId,
-        ServerLink(
-          serverId: book.id,
-          kind: book.kind,
-          durationMs: book.durationMs,
-        ),
-      );
+    final before = state.linkOf(book.id);
+    if (before == null || before.bookId != bookId) {
+      await state.setLink(ServerLink(
+        serverId: book.id,
+        bookId: bookId,
+        kind: book.kind,
+        durationMs: book.durationMs,
+      ));
     }
+    final link = state.linkOf(book.id)!;
     final progress = book.progress;
-    if (progress != null) await sync.applyRemote(bookId, progress);
+    if (progress != null) await sync.applyRemote(link, progress);
     if (book.isAudiobook) {
       try {
-        await sync.syncBookmarks(bookId);
+        await sync.syncBookmarks(link);
       } on ServerFailure {
         // Next sync.
       }

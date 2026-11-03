@@ -267,7 +267,8 @@ class BookRepository extends ChangeNotifier {
     return null;
   }
 
-  Future<void> add({
+  /// Adds a book and returns its id.
+  Future<String> add({
     required String title,
     required String author,
     required Shelf shelf,
@@ -295,6 +296,7 @@ class BookRepository extends ChangeNotifier {
     _books.insert(0, book);
     notifyListeners();
     await _store.save(book);
+    return book.id;
   }
 
   Future<void> moveTo(String id, Shelf shelf) =>

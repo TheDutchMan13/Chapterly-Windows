@@ -8,13 +8,20 @@ import 'package:http/http.dart' as http;
 
 /// Something went wrong talking to the book server, in words to show.
 class ServerFailure implements Exception {
-  const ServerFailure(this.message, {this.unreachable = false});
+  const ServerFailure(
+    this.message, {
+    this.unreachable = false,
+    this.notFound = false,
+  });
 
   final String message;
 
   /// The server could not be reached at all (as opposed to an answer that
   /// said no). Syncing stops trying for now when this happens.
   final bool unreachable;
+
+  /// The book is no longer on the server.
+  final bool notFound;
 
   @override
   String toString() => message;
@@ -57,6 +64,7 @@ class ServerProgress {
     required this.position,
     required this.updatedAt,
     this.bookId,
+    this.resetAt,
   });
 
   /// From 0 to 1.
@@ -71,6 +79,10 @@ class ServerProgress {
   /// The server's id of the book, in a list of all your places.
   final String? bookId;
 
+  /// When someone last went back on purpose: a place lower than yours
+  /// that is meant.
+  final String? resetAt;
+
   static ServerProgress? fromJson(Object? value) {
     if (value is! Map) return null;
     final fraction = _double(value['fraction']);
@@ -78,11 +90,13 @@ class ServerProgress {
     if (fraction == null || updatedAt is! String) return null;
     final position = value['position'];
     final bookId = value['bookId'];
+    final resetAt = value['resetAt'];
     return ServerProgress(
       fraction: fraction.clamp(0, 1).toDouble(),
       position: position is String ? position : '',
       updatedAt: updatedAt,
       bookId: bookId is String ? bookId : null,
+      resetAt: resetAt is String ? resetAt : null,
     );
   }
 }
@@ -269,7 +283,10 @@ class ServerClient {
       );
     }
     if (status == 404) {
-      throw const ServerFailure('That book is no longer on the server.');
+      throw const ServerFailure(
+        'That book is no longer on the server.',
+        notFound: true,
+      );
     }
     String? detail;
     try {
@@ -341,12 +358,15 @@ class ServerClient {
   }
 
   /// Saves a place. The server keeps the furthest one unless [reset] says
-  /// you went back on purpose. Returns the place the server now has.
-  Future<ServerProgress> putProgress(
+  /// you went back on purpose; [base] is the server time of the last place
+  /// this device saw, so a device that missed someone going back can't undo
+  /// it. Returns whether the server took it, and the place it now has.
+  Future<({bool applied, ServerProgress progress})> putProgress(
     String bookId, {
     required double fraction,
     required String position,
     bool reset = false,
+    String? base,
   }) async {
     final data = _json(await _send(
       () => _client.put(
@@ -356,6 +376,7 @@ class ServerClient {
           'fraction': fraction.clamp(0, 1),
           'position': position,
           if (reset) 'reset': true,
+          'base': ?base,
         }),
       ),
     ));
@@ -363,7 +384,7 @@ class ServerClient {
     if (progress == null) {
       throw const ServerFailure('The server sent something Chapterly cannot read.');
     }
-    return progress;
+    return (applied: (data as Map)['applied'] == true, progress: progress);
   }
 
   /// Your saved place in one book, or null.

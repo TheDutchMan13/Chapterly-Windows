@@ -39,6 +39,7 @@ class _Phone {
   final audio = AudioLibrary();
   final state = ServerState();
   final open = <String>{};
+  final moved = <String, AudioProgress>{};
   late final Directory dir;
   late final ServerSync sync;
   late final ServerDownloads downloads;
@@ -50,7 +51,8 @@ class _Phone {
       state: state,
       repository: repository,
       ebooks: ebooks,
-      isOpen: open.contains,
+      isOpen: (bookId, kind) => open.contains(bookId),
+      onAudioMoved: (bookId, progress) async => moved[bookId] = progress,
       clientFor: (address, token) => server.client(token: token),
       sendAfter: const Duration(hours: 1),
     );
@@ -80,6 +82,9 @@ class _Phone {
     expect(result.problem, isNull);
     return result.bookId!;
   }
+
+  ServerLink ebook(String bookId) => state.linkFor(bookId, 'ebook')!;
+  ServerLink audiobook(String bookId) => state.linkFor(bookId, 'audiobook')!;
 
   Future<void> readTo(String bookId, double fraction, {String cfi = 'epubcfi(/6/4)'}) =>
       ebooks.setPosition(bookId, EbookPosition(locator: cfi, progress: fraction));
@@ -213,12 +218,12 @@ void main() {
       await phone.readTo(id, 0.3);
       server.away = true;
       await phone.sync.send();
-      expect(phone.state.linkFor(id)!.dirty, isTrue);
+      expect(phone.ebook(id).dirty, isTrue);
       expect(phone.sync.problem, contains('cannot reach'));
       server.away = false;
       await phone.sync.syncNow();
       expect(server.progress['dune']!['fraction'], 0.3);
-      expect(phone.state.linkFor(id)!.dirty, isFalse);
+      expect(phone.ebook(id).dirty, isFalse);
       expect(phone.sync.problem, isNull);
     });
 
@@ -312,7 +317,7 @@ void main() {
         id,
         const AudioProgress(positionMs: 150000),
       );
-      expect(phone.sync.placeOf(id)!.fraction, closeTo(0.25, 0.0001));
+      expect(phone.sync.placeOf(phone.audiobook(id))!.fraction, closeTo(0.25, 0.0001));
     });
 
     test('takeLatest moves a book on just before it opens', () async {
@@ -320,10 +325,10 @@ void main() {
       await phone.readTo(id, 0.1);
       await phone.sync.send();
       server.save('dune', 0.7, '$localEpubPositionKind:later');
-      expect(await phone.sync.takeLatest(id), isTrue);
+      expect(await phone.sync.takeLatest(id, 'ebook'), isTrue);
       expect(phone.ebooks.linkFor(id)!.position!.locator, 'later');
       server.away = true;
-      expect(await phone.sync.takeLatest(id), isFalse);
+      expect(await phone.sync.takeLatest(id, 'ebook'), isFalse);
     });
   });
 
@@ -347,7 +352,7 @@ void main() {
 
     test('added here, added elsewhere, deleted on either side', () async {
       await phone.repository.addBookmark(id, _mark(1, note: 'here'));
-      await phone.sync.syncBookmarks(id);
+      await phone.sync.syncBookmarks(phone.audiobook(id));
       expect(server.bookmarks['hail']!.values.single['note'], 'here');
 
       // Another device adds one.
@@ -357,12 +362,12 @@ void main() {
         'addedAt': other.addedAt.toIso8601String(), 'note': 'elsewhere',
         'updatedAt': '2026-11-01T13:00:00.000Z', 'deletedAt': null,
       };
-      await phone.sync.syncBookmarks(id);
+      await phone.sync.syncBookmarks(phone.audiobook(id));
       expect(notes(), ['here', 'elsewhere']);
 
       // Deleted here: the server learns of it.
       await phone.repository.removeBookmark(id, _mark(1));
-      await phone.sync.syncBookmarks(id);
+      await phone.sync.syncBookmarks(phone.audiobook(id));
       final here = server.bookmarks['hail']![_mark(1).addedAt.toIso8601String()]!;
       expect(here['deletedAt'], isNotNull);
       expect(notes(), ['elsewhere']);
@@ -371,15 +376,15 @@ void main() {
       server.bookmarks['hail']![other.addedAt.toIso8601String()]!
         ..['deletedAt'] = '2099-01-01T00:00:00.000Z'
         ..['updatedAt'] = '2099-01-01T00:00:00.000Z';
-      await phone.sync.syncBookmarks(id);
+      await phone.sync.syncBookmarks(phone.audiobook(id));
       expect(notes(), isEmpty);
     });
 
     test('a note edited here is sent', () async {
       await phone.repository.addBookmark(id, _mark(1, note: 'old'));
-      await phone.sync.syncBookmarks(id);
+      await phone.sync.syncBookmarks(phone.audiobook(id));
       await phone.repository.setBookmarkNote(id, _mark(1), 'new');
-      await phone.sync.syncBookmarks(id);
+      await phone.sync.syncBookmarks(phone.audiobook(id));
       expect(server.bookmarks['hail']!.values.single['note'], 'new');
       expect(notes(), ['new']);
     });
@@ -448,7 +453,7 @@ void main() {
       expect(result.bookId, mine);
       expect(phone.ebooks.linkFor(mine)!.path, '/somewhere/dune.epub');
       expect(server.requests.where((r) => r.endsWith('/file')), isEmpty);
-      expect(phone.state.linkFor(mine)!.serverId, 'dune');
+      expect(phone.ebook(mine).serverId, 'dune');
     });
 
     test('a different author is not the same book', () async {
@@ -497,6 +502,136 @@ void main() {
     });
   });
 
+  group('what the review found', () {
+    late FakeServer server;
+    late _Phone phone;
+
+    setUp(() async {
+      server = FakeServer()
+        ..addBook('dune', 'Dune', author: 'Frank Herbert')
+        ..addBook('dune-audio', 'Dune', author: 'Frank Herbert',
+            kind: 'audiobook', format: 'm4b', durationMs: 600000)
+        ..addBook('hail', 'Project Hail Mary',
+            author: 'Andy Weir', kind: 'audiobook', format: 'm4b', durationMs: 600000)
+        ..addBook('emma', 'Emma', author: 'Jane Austen');
+      phone = _Phone(server);
+      await phone.setUp();
+    });
+
+    tearDown(() => phone.tearDown());
+
+    test('a lower place sent before taking still takes the further one',
+        () async {
+      final id = await phone.download('dune');
+      await phone.readTo(id, 0.2);
+      await phone.sync.send();
+      server.save('dune', 0.6, '$localEpubPositionKind:pc-place');
+      await phone.readTo(id, 0.25);
+      await phone.sync.send(); // the server keeps 0.6
+      expect(await phone.sync.receive(), 1);
+      expect(phone.ebooks.linkFor(id)!.position!.locator, 'pc-place');
+    });
+
+    test('a loaded audiobook is told to go to a place taken from elsewhere',
+        () async {
+      final id = await phone.download('hail');
+      await phone.repository.setAudioProgress(
+          id, const AudioProgress(positionMs: 60000, lengthMs: 600000));
+      await phone.sync.send();
+      server.save('hail', 0.5, encodeAudioPosition(const AudioProgress(
+          positionMs: 300000, lengthMs: 600000, trackMs: 300000)));
+      expect(await phone.sync.receive(), 1);
+      expect(phone.moved[id]!.trackMs, 300000);
+    });
+
+    test('starting a book again on another device reaches this one',
+        () async {
+      final id = await phone.download('dune');
+      await phone.readTo(id, 0.95);
+      await phone.sync.send();
+      // The other device starts again.
+      server.save('dune', 0.02, '$localEpubPositionKind:start', reset: true);
+      // This one turns a page before it has heard: the server says no...
+      await phone.readTo(id, 0.96);
+      await phone.sync.send();
+      expect(server.progress['dune']!['position'], '$localEpubPositionKind:start');
+      // ...and taking places brings the start here.
+      expect(await phone.sync.receive(), 1);
+      expect(phone.ebooks.linkFor(id)!.position!.locator, 'start');
+    });
+
+    test('starting again while away is sent as starting again', () async {
+      final id = await phone.download('dune');
+      await phone.readTo(id, 0.95);
+      await phone.sync.send();
+      phone.sync.start();
+      server.away = true;
+      await phone.readTo(id, 0.03);
+      await Future<void>.delayed(Duration.zero);
+      await phone.readTo(id, 0.2); // read on past 10% before it could go
+      await phone.sync.send();
+      server.away = false;
+      await phone.sync.send();
+      expect(server.progress['dune']!['fraction'], 0.2);
+      expect(server.progress['dune']!['resetAt'], isNotNull);
+    });
+
+    test('a bookmark added while bookmarks sync is not lost', () async {
+      final id = await phone.download('hail');
+      await phone.repository.addBookmark(id, _mark(1, note: 'first'));
+      server.during = (method, path) async {
+        if (method == 'PUT' && path.endsWith('/bookmarks')) {
+          server.during = null;
+          await phone.repository.addBookmark(id, _mark(2, note: 'meanwhile'));
+        }
+      };
+      await phone.sync.syncBookmarks(phone.audiobook(id));
+      expect([for (final m in phone.repository.bookmarksFor(id)) m.note],
+          ['first', 'meanwhile']);
+      await phone.sync.syncBookmarks(phone.audiobook(id));
+      expect([for (final m in server.bookmarks['hail']!.values) m['note']],
+          containsAll(['first', 'meanwhile']));
+    });
+
+    test('a book gone from the server is let go, and others still sync',
+        () async {
+      final gone = await phone.download('dune-audio');
+      final kept = await phone.download('hail');
+      await phone.repository.addBookmark(kept, _mark(1, note: 'kept'));
+      server.books.remove('dune-audio');
+      await phone.repository.setAudioProgress(
+          gone, const AudioProgress(positionMs: 1000, lengthMs: 600000));
+      await phone.sync.syncNow();
+      expect(phone.sync.problem, isNull);
+      expect(phone.state.linkOf('dune-audio'), isNull);
+      expect(server.bookmarks['hail']!.values.single['note'], 'kept');
+    });
+
+    test('two downloads at once each get their own book', () async {
+      final results = await Future.wait([
+        phone.downloads.download(await phone.serverBook('dune')),
+        phone.downloads.download(await phone.serverBook('emma')),
+      ]);
+      final titles = {
+        for (final r in results) phone.repository.byId(r.bookId!)!.title,
+      };
+      expect(titles, {'Dune', 'Emma'});
+      for (final r in results) {
+        expect(phone.ebooks.linkFor(r.bookId!), isNotNull);
+      }
+    });
+
+    test('a book\'s ebook and audiobook from the server are the same book',
+        () async {
+      final ebook = await phone.download('dune');
+      final audio = await phone.download('dune-audio');
+      expect(audio, ebook);
+      expect(phone.repository.books, hasLength(1));
+      expect(phone.ebook(ebook).serverId, 'dune');
+      expect(phone.audiobook(ebook).serverId, 'dune-audio');
+    });
+  });
+
   group('the server state on this device', () {
     test('is saved and read back, and a damaged file starts again', () async {
       final dir = await Directory.systemTemp.createTemp('chapterly_state');
@@ -504,11 +639,12 @@ void main() {
       final file = File('${dir.path}/book_server.json');
       final state = await ServerState.load(file);
       await state.connect(Uri.parse('http://100.1.2.3:8780'), 'tok', 'hans');
-      await state.setLink('a', const ServerLink(serverId: 's1', kind: 'ebook', pushed: 0.5));
+      await state.setLink(const ServerLink(
+          serverId: 's1', bookId: 'a', kind: 'ebook', pushed: 0.5));
       final again = await ServerState.load(file);
       expect(again.connected, isTrue);
       expect(again.name, 'hans');
-      expect(again.linkFor('a')!.pushed, 0.5);
+      expect(again.linkFor('a', 'ebook')!.pushed, 0.5);
       expect(again.bookIdFor('s1'), 'a');
       file.writeAsStringSync('{broken');
       expect((await ServerState.load(file)).connected, isFalse);
@@ -538,9 +674,14 @@ void main() {
         () async {
       final state = ServerState();
       await state.connect(Uri.parse('http://100.1.2.3:8780'), 'tok', 'hans');
-      await state.setLink('a', const ServerLink(serverId: 's1', kind: 'ebook'));
-      await state.setLink('b', const ServerLink(serverId: 's1', kind: 'ebook'));
-      expect(state.links.keys, ['b']);
+      await state.setLink(const ServerLink(serverId: 's1', bookId: 'a', kind: 'ebook'));
+      await state.setLink(const ServerLink(serverId: 's1', bookId: 'b', kind: 'ebook'));
+      expect([for (final l in state.links) l.bookId], ['b']);
+      // A book's ebook and audiobook each have their own.
+      await state.setLink(const ServerLink(serverId: 's2', bookId: 'b', kind: 'audiobook'));
+      expect(state.links, hasLength(2));
+      await state.setLink(const ServerLink(serverId: 's3', bookId: 'b', kind: 'ebook'));
+      expect([for (final l in state.links) l.serverId]..sort(), ['s2', 's3']);
       await state.connect(Uri.parse('http://100.9.9.9:8780'), 'tok', 'hans');
       expect(state.links, isEmpty);
     });
@@ -605,6 +746,40 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Dune'), findsOneWidget);
       expect(tester.takeException(), isNull);
+      await tester.runAsync(phone.tearDown);
+    });
+
+    testWidgets('a page that fails waits to be asked again', (tester) async {
+      for (var n = 0; n < 60; n++) {
+        server.addBook('b$n', 'Book ${n.toString().padLeft(2, '0')}');
+      }
+      server.failBooksFrom = 50;
+      await tester.runAsync(() async {
+        phone = _Phone(server);
+        await phone.setUp();
+      });
+      await pump(tester);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView), const Offset(0, -20000));
+      for (var i = 0; i < 5; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+        await tester.pumpAndSettle();
+      }
+      final tries = server.requests.where((r) => r == 'GET /v1/books').length;
+      for (var i = 0; i < 5; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+        await tester.pumpAndSettle();
+      }
+      expect(server.requests.where((r) => r == 'GET /v1/books').length, tries);
+      expect(find.text('Load more'), findsOneWidget);
+      server.failBooksFrom = null;
+      await tester.tap(find.text('Load more'));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView), const Offset(0, -20000));
+      await tester.pumpAndSettle();
+      expect(find.text('Book 59'), findsOneWidget);
       await tester.runAsync(phone.tearDown);
     });
 

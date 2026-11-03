@@ -7,20 +7,26 @@ import 'server_client.dart';
 
 // The same file is in the Android app.
 
-/// A book on this device that came from (or matches) a book on the server.
+/// A book on this device linked to a book on the server. A book here can
+/// have two: its ebook and its audiobook.
 @immutable
 class ServerLink {
   const ServerLink({
     required this.serverId,
+    required this.bookId,
     required this.kind,
     this.durationMs,
     this.pushed,
+    this.low,
     this.seen,
     this.dirty = false,
     this.marks,
   });
 
   final String serverId;
+
+  /// The book in your library.
+  final String bookId;
 
   /// "ebook" or "audiobook": which of this device's files the place is in.
   final String kind;
@@ -29,9 +35,13 @@ class ServerLink {
   /// know it yet.
   final int? durationMs;
 
-  /// The fraction last sent to the server, so the same place isn't sent
-  /// again and again.
+  /// The fraction last sent to (or taken from) the server, so the same
+  /// place isn't sent again and again.
   final double? pushed;
+
+  /// The lowest place here since then: how a book started again shows,
+  /// even if you read on a while before it could be sent.
+  final double? low;
 
   /// The server's time on the place last sent or taken from it. A place on
   /// the server that is newer was saved by another device.
@@ -48,15 +58,18 @@ class ServerLink {
 
   ServerLink copyWith({
     double? pushed,
+    double? Function()? low,
     String? seen,
     bool? dirty,
     Map<String, Map<String, Object?>>? marks,
   }) =>
       ServerLink(
         serverId: serverId,
+        bookId: bookId,
         kind: kind,
         durationMs: durationMs,
         pushed: pushed ?? this.pushed,
+        low: low == null ? this.low : low(),
         seen: seen ?? this.seen,
         dirty: dirty ?? this.dirty,
         marks: marks ?? this.marks,
@@ -64,9 +77,11 @@ class ServerLink {
 
   Map<String, Object?> toJson() => {
         'serverId': serverId,
+        'bookId': bookId,
         'kind': kind,
         if (durationMs != null) 'durationMs': durationMs,
         if (pushed != null) 'pushed': pushed,
+        if (low != null) 'low': low,
         if (seen != null) 'seen': seen,
         if (dirty) 'dirty': true,
         if (marks != null) 'marks': marks,
@@ -75,19 +90,22 @@ class ServerLink {
   static ServerLink? fromJson(Object? value) {
     if (value is! Map) return null;
     final serverId = value['serverId'];
+    final bookId = value['bookId'];
     final kind = value['kind'];
-    if (serverId is! String || (kind != 'ebook' && kind != 'audiobook')) {
-      return null;
-    }
+    if (serverId is! String || bookId is! String) return null;
+    if (kind != 'ebook' && kind != 'audiobook') return null;
     final duration = value['durationMs'];
     final pushed = value['pushed'];
+    final low = value['low'];
     final seen = value['seen'];
     final marks = value['marks'];
     return ServerLink(
       serverId: serverId,
+      bookId: bookId,
       kind: kind as String,
       durationMs: duration is int ? duration : null,
       pushed: pushed is num ? pushed.toDouble() : null,
+      low: low is num ? low.toDouble() : null,
       seen: seen is String ? seen : null,
       dirty: value['dirty'] == true,
       marks: marks is Map
@@ -122,6 +140,8 @@ class ServerState extends ChangeNotifier {
   Uri? _address;
   String? _token;
   String? _name;
+
+  /// By the server's id of the book.
   final _links = <String, ServerLink>{};
 
   static Future<ServerState> load(File file, {TokenStore? tokens}) async {
@@ -158,12 +178,10 @@ class ServerState extends ChangeNotifier {
       _name = name is String ? name : null;
     }
     final links = data['links'];
-    if (links is Map) {
-      for (final entry in links.entries) {
-        final link = ServerLink.fromJson(entry.value);
-        if (entry.key is String && link != null) {
-          _links[entry.key as String] = link;
-        }
+    if (links is List) {
+      for (final item in links) {
+        final link = ServerLink.fromJson(item);
+        if (link != null) _links[link.serverId] = link;
       }
     }
   }
@@ -175,17 +193,21 @@ class ServerState extends ChangeNotifier {
   /// Your name on the server.
   String? get name => _name;
 
-  Map<String, ServerLink> get links => Map.unmodifiable(_links);
+  List<ServerLink> get links => List.unmodifiable(_links.values);
 
-  ServerLink? linkFor(String bookId) => _links[bookId];
+  /// The link for a book on the server.
+  ServerLink? linkOf(String serverId) => _links[serverId];
 
-  /// The book on this device for a book on the server.
-  String? bookIdFor(String serverId) {
-    for (final entry in _links.entries) {
-      if (entry.value.serverId == serverId) return entry.key;
+  /// A book's link for its ebook or its audiobook.
+  ServerLink? linkFor(String bookId, String kind) {
+    for (final link in _links.values) {
+      if (link.bookId == bookId && link.kind == kind) return link;
     }
     return null;
   }
+
+  /// The book on this device for a book on the server.
+  String? bookIdFor(String serverId) => _links[serverId]?.bookId;
 
   Future<void> connect(Uri address, String token, String name) async {
     final changedServer = _address != null && _address != address;
@@ -212,21 +234,26 @@ class ServerState extends ChangeNotifier {
     await _save();
   }
 
-  Future<void> setLink(String bookId, ServerLink link) async {
-    // One book here per book there.
-    _links.removeWhere((id, l) => l.serverId == link.serverId && id != bookId);
-    _links[bookId] = link;
+  /// One link per server book, and per book here and kind.
+  Future<void> setLink(ServerLink link) async {
+    _links.removeWhere(
+      (id, l) => l.bookId == link.bookId && l.kind == link.kind,
+    );
+    _links[link.serverId] = link;
     await _save();
   }
 
-  Future<void> unlink(String bookId) async {
-    if (_links.remove(bookId) != null) await _save();
+  Future<void> unlink(String serverId) async {
+    if (_links.remove(serverId) != null) await _save();
   }
 
-  Future<void> update(String bookId, ServerLink Function(ServerLink) change) async {
-    final link = _links[bookId];
+  Future<void> update(
+    String serverId,
+    ServerLink Function(ServerLink) change,
+  ) async {
+    final link = _links[serverId];
     if (link == null) return;
-    _links[bookId] = change(link);
+    _links[serverId] = change(link);
     await _save();
   }
 
@@ -242,7 +269,7 @@ class ServerState extends ChangeNotifier {
       if (_address != null) 'address': _address.toString(),
       if (_token != null && tokens == null) 'token': _token,
       if (_name != null) 'name': _name,
-      'links': {for (final e in _links.entries) e.key: e.value.toJson()},
+      'links': [for (final link in _links.values) link.toJson()],
     });
     return _writing = _writing.then((_) => _write(file, data));
   }

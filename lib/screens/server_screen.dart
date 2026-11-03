@@ -610,13 +610,32 @@ class _BrowseViewState extends State<_BrowseView> {
                 }
                 return NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
-                    if (notification.metrics.extentAfter < 600) _loadMore();
+                    if (notification.metrics.extentAfter < 600 &&
+                        _problem == null) {
+                      _loadMore();
+                    }
                     return false;
                   },
                   child: ListView.builder(
                     itemCount: _books.length + (_books.length < _total ? 1 : 0),
                     itemBuilder: (context, index) {
                       if (index >= _books.length) {
+                        // After a failed page, wait to be asked again
+                        // rather than try over and over.
+                        if (_problem != null) {
+                          return Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Center(
+                              child: OutlinedButton(
+                                onPressed: () {
+                                  setState(() => _problem = null);
+                                  _loadMore();
+                                },
+                                child: const Text('Load more'),
+                              ),
+                            ),
+                          );
+                        }
                         if (!_loading) {
                           WidgetsBinding.instance
                               .addPostFrameCallback((_) => _loadMore());

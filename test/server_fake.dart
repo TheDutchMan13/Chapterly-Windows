@@ -24,6 +24,12 @@ class FakeServer {
 
   /// Set to make downloads fail with this status.
   int? downloadStatus;
+
+  /// Set to make pages of the library from this offset on fail.
+  int? failBooksFrom;
+
+  /// Runs while a request is being answered, to change things meanwhile.
+  Future<void> Function(String method, String path)? during;
   int _clock = 0;
 
   /// Server times go up by a second per save, like a real clock.
@@ -60,17 +66,25 @@ class FakeServer {
     };
   }
 
-  /// Another device saves a place.
+  /// Saves a place, as the real server does (also how a test plays
+  /// another device).
   Map<String, Object?> save(String id, double fraction, String position,
-      {bool reset = false}) {
+      {bool reset = false, String? base}) {
     final old = progress[id];
-    final apply = reset || old == null || fraction > (old['fraction'] as double);
+    final resetAt = old?['resetAt'] as String?;
+    final stale = !reset && resetAt != null && base != null &&
+        base.compareTo(resetAt) < 0;
+    final apply = reset ||
+        old == null ||
+        (!stale && fraction >= (old['fraction'] as double));
     if (apply) {
+      final stamp = _stamp();
       progress[id] = {
         'bookId': id,
         'fraction': fraction,
         'position': position,
-        'updatedAt': _stamp(),
+        'updatedAt': stamp,
+        'resetAt': reset ? stamp : resetAt,
       };
     }
     return {'applied': apply, 'progress': progress[id]};
@@ -88,6 +102,7 @@ class FakeServer {
     final path = request.url.path;
     requests.add('${request.method} $path');
     if (away) throw http.ClientException('away');
+    await during?.call(request.method, path);
     if (path == '/v1/ping') {
       return _json({'app': 'chapterly-server', 'protocol': 1});
     }
@@ -100,6 +115,9 @@ class FakeServer {
       final q = (request.url.queryParameters['q'] ?? '').toLowerCase();
       final kind = request.url.queryParameters['kind'];
       final offset = int.parse(request.url.queryParameters['offset'] ?? '0');
+      if (failBooksFrom != null && offset >= failBooksFrom!) {
+        return _json({'detail': 'Broken'}, 500);
+      }
       final limit = int.parse(request.url.queryParameters['limit'] ?? '50');
       final all = [
         for (final b in books.values)
@@ -128,6 +146,7 @@ class FakeServer {
         (body['fraction'] as num).toDouble(),
         body['position'] as String,
         reset: body['reset'] == true,
+        base: body['base'] as String?,
       ));
     }
     if (path == '/v1/progress') {
@@ -135,6 +154,7 @@ class FakeServer {
     }
     if (parts.length == 5 && parts[2] == 'books' && parts[4] == 'bookmarks') {
       final id = parts[3];
+      if (!books.containsKey(id)) return _json({'detail': 'No such book.'}, 404);
       final marks = bookmarks.putIfAbsent(id, () => {});
       if (request.method == 'PUT') {
         final body = jsonDecode(request.body) as Map;

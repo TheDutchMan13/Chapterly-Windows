@@ -135,6 +135,13 @@ bool _newer(String a, String b) {
 
 // ---- Syncing ----
 
+bool _sameMarks(List<AudioBookmark> a, List<AudioBookmark> b) {
+  String key(List<AudioBookmark> marks) =>
+      jsonEncode(bookmarkBase(marks).entries.map((e) => [e.key, e.value]).toList()
+        ..sort((x, y) => (x[0] as String).compareTo(y[0] as String)));
+  return key(a) == key(b);
+}
+
 /// Keeps your places in books from the server the same on every device:
 /// sends a place when you move on here, and takes a further place saved on
 /// another device. Downloads live in server_downloads.dart.
@@ -144,6 +151,7 @@ class ServerSync extends ChangeNotifier {
     required this.repository,
     this.ebooks,
     this.isOpen,
+    this.onAudioMoved,
     ServerClient Function(Uri address, String token)? clientFor,
     this.sendAfter = const Duration(seconds: 10),
     DateTime Function()? now,
@@ -157,9 +165,13 @@ class ServerSync extends ChangeNotifier {
   final BookRepository repository;
   final EbookLibrary? ebooks;
 
-  /// Whether a book is open in the reader or the player right now. Its
-  /// place is not changed under you.
-  final bool Function(String bookId)? isOpen;
+  /// Whether a book's ebook is open in the reader, or its audiobook is
+  /// playing, right now. Its place is not changed under you.
+  final bool Function(String bookId, String kind)? isOpen;
+
+  /// After an audiobook's place moved to one saved elsewhere, so a player
+  /// that has the book loaded (paused) can go there too.
+  final Future<void> Function(String bookId, AudioProgress progress)? onAudioMoved;
   final Duration sendAfter;
   final ServerClient Function(Uri, String) _clientFor;
   final DateTime Function() _now;
@@ -217,28 +229,37 @@ class ServerSync extends ChangeNotifier {
 
   void _changed() {
     if (!state.connected) return;
-    for (final entry in state.links.entries) {
-      if (_needsSending(entry.key, entry.value)) {
-        _timer?.cancel();
-        _timer = Timer(sendAfter, () => unawaited(send()));
-        return;
+    var due = false;
+    for (final link in state.links) {
+      final place = placeOf(link);
+      if (place == null) continue;
+      // Remember a finished book being started again, even if it can't be
+      // sent until you have read on a while.
+      final pushed = link.pushed;
+      final low = link.low;
+      if (pushed != null && pushed >= 0.9 && place.fraction < 0.1 &&
+          (low == null || low >= 0.1)) {
+        unawaited(state.update(link.serverId, (l) => l.copyWith(low: () => place.fraction)));
       }
+      if (_needsSending(link, place)) due = true;
+    }
+    if (due) {
+      _timer?.cancel();
+      _timer = Timer(sendAfter, () => unawaited(send()));
     }
   }
 
   /// Where you are in a linked book on this device, or null.
-  Place? placeOf(String bookId) {
-    final link = state.linkFor(bookId);
-    if (link == null) return null;
+  Place? placeOf(ServerLink link) {
     if (link.isAudiobook) {
-      final progress = repository.byId(bookId)?.audio;
+      final progress = repository.byId(link.bookId)?.audio;
       if (progress == null) return null;
       final length = progress.lengthMs ?? link.durationMs;
       if (length == null || length <= 0) return null;
       final fraction = (progress.positionMs / length).clamp(0.0, 1.0);
       return (fraction: fraction, position: encodeAudioPosition(progress));
     }
-    final file = ebooks?.linkFor(bookId);
+    final file = ebooks?.linkFor(link.bookId);
     final position = file?.position;
     if (file == null || position == null) return null;
     return (
@@ -247,9 +268,7 @@ class ServerSync extends ChangeNotifier {
     );
   }
 
-  bool _needsSending(String bookId, ServerLink link) {
-    final place = placeOf(bookId);
-    if (place == null) return false;
+  bool _needsSending(ServerLink link, Place place) {
     final pushed = link.pushed;
     return link.dirty || pushed == null || (place.fraction - pushed).abs() >= 0.0005;
   }
@@ -268,27 +287,41 @@ class ServerSync extends ChangeNotifier {
   }
 
   Future<void> _sendAll(ServerClient client) async {
-    for (final entry in state.links.entries.toList()) {
-      final bookId = entry.key;
-      final link = entry.value;
-      if (!_needsSending(bookId, link)) continue;
-      final place = placeOf(bookId)!;
+    for (final link in state.links) {
+      if (repository.byId(link.bookId) == null) continue;
+      final place = placeOf(link);
+      if (place == null || !_needsSending(link, place)) continue;
       final pushed = link.pushed;
-      // Starting a finished book again: go back on purpose.
-      final reset = pushed != null && pushed >= 0.9 && place.fraction < 0.1;
+      final lowest = link.low == null
+          ? place.fraction
+          : (place.fraction < link.low! ? place.fraction : link.low!);
+      // A finished book started again: going back on purpose.
+      final reset = pushed != null && pushed >= 0.9 && lowest < 0.1;
       try {
-        final saved = await client.putProgress(
+        final result = await client.putProgress(
           link.serverId,
           fraction: place.fraction,
           position: place.position,
           reset: reset,
+          base: link.seen,
         );
+        // A place the server didn't take was not this device's: leave
+        // [seen] alone, so taking places brings the further one here.
         await state.update(
-          bookId,
-          (l) => l.copyWith(pushed: place.fraction, seen: saved.updatedAt, dirty: false),
+          link.serverId,
+          (l) => l.copyWith(
+            pushed: place.fraction,
+            seen: result.applied ? result.progress.updatedAt : null,
+            dirty: false,
+            low: () => null,
+          ),
         );
       } on ServerFailure catch (failure) {
-        await state.update(bookId, (l) => l.copyWith(dirty: true));
+        if (failure.notFound) {
+          await state.unlink(link.serverId);
+          continue;
+        }
+        await state.update(link.serverId, (l) => l.copyWith(dirty: true));
         if (failure.unreachable) {
           _setProblem(failure.message);
           return;
@@ -298,7 +331,7 @@ class ServerSync extends ChangeNotifier {
   }
 
   /// Takes places saved on another device that are further than yours
-  /// here. Returns how many books moved on.
+  /// here (or a book someone started again). Returns how many books moved.
   Future<int> receive() async {
     final client = this.client;
     if (client == null) return 0;
@@ -307,61 +340,77 @@ class ServerSync extends ChangeNotifier {
     for (final remote in saved) {
       final serverId = remote.bookId;
       if (serverId == null) continue;
-      final bookId = state.bookIdFor(serverId);
-      if (bookId == null || (isOpen?.call(bookId) ?? false)) continue;
-      if (await applyRemote(bookId, remote)) moved++;
+      final link = state.linkOf(serverId);
+      if (link == null) continue;
+      if (isOpen?.call(link.bookId, link.kind) ?? false) continue;
+      if (await applyRemote(link, remote)) moved++;
     }
     return moved;
   }
 
-  /// Takes [remote] as your place in [bookId] if another device saved it
-  /// and it is further on than here. Returns whether the place moved.
-  Future<bool> applyRemote(String bookId, ServerProgress remote) async {
-    final link = state.linkFor(bookId);
-    if (link == null || repository.byId(bookId) == null) return false;
+  /// Takes [remote] as your place if another device saved it and it is
+  /// further on than here, or someone started the book again since this
+  /// device last looked. Returns whether the place moved.
+  Future<bool> applyRemote(ServerLink link, ServerProgress remote) async {
+    if (repository.byId(link.bookId) == null) return false;
     final seen = link.seen;
     // Saved by this device, or already looked at.
     if (seen != null && !_newer(remote.updatedAt, seen)) return false;
-    final here = placeOf(bookId);
-    if (here != null && remote.fraction <= here.fraction + 0.001) {
-      await state.update(bookId, (l) => l.copyWith(seen: remote.updatedAt));
-      return false;
+    final resetAt = remote.resetAt;
+    final wentBack = resetAt != null && (seen == null || _newer(resetAt, seen));
+    final here = placeOf(link);
+    if (here != null) {
+      final same = (remote.fraction - here.fraction).abs() <= 0.001;
+      final behind = remote.fraction < here.fraction;
+      if (same || (behind && !wentBack)) {
+        await state.update(link.serverId, (l) => l.copyWith(seen: remote.updatedAt));
+        return false;
+      }
     }
+    AudioProgress? audio;
     if (link.isAudiobook) {
-      final progress = decodeAudioPosition(remote.position);
-      if (progress == null) return false;
-      await repository.setAudioProgress(bookId, progress);
+      audio = decodeAudioPosition(remote.position);
+      if (audio == null) return false;
+      await repository.setAudioProgress(link.bookId, audio);
     } else {
       final library = ebooks;
-      final file = library?.linkFor(bookId);
+      final file = library?.linkFor(link.bookId);
       if (library == null || file == null) return false;
       final position =
           decodeEbookPosition(file.format, remote.position, remote.fraction);
       if (position == null) return false;
-      await library.setPosition(bookId, position);
+      await library.setPosition(link.bookId, position);
     }
     await state.update(
-      bookId,
-      (l) => l.copyWith(pushed: remote.fraction, seen: remote.updatedAt, dirty: false),
+      link.serverId,
+      (l) => l.copyWith(
+        pushed: remote.fraction,
+        seen: remote.updatedAt,
+        dirty: false,
+        low: () => null,
+      ),
     );
+    if (audio != null) await onAudioMoved?.call(link.bookId, audio);
     return true;
   }
 
-  /// Just before a book opens: takes a further place saved on another
-  /// device, waiting at most [wait] so a server that's away never holds the
-  /// book up. Returns whether the place moved.
+  /// Just before a book opens (or a paused audiobook plays again): takes a
+  /// place saved on another device, waiting at most [wait] so a server
+  /// that's away never holds the book up. Returns whether the place moved.
   Future<bool> takeLatest(
-    String bookId, {
+    String bookId,
+    String kind, {
     Duration wait = const Duration(seconds: 3),
   }) async {
     final client = this.client;
-    final link = state.linkFor(bookId);
+    final link = state.linkFor(bookId, kind);
     if (client == null || link == null) return false;
     try {
       final remote = await client.progressFor(link.serverId).timeout(wait);
       if (remote == null) return false;
-      return await applyRemote(bookId, remote);
-    } on ServerFailure {
+      return await applyRemote(link, remote);
+    } on ServerFailure catch (failure) {
+      if (failure.notFound) await state.unlink(link.serverId);
       return false;
     } on TimeoutException {
       return false;
@@ -369,29 +418,28 @@ class ServerSync extends ChangeNotifier {
   }
 
   /// Sends bookmark changes for an audiobook and takes those made elsewhere.
-  Future<void> syncBookmarks(String bookId) async {
+  Future<void> syncBookmarks(ServerLink link) async {
     final client = this.client;
-    final link = state.linkFor(bookId);
-    if (client == null || link == null || !link.isAudiobook) return;
-    if (repository.byId(bookId) == null) return;
-    final local = repository.bookmarksFor(bookId);
+    if (client == null || !link.isAudiobook) return;
+    if (repository.byId(link.bookId) == null) return;
+    final before = repository.bookmarksFor(link.bookId);
     final changes = bookmarkChanges(
       base: link.marks,
-      local: local,
+      local: before,
       now: _utc(_now()),
     );
     final merged = changes.isEmpty
         ? await client.bookmarks(link.serverId)
         : await client.putBookmarks(link.serverId, changes);
+    // A bookmark added or changed while waiting: leave it all for the next
+    // sync, which sends it, rather than replace it.
+    final now = repository.bookmarksFor(link.bookId);
+    if (!_sameMarks(before, now)) return;
     final result = bookmarksFromServer(merged);
-    final fresh = bookmarkBase(result);
-    if (!mapEquals(
-      {for (final e in fresh.entries) e.key: jsonEncode(e.value)},
-      {for (final e in bookmarkBase(local).entries) e.key: jsonEncode(e.value)},
-    )) {
-      await repository.replaceBookmarks(bookId, result);
+    if (!_sameMarks(result, now)) {
+      await repository.replaceBookmarks(link.bookId, result);
     }
-    await state.update(bookId, (l) => l.copyWith(marks: fresh));
+    await state.update(link.serverId, (l) => l.copyWith(marks: bookmarkBase(result)));
   }
 
   /// Sends, then takes, then syncs audiobook bookmarks. Returns how many
@@ -404,8 +452,15 @@ class ServerSync extends ChangeNotifier {
     try {
       await send();
       moved = await receive();
-      for (final entry in state.links.entries.toList()) {
-        if (entry.value.isAudiobook) await syncBookmarks(entry.key);
+      for (final link in state.links) {
+        if (!link.isAudiobook) continue;
+        try {
+          await syncBookmarks(link);
+        } on ServerFailure catch (failure) {
+          if (failure.unreachable) rethrow;
+          // One book going wrong doesn't stop the others.
+          if (failure.notFound) await state.unlink(link.serverId);
+        }
       }
       _setProblem(null);
     } on ServerFailure catch (failure) {

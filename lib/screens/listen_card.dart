@@ -165,12 +165,22 @@ class _ListenCardState extends State<ListenCard> {
     final controller = Listening.controller;
     if (controller == null) return;
     final messenger = ScaffoldMessenger.of(context);
+    final sync = BookServer.sync;
     if (controller.bookId == widget.book.id) {
+      // Playing again after a pause: first a place saved on another device
+      // since (the player goes there).
+      if (!controller.playing && sync != null &&
+          await sync.takeLatest(widget.book.id, 'audiobook')) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Carrying on from where you were on another device'),
+        ));
+      }
       await controller.toggle();
       return;
     }
     // A further place saved on another device (book server), if any.
-    final moved = await BookServer.sync?.takeLatest(widget.book.id) ?? false;
+    final moved =
+        await sync?.takeLatest(widget.book.id, 'audiobook') ?? false;
     final problem = await controller.open(widget.book.id);
     if (problem != null) {
       messenger.showSnackBar(SnackBar(content: Text(problem)));

@@ -152,9 +152,17 @@ Future<void> _setUpBookServer(
       state: state,
       repository: repository,
       ebooks: EbookReading.library,
-      isOpen: (bookId) =>
-          EbookReading.openBookId == bookId ||
-          listenController.bookId == bookId,
+      isOpen: (bookId, kind) => kind == 'ebook'
+          ? EbookReading.openBookId == bookId
+          : listenController.bookId == bookId && listenController.playing,
+      onAudioMoved: (bookId, progress) async {
+        if (listenController.bookId != bookId) return;
+        // Loaded but paused: go to the new place.
+        await listenController.seekTo(
+          progress.track,
+          Duration(milliseconds: progress.trackMs),
+        );
+      },
     );
     final downloads = ServerDownloads(
       sync: sync,
