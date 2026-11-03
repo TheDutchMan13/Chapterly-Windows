@@ -1,0 +1,659 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../data/app_settings.dart';
+import '../data/book_repository.dart';
+import '../data/file_io.dart';
+import '../ebook/ebook_library.dart' show formatFileSize;
+import '../server/server_client.dart';
+import '../server/server_downloads.dart';
+import '../server/server_sync.dart';
+import 'book_detail_screen.dart';
+
+// The same screen is in the Android app.
+
+/// "11 h 2 min".
+String formatListenLength(int ms) {
+  final minutes = ms ~/ 60000;
+  final hours = minutes ~/ 60;
+  return hours == 0 ? '$minutes min' : '$hours h ${minutes % 60} min';
+}
+
+/// Files bigger than this ask before downloading.
+const _askAbove = 200 * 1024 * 1024;
+
+/// Your own book server: connect once, then browse and search your library
+/// there and download books into Chapterly. Your place in those books
+/// syncs with your other devices.
+class ServerScreen extends StatelessWidget {
+  const ServerScreen({
+    super.key,
+    required this.repository,
+    required this.settings,
+    required this.fileIo,
+    required this.sync,
+    required this.downloads,
+  });
+
+  final BookRepository repository;
+  final AppSettings settings;
+  final FileIo fileIo;
+  final ServerSync sync;
+  final ServerDownloads downloads;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: sync.state,
+      builder: (context, _) => sync.state.connected
+          ? _BrowseView(
+              key: ValueKey(sync.state.address),
+              repository: repository,
+              settings: settings,
+              fileIo: fileIo,
+              sync: sync,
+              downloads: downloads,
+            )
+          : _ConnectView(sync: sync),
+    );
+  }
+}
+
+// ---- Connecting ----
+
+class _ConnectView extends StatefulWidget {
+  const _ConnectView({required this.sync});
+
+  final ServerSync sync;
+
+  @override
+  State<_ConnectView> createState() => _ConnectViewState();
+}
+
+class _ConnectViewState extends State<_ConnectView> {
+  final _address = TextEditingController();
+  final _token = TextEditingController();
+  bool _showToken = false;
+  bool _busy = false;
+  String? _problem;
+
+  @override
+  void dispose() {
+    _address.dispose();
+    _token.dispose();
+    super.dispose();
+  }
+
+  Future<void> _connect() async {
+    final address = parseServerAddress(_address.text);
+    final token = _token.text.trim();
+    if (address == null) {
+      setState(() => _problem =
+          'Type the server\'s address, such as 100.72.125.106:8780.');
+      return;
+    }
+    if (token.isEmpty) {
+      setState(() => _problem = 'Paste the token the server gave you.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _problem = null;
+    });
+    final client = widget.sync.clientFor(address, token);
+    try {
+      await client.ping();
+      final name = await client.me();
+      await widget.sync.state.connect(address, token, name);
+      unawaited(widget.sync.syncNow());
+    } on ServerFailure catch (failure) {
+      if (mounted) setState(() => _problem = failure.message);
+    } finally {
+      client.close();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _paste(TextEditingController controller) async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim();
+    if (text != null && text.isNotEmpty) controller.text = text;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Book server')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text(
+            'Connect to your own Chapterly book server to browse your '
+            'library there, download books into Chapterly and keep your '
+            'place in sync with your other devices.',
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _address,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            decoration: InputDecoration(
+              labelText: 'Address',
+              hintText: '100.72.125.106:8780',
+              helperText: 'Its Tailscale address and port',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                tooltip: 'Paste',
+                icon: const Icon(Icons.content_paste),
+                onPressed: () => _paste(_address),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _token,
+            obscureText: !_showToken,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: InputDecoration(
+              labelText: 'Token',
+              helperText: 'From "add-user" on the server',
+              border: const OutlineInputBorder(),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: _showToken ? 'Hide token' : 'Show token',
+                    icon: Icon(
+                      _showToken ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    onPressed: () => setState(() => _showToken = !_showToken),
+                  ),
+                  IconButton(
+                    tooltip: 'Paste',
+                    icon: const Icon(Icons.content_paste),
+                    onPressed: () => _paste(_token),
+                  ),
+                ],
+              ),
+            ),
+            onSubmitted: (_) => _busy ? null : _connect(),
+          ),
+          if (_problem case final problem?)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                problem,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              onPressed: _busy ? null : _connect,
+              icon: _busy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.link),
+              label: const Text('Connect'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Tailscale must be on. The token is kept on this device only.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---- Browsing ----
+
+enum _Kind { all, ebook, audiobook }
+
+class _BrowseView extends StatefulWidget {
+  const _BrowseView({
+    super.key,
+    required this.repository,
+    required this.settings,
+    required this.fileIo,
+    required this.sync,
+    required this.downloads,
+  });
+
+  final BookRepository repository;
+  final AppSettings settings;
+  final FileIo fileIo;
+  final ServerSync sync;
+  final ServerDownloads downloads;
+
+  @override
+  State<_BrowseView> createState() => _BrowseViewState();
+}
+
+class _BrowseViewState extends State<_BrowseView> {
+  static const _pageSize = 50;
+
+  final _query = TextEditingController();
+  final _books = <ServerBook>[];
+  _Kind _kind = _Kind.all;
+  int _total = 0;
+  bool _loading = false;
+  String? _problem;
+  Timer? _typing;
+
+  /// Answers to an older search are dropped.
+  int _generation = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  @override
+  void dispose() {
+    _typing?.cancel();
+    _query.dispose();
+    super.dispose();
+  }
+
+  ServerClient? get _client => widget.sync.client;
+
+  void _reload() {
+    _generation++;
+    _books.clear();
+    _total = 0;
+    _problem = null;
+    _loading = false;
+    _loadMore();
+  }
+
+  Future<void> _loadMore() async {
+    final client = _client;
+    if (client == null || _loading) return;
+    if (_books.isNotEmpty && _books.length >= _total) return;
+    final generation = _generation;
+    setState(() => _loading = true);
+    try {
+      final page = await client.books(
+        query: _query.text,
+        kind: _kind == _Kind.all ? null : _kind.name,
+        offset: _books.length,
+        limit: _pageSize,
+      );
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _books.addAll(page.books);
+        _total = page.total;
+        _problem = null;
+      });
+    } on ServerFailure catch (failure) {
+      if (mounted && generation == _generation) {
+        setState(() => _problem = failure.message);
+      }
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  void _typed(String _) {
+    _typing?.cancel();
+    _typing = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) setState(_reload);
+    });
+  }
+
+  void _openBook(String bookId) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => BookDetailScreen(
+        repository: widget.repository,
+        settings: widget.settings,
+        fileIo: widget.fileIo,
+        bookId: bookId,
+      ),
+    ));
+  }
+
+  Future<void> _download(ServerBook book) async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (book.size > _askAbove) {
+      final sure = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: Text('Download ${formatFileSize(book.size)}?'),
+          content: Text('"${book.title}" is a big file.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Download'),
+            ),
+          ],
+        ),
+      );
+      if (sure != true) return;
+    }
+    final result = await widget.downloads.download(book);
+    if (!mounted) return;
+    final bookId = result.bookId;
+    final text = result.problem ??
+        (result.matchedExisting
+            ? '"${book.title}" was already in your library. Your place in '
+                'it now syncs.'
+            : '"${book.title}" is in your library');
+    messenger.showSnackBar(SnackBar(
+      content: Text(text),
+      action: bookId == null
+          ? null
+          : SnackBarAction(label: 'Open', onPressed: () => _openBook(bookId)),
+    ));
+  }
+
+  Future<void> _syncNow() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final moved = await widget.sync.syncNow();
+    if (!mounted) return;
+    final problem = widget.sync.problem;
+    messenger.showSnackBar(SnackBar(
+      content: Text(
+        problem ??
+            (moved == 0
+                ? 'Your places are up to date'
+                : 'Moved on in $moved ${moved == 1 ? 'book' : 'books'} '
+                    'from another device'),
+      ),
+    ));
+  }
+
+  Future<void> _disconnect() async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Disconnect from the server?'),
+        content: const Text(
+          'Books you downloaded stay in your library, but your place in them '
+          'stops syncing. To connect again you need the token.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('Disconnect'),
+          ),
+        ],
+      ),
+    );
+    if (sure == true) await widget.sync.state.disconnect();
+  }
+
+  String _details(ServerBook book) {
+    final parts = <String>[
+      if (book.series case final series?)
+        book.seriesIndex == null
+            ? series
+            : '$series #${_number(book.seriesIndex!)}',
+      if (book.isAudiobook)
+        book.durationMs == null
+            ? 'Audiobook'
+            : 'Audiobook, ${formatListenLength(book.durationMs!)}'
+      else
+        '${book.format.toUpperCase()}, ${formatFileSize(book.size)}',
+      if (book.progress case final progress? when progress.fraction > 0)
+        '${(progress.fraction * 100).round()}% read',
+    ];
+    return parts.join(' · ');
+  }
+
+  static String _number(double value) =>
+      value == value.roundToDouble() ? '${value.round()}' : '$value';
+
+  Widget _cover(ServerBook book) {
+    final client = _client;
+    const placeholder = SizedBox(
+      width: 40,
+      height: 56,
+      child: Icon(Icons.menu_book_outlined),
+    );
+    if (!book.hasCover || client == null) {
+      return book.isAudiobook
+          ? const SizedBox(
+              width: 40,
+              height: 56,
+              child: Icon(Icons.headphones_outlined),
+            )
+          : placeholder;
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Image.network(
+        client.coverUri(book.id).toString(),
+        headers: client.authHeaders,
+        width: 40,
+        height: 56,
+        fit: BoxFit.cover,
+        cacheWidth: 120,
+        errorBuilder: (_, _, _) => placeholder,
+      ),
+    );
+  }
+
+  Widget _action(ServerBook book) {
+    final downloads = widget.downloads;
+    if (downloads.isDownloading(book.id)) {
+      return SizedBox(
+        width: 48,
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              value: downloads.progressOf(book.id),
+            ),
+          ),
+        ),
+      );
+    }
+    final local = downloads.localBookFor(book);
+    if (local != null) {
+      return IconButton(
+        tooltip: 'In your library',
+        icon: Icon(
+          Icons.check_circle,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        onPressed: () => _openBook(local),
+      );
+    }
+    if (!downloads.canOpen(book)) {
+      return const IconButton(
+        tooltip: 'Chapterly cannot open this kind of file',
+        icon: Icon(Icons.block),
+        onPressed: null,
+      );
+    }
+    return IconButton(
+      tooltip: 'Download',
+      icon: const Icon(Icons.download_outlined),
+      onPressed: () => _download(book),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.sync.state;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Book server'),
+        actions: [
+          ListenableBuilder(
+            listenable: widget.sync,
+            builder: (context, _) => IconButton(
+              tooltip: 'Sync your places now',
+              icon: widget.sync.busy
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync),
+              onPressed: widget.sync.busy ? null : _syncNow,
+            ),
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'disconnect') _disconnect();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'disconnect', child: Text('Disconnect')),
+            ],
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: TextField(
+              controller: _query,
+              onChanged: _typed,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: 'Search the server',
+                isDense: true,
+                border: const OutlineInputBorder(),
+                suffixIcon: _query.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear',
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _query.clear();
+                          setState(_reload);
+                        },
+                      ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: SegmentedButton<_Kind>(
+              segments: const [
+                ButtonSegment(value: _Kind.all, label: Text('All')),
+                ButtonSegment(value: _Kind.ebook, label: Text('Ebooks')),
+                ButtonSegment(value: _Kind.audiobook, label: Text('Audiobooks')),
+              ],
+              selected: {_kind},
+              showSelectedIcon: false,
+              onSelectionChanged: (value) => setState(() {
+                _kind = value.first;
+                _reload();
+              }),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                [
+                  if (_total > 0 || !_loading)
+                    '$_total ${_total == 1 ? 'book' : 'books'}',
+                  if (state.name case final name?) 'signed in as $name',
+                ].join(' · '),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ),
+          if (_problem case final problem?)
+            MaterialBanner(
+              content: Text(problem),
+              actions: [
+                TextButton(
+                  onPressed: () => setState(_reload),
+                  child: const Text('Try again'),
+                ),
+              ],
+            ),
+          Expanded(
+            child: ListenableBuilder(
+              listenable: Listenable.merge([widget.downloads, state]),
+              builder: (context, _) {
+                if (_books.isEmpty) {
+                  return Center(
+                    child: _loading
+                        ? const CircularProgressIndicator()
+                        : _problem != null
+                            ? const SizedBox.shrink()
+                            : Text(
+                                _query.text.isEmpty
+                                    ? 'No books on the server yet.'
+                                    : 'No books match.',
+                              ),
+                  );
+                }
+                return NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification.metrics.extentAfter < 600) _loadMore();
+                    return false;
+                  },
+                  child: ListView.builder(
+                    itemCount: _books.length + (_books.length < _total ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index >= _books.length) {
+                        if (!_loading) {
+                          WidgetsBinding.instance
+                              .addPostFrameCallback((_) => _loadMore());
+                        }
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      final book = _books[index];
+                      final local = widget.downloads.localBookFor(book);
+                      return ListTile(
+                        leading: _cover(book),
+                        title: Text(book.title),
+                        subtitle: Text(
+                          [
+                            if (book.author.isNotEmpty) book.author,
+                            _details(book),
+                          ].join('\n'),
+                        ),
+                        isThreeLine: book.author.isNotEmpty,
+                        trailing: _action(book),
+                        onTap: local != null
+                            ? () => _openBook(local)
+                            : widget.downloads.canOpen(book) &&
+                                    !widget.downloads.isDownloading(book.id)
+                                ? () => _download(book)
+                                : null,
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

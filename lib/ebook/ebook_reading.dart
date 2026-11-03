@@ -13,4 +13,8 @@ class EbookReading {
 
   /// Where Chapterly keeps its copies of book files.
   static Directory? booksDir;
+
+  /// The book open in the reader, if any, so a sync never moves its place
+  /// while you read.
+  static String? openBookId;
 }

@@ -34,6 +34,11 @@ import 'screens/lock_gate.dart';
 import 'screens/mini_player.dart';
 import 'screens/mini_timer.dart';
 import 'screens/now_playing.dart';
+import 'server/book_server.dart';
+import 'server/server_downloads.dart';
+import 'server/server_platform.dart';
+import 'server/server_state.dart';
+import 'server/server_sync.dart';
 
 /// Lets code outside the screens (such as Ctrl+V for a cover) show messages.
 final _messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -97,6 +102,9 @@ Future<void> main() async {
   );
   EbookReading.files = const WindowsEbookFiles();
   EbookReading.booksDir = Directory(p.join(dataDir.path, 'books'));
+  // The book server: browsing it, downloads, and keeping your place in its
+  // books the same on every device.
+  await _setUpBookServer(dataDir, repository, listenController);
   // Links the files in your book and audiobook folders to your books.
   LibraryScanning.scanner = LibraryScanner(
     repository: repository,
@@ -128,6 +136,89 @@ Future<void> main() async {
       fileIo: const FileIo(),
     ),
   );
+}
+
+Future<void> _setUpBookServer(
+  Directory dataDir,
+  BookRepository repository,
+  ListenController listenController,
+) async {
+  try {
+    final state = await ServerState.load(
+      File(p.join(dataDir.path, 'book_server.json')),
+      tokens: const SecureTokenStore(),
+    );
+    final sync = ServerSync(
+      state: state,
+      repository: repository,
+      ebooks: EbookReading.library,
+      isOpen: (bookId) =>
+          EbookReading.openBookId == bookId ||
+          listenController.bookId == bookId,
+    );
+    final downloads = ServerDownloads(
+      sync: sync,
+      repository: repository,
+      ebooks: EbookReading.library,
+      booksDir: EbookReading.booksDir,
+      audio: listenController.library,
+      audioFiles: Listening.files,
+      audioDir: Directory(p.join(dataDir.path, 'server_audio')),
+    );
+    BookServer.sync = sync;
+    BookServer.downloads = downloads;
+    sync.start();
+    final observer = _BookServerObserver(sync);
+    WidgetsBinding.instance.addObserver(observer);
+    // The PC often stays open for hours: sync now and then as well.
+    Timer.periodic(const Duration(minutes: 15), (_) => observer.syncSoon());
+    unawaited(downloads.cleanUp());
+    unawaited(_syncAndTell(sync));
+  } catch (_) {
+    // No book server this time.
+  }
+}
+
+/// Syncs, and says so when a book moved on to a place saved elsewhere.
+Future<void> _syncAndTell(ServerSync sync) async {
+  if (!sync.state.connected) return;
+  final moved = await sync.syncNow();
+  if (moved == 0) return;
+  _messengerKey.currentState?.showSnackBar(SnackBar(
+    content: Text(
+      'Carrying on in $moved ${moved == 1 ? 'book' : 'books'} from where '
+      'you were on another device',
+    ),
+  ));
+}
+
+/// Syncs your places when Chapterly comes back to the front, and sends them
+/// when it goes to the back.
+class _BookServerObserver with WidgetsBindingObserver {
+  _BookServerObserver(this.sync);
+
+  final ServerSync sync;
+  DateTime? _last;
+
+  void syncSoon() {
+    final last = _last;
+    final now = DateTime.now();
+    if (last != null && now.difference(last) < const Duration(seconds: 30)) {
+      return;
+    }
+    _last = now;
+    unawaited(_syncAndTell(sync));
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      unawaited(sync.send());
+    } else if (state == AppLifecycleState.resumed) {
+      syncSoon();
+    }
+  }
 }
 
 class ChapterlyApp extends StatelessWidget {

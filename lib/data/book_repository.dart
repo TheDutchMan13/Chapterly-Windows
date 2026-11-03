@@ -445,6 +445,11 @@ class BookRepository extends ChangeNotifier {
         (book) => book.copyWith(audioBookmarks: [...book.audioBookmarks, mark]),
       );
 
+  /// Replaces all of a book's audiobook bookmarks (after a sync with the
+  /// book server).
+  Future<void> replaceBookmarks(String id, List<AudioBookmark> marks) =>
+      _update(id, (book) => book.copyWith(audioBookmarks: [...marks]));
+
   Future<void> setBookmarkNote(String id, AudioBookmark mark, String note) =>
       _update(
         id,

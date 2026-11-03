@@ -7,6 +7,7 @@ import '../data/book_repository.dart';
 import '../models/audio_progress.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
+import '../server/book_server.dart';
 import 'now_playing.dart';
 
 /// "4 h 5 min of 11 h 40 min · 35%" and the like.
@@ -168,9 +169,15 @@ class _ListenCardState extends State<ListenCard> {
       await controller.toggle();
       return;
     }
+    // A further place saved on another device (book server), if any.
+    final moved = await BookServer.sync?.takeLatest(widget.book.id) ?? false;
     final problem = await controller.open(widget.book.id);
     if (problem != null) {
       messenger.showSnackBar(SnackBar(content: Text(problem)));
+    } else if (moved) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Carrying on from where you were on another device'),
+      ));
     }
   }
 
