@@ -22,6 +22,7 @@ import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
 import '../models/wish_priority.dart';
+import '../server/book_server.dart';
 import '../widgets/book_cover.dart';
 import 'add_book_dialog.dart';
 import 'book_detail_screen.dart';
@@ -36,6 +37,7 @@ import 'manage_shelves_screen.dart';
 import 'notes_search_screen.dart';
 import 'search_screen.dart';
 import 'series_screen.dart';
+import 'server_screen.dart';
 import 'settings_screen.dart';
 import 'shelf_picker.dart';
 import 'sync_preview.dart';
@@ -654,6 +656,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
         builder: (_) => WishListScreen(
           repository: widget.repository,
           settings: widget.settings,
+        ),
+      ),
+    );
+  }
+
+  void _openServer() {
+    final sync = BookServer.sync;
+    final downloads = BookServer.downloads;
+    if (sync == null || downloads == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ServerScreen(
+          repository: widget.repository,
+          settings: widget.settings,
+          fileIo: widget.fileIo,
+          sync: sync,
+          downloads: downloads,
         ),
       ),
     );
@@ -1611,6 +1630,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
             PopupMenuItem(value: _openTags, child: const Text('Tags')),
             PopupMenuItem(value: _openSeries, child: const Text('Series')),
             PopupMenuItem(value: _openWishes, child: const Text('Wish list')),
+            if (BookServer.sync != null)
+              PopupMenuItem(value: _openServer, child: const Text('Book server')),
             PopupMenuItem(
               value: _openNotesSearch,
               child: const Text('Search notes and quotes'),

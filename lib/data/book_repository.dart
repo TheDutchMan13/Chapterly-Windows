@@ -267,7 +267,8 @@ class BookRepository extends ChangeNotifier {
     return null;
   }
 
-  Future<void> add({
+  /// Adds a book and returns its id.
+  Future<String> add({
     required String title,
     required String author,
     required Shelf shelf,
@@ -295,6 +296,7 @@ class BookRepository extends ChangeNotifier {
     _books.insert(0, book);
     notifyListeners();
     await _store.save(book);
+    return book.id;
   }
 
   Future<void> moveTo(String id, Shelf shelf) =>
@@ -444,6 +446,11 @@ class BookRepository extends ChangeNotifier {
         id,
         (book) => book.copyWith(audioBookmarks: [...book.audioBookmarks, mark]),
       );
+
+  /// Replaces all of a book's audiobook bookmarks (after a sync with the
+  /// book server).
+  Future<void> replaceBookmarks(String id, List<AudioBookmark> marks) =>
+      _update(id, (book) => book.copyWith(audioBookmarks: [...marks]));
 
   Future<void> setBookmarkNote(String id, AudioBookmark mark, String note) =>
       _update(
@@ -699,6 +706,21 @@ class BookRepository extends ChangeNotifier {
         quotes: [...book.quotes, ...?quotesByBook[book.id]],
       ),
     );
+  }
+
+  /// Sets the note on a book's quote with this text (from a highlight).
+  /// Nothing happens when there is no such quote.
+  Future<void> setQuoteNote(String id, String text, String? note) async {
+    final book = byId(id);
+    if (book == null) return;
+    final index = book.quotes.indexWhere((q) => q.text.trim() == text.trim());
+    if (index < 0) return;
+    final updated = book.quotes[index].withNote(note);
+    if (updated.note == book.quotes[index].note) return;
+    await _update(id, (b) => b.copyWith(quotes: [
+          for (var i = 0; i < b.quotes.length; i++)
+            i == index ? updated : b.quotes[i],
+        ]));
   }
 
   Future<void> removeQuote(String id, int index) => _update(id, (book) {

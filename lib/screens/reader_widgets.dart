@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../ebook/ebook_library.dart';
+import '../ebook/ebook_reading.dart';
 import '../ebook/reader_style.dart';
 import '../ebook/reader_tools.dart';
 
@@ -141,6 +142,9 @@ class _HighlightEditorState extends State<_HighlightEditor> {
       colour: _colour,
       note: () => _note.text,
     );
+    // The note goes on the book's quote of this passage too, so it syncs.
+    await EbookReading.repository
+        ?.setQuoteNote(widget.bookId, widget.highlight.text, _note.text);
     navigator.pop(HighlightEdit.changed);
   }
 

@@ -13,6 +13,35 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.13.0',
+    date: '2026-11-03',
+    changes: [
+      'Book server (Library menu): connect to your own Chapterly book '
+          'server, then browse and search your library there and download '
+          'ebooks and audiobooks into Chapterly',
+      'A book you download goes on For later, or is linked to the same book '
+          'when it is already in your library',
+      'Your place in those books syncs with your other devices: open a book '
+          'and Chapterly carries on from the furthest place you reached',
+      'Audiobook bookmarks sync through the book server too',
+      'Sync my whole library (on the Book server screen): books, shelves, '
+          'ratings, notes, quotes, bookmarks and the wish list sync through '
+          'your server, from anywhere Tailscale reaches. A change made on '
+          'each device to the same book keeps both',
+      'Notes on highlights are kept on the book\'s quote, so they sync too',
+      'EPUB places move between the phone and the PC: a place from the '
+          'other reader opens at the same point in the book',
+      'Send to my other devices: a book from the server downloads there '
+          'the next time they open Chapterly',
+      'Downloads (Book server): the space downloaded books use, and remove '
+          'a file while keeping the book',
+      'Audiobooks made of one file per chapter download as one book',
+      'Reading reminder (Settings): a daily nudge when you\'re behind this '
+          "year's goal, shown in Chapterly when it is open",
+      'Your server token is kept in Windows\' protected storage',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.12.0',
     date: '2026-11-02',
     changes: [
