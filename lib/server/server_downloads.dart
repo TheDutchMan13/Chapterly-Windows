@@ -132,48 +132,81 @@ class ServerDownloads extends ChangeNotifier {
     String? created;
     final dir = book.isAudiobook ? audioDir! : booksDir!;
     final safe = book.id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    final file = File(
-      '${dir.path}${Platform.pathSeparator}'
-      'server-$safe-${_now().millisecondsSinceEpoch}.${book.format}',
-    );
+    final sep = Platform.pathSeparator;
+    final base = '${dir.path}${sep}server-$safe-${_now().millisecondsSinceEpoch}';
+    // An audiobook of several files goes in a folder of its own.
+    final FileSystemEntity target =
+        book.isMultiTrack ? Directory(base) : File('$base.${book.format}');
+    void progress(double? value) {
+      _active[book.id] = value;
+      notifyListeners();
+    }
+
     try {
-      final bytes = await client.download(
-        book.id,
-        file,
-        onProgress: (received, total) {
-          _active[book.id] = total == null || total == 0 ? null : received / total;
-          notifyListeners();
-        },
-      );
-      // Added only once the file is here, so a failed download leaves no
+      final picked = <PickedFile>[];
+      final lengths = <int?>[];
+      var bytes = 0;
+      if (target is Directory) {
+        final tracks = await client.tracks(book.id);
+        if (tracks.isEmpty) {
+          throw const ServerFailure('This audiobook has no files on the server.');
+        }
+        final total = tracks.fold<int>(0, (sum, t) => sum + t.size);
+        var done = 0;
+        for (final track in tracks) {
+          // Numbered, so they play in the server's order.
+          final name = '${(track.index + 1).toString().padLeft(3, '0')} '
+              '${track.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), ' ')}';
+          final file = File('${target.path}$sep$name');
+          final got = await client.downloadTrack(
+            book.id,
+            track.index,
+            file,
+            onProgress: (received, _) =>
+                progress(total == 0 ? null : (done + received) / total),
+          );
+          done += got;
+          bytes += got;
+          picked.add(PickedFile(location: audioLocationFor(file.path), name: name));
+          lengths.add(track.durationMs);
+        }
+      } else {
+        final file = target as File;
+        bytes = await client.download(
+          book.id,
+          file,
+          onProgress: (received, total) =>
+              progress(total == null || total == 0 ? null : received / total),
+        );
+        picked.add(PickedFile(location: audioLocationFor(file.path), name: book.fileName));
+        lengths.add(book.durationMs);
+      }
+      // Added only once the files are here, so a failed download leaves no
       // empty book behind.
       if (bookId == null) {
         bookId = await _addBook(book);
         created = bookId;
       }
       if (book.isAudiobook) {
-        final location = audioLocationFor(file.path);
         final files = audioFiles;
         AudioLink? link;
         if (files != null) {
           try {
-            link = await buildAudioLink(
-              files,
-              [PickedFile(location: location, name: book.fileName)],
-            );
+            link = await buildAudioLink(files, picked);
           } catch (_) {
-            // Chapters unread; the file still plays.
+            // Lengths and chapters unread; the files still play.
           }
         }
         await audio!.setLink(
           bookId,
           link ??
               AudioLink(tracks: [
-                AudioTrack(
-                  location: location,
-                  name: book.fileName,
-                  lengthMs: book.durationMs,
-                ),
+                for (var i = 0; i < picked.length; i++)
+                  AudioTrack(
+                    location: picked[i].location,
+                    name: picked[i].name,
+                    lengthMs: lengths[i],
+                  ),
               ]),
         );
       } else {
@@ -181,7 +214,7 @@ class ServerDownloads extends ChangeNotifier {
         await ebooks!.setLink(
           bookId,
           EbookLink(
-            path: file.path,
+            path: target.path,
             name: book.fileName,
             bytes: bytes,
             format: ebookFormatOf(book.fileName)!,
@@ -194,15 +227,15 @@ class ServerDownloads extends ChangeNotifier {
       await _link(bookId, book);
       return DownloadResult(bookId: bookId);
     } on ServerFailure catch (failure) {
-      await _undo(file, created, book);
+      await _undo(target, created, book);
       return DownloadResult(problem: failure.message);
     } on FileSystemException {
-      await _undo(file, created, book);
+      await _undo(target, created, book);
       return const DownloadResult(
         problem: 'The book could not be saved. Is there room on this device?',
       );
     } catch (_) {
-      await _undo(file, created, book);
+      await _undo(target, created, book);
       return const DownloadResult(problem: 'The book could not be added.');
     } finally {
       _active.remove(book.id);
@@ -211,8 +244,8 @@ class ServerDownloads extends ChangeNotifier {
   }
 
   /// Leaves nothing behind after a download that didn't work out.
-  Future<void> _undo(File file, String? created, ServerBook book) async {
-    await _deleteQuietly(file);
+  Future<void> _undo(FileSystemEntity target, String? created, ServerBook book) async {
+    await _deleteQuietly(target);
     if (created == null) return;
     try {
       if (book.isAudiobook) {
@@ -264,7 +297,7 @@ class ServerDownloads extends ChangeNotifier {
   }
 
   /// Deletes downloaded audiobooks no book uses any more (after you removed
-  /// a book's audio). Never while a download is running.
+  /// a book's audio), and folders left empty. Never while a download runs.
   Future<void> cleanUp() async {
     final dir = audioDir;
     final library = audio;
@@ -275,17 +308,29 @@ class ServerDownloads extends ChangeNotifier {
         for (final track in library.linkFor(book.id)?.tracks ?? const <AudioTrack>[])
           track.location,
     };
-    await for (final entry in dir.list()) {
-      if (entry is! File || _active.isNotEmpty) continue;
-      if (!used.contains(audioLocationFor(entry.path))) {
+    final folders = <Directory>[];
+    await for (final entry in dir.list(recursive: true)) {
+      if (_active.isNotEmpty) return;
+      if (entry is Directory) {
+        folders.add(entry);
+      } else if (entry is File && !used.contains(audioLocationFor(entry.path))) {
         await _deleteQuietly(entry);
+      }
+    }
+    // Deepest first, so a folder emptied by the line above goes too.
+    folders.sort((a, b) => b.path.length.compareTo(a.path.length));
+    for (final folder in folders) {
+      try {
+        if (await folder.list().isEmpty) await folder.delete();
+      } catch (_) {
+        // Left behind.
       }
     }
   }
 
-  static Future<void> _deleteQuietly(File file) async {
+  static Future<void> _deleteQuietly(FileSystemEntity entry) async {
     try {
-      if (await file.exists()) await file.delete();
+      if (await entry.exists()) await entry.delete(recursive: true);
     } catch (_) {
       // Left behind; cleaned up later.
     }

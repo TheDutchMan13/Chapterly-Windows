@@ -15,6 +15,7 @@ class FakeServer {
   final String name;
   final books = <String, Map<String, Object?>>{};
   final files = <String, Uint8List>{};
+  final tracks = <String, List<Uint8List>>{};
   final progress = <String, Map<String, Object?>>{};
   final bookmarks = <String, Map<String, Map<String, Object?>>>{};
   final requests = <String>[];
@@ -48,9 +49,13 @@ class FakeServer {
     int? durationMs,
     String? series,
     double? seriesIndex,
+    List<List<int>>? parts,
   }) {
     final data = Uint8List.fromList(bytes ?? utf8.encode('file of $title'));
     files[id] = data;
+    if (parts != null) {
+      tracks[id] = [for (final p in parts) Uint8List.fromList(p)];
+    }
     books[id] = {
       'id': id,
       'title': title,
@@ -59,7 +64,8 @@ class FakeServer {
       'seriesIndex': seriesIndex,
       'kind': kind,
       'format': format,
-      'size': data.length,
+      'size': parts == null ? data.length : parts.fold<int>(0, (s, p) => s + p.length),
+      'trackCount': parts?.length ?? 1,
       'durationMs': durationMs,
       'hasCover': false,
       'addedAt': '2026-11-01T00:00:00Z',
@@ -135,6 +141,25 @@ class FakeServer {
       if (data == null) return _json({'detail': 'No such book.'}, 404);
       if (downloadStatus != null) return _json({'detail': 'Broken'}, downloadStatus!);
       return http.Response.bytes(data, 200);
+    }
+    if (parts.length == 5 && parts[2] == 'books' && parts[4] == 'tracks') {
+      final list = tracks[parts[3]];
+      if (list == null) return _json({'detail': 'No such book.'}, 404);
+      return _json({
+        'tracks': [
+          for (var i = 0; i < list.length; i++)
+            {'index': i, 'name': 'Part ${i + 1}.mp3', 'size': list[i].length, 'durationMs': 1000},
+        ],
+      });
+    }
+    if (parts.length == 7 && parts[4] == 'tracks' && parts[6] == 'file') {
+      final list = tracks[parts[3]];
+      final index = int.tryParse(parts[5]);
+      if (list == null || index == null || index >= list.length) {
+        return _json({'detail': 'No such track.'}, 404);
+      }
+      if (downloadStatus != null) return _json({'detail': 'Broken'}, downloadStatus!);
+      return http.Response.bytes(list[index], 200);
     }
     if (parts.length == 4 && parts[2] == 'progress') {
       final id = parts[3];

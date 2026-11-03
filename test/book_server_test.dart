@@ -632,6 +632,52 @@ void main() {
     });
   });
 
+  group('audiobooks of several files', () {
+    late FakeServer server;
+    late _Phone phone;
+
+    setUp(() async {
+      server = FakeServer()
+        ..addBook('parts', 'Project Hail Mary', author: 'Andy Weir',
+            kind: 'audiobook', format: 'mp3', durationMs: 3000,
+            parts: [[1, 1], [2, 2, 2], [3]]);
+      phone = _Phone(server);
+      await phone.setUp();
+    });
+
+    tearDown(() => phone.tearDown());
+
+    test('every part is downloaded, in order, into a folder of its own',
+        () async {
+      final id = await phone.download('parts');
+      final tracks = phone.audio.linkFor(id)!.tracks;
+      expect(tracks, hasLength(3));
+      expect([for (final t in tracks) t.name],
+          ['001 Part 1.mp3', '002 Part 2.mp3', '003 Part 3.mp3']);
+      final paths = [for (final t in tracks) _audioPath(t.location)];
+      expect([for (final p in paths) File(p).readAsBytesSync()], [[1, 1], [2, 2, 2], [3]]);
+      expect({for (final p in paths) File(p).parent.path}, hasLength(1));
+      expect([for (final t in tracks) t.lengthMs], [1000, 1000, 1000]);
+    });
+
+    test('a part that fails leaves nothing behind', () async {
+      server.downloadStatus = 500;
+      final result = await phone.downloads.download(await phone.serverBook('parts'));
+      expect(result.problem, isNotNull);
+      expect(phone.repository.books, isEmpty);
+      final dir = Directory('${phone.dir.path}/audio');
+      expect(dir.existsSync() ? dir.listSync() : const [], isEmpty);
+    });
+
+    test('removing the audio lets clean-up delete the folder', () async {
+      final id = await phone.download('parts');
+      final folder = File(_audioPath(phone.audio.linkFor(id)!.tracks.first.location)).parent;
+      await phone.audio.remove(id);
+      await phone.downloads.cleanUp();
+      expect(folder.existsSync(), isFalse);
+    });
+  });
+
   group('the server state on this device', () {
     test('is saved and read back, and a damaged file starts again', () async {
       final dir = await Directory.systemTemp.createTemp('chapterly_state');

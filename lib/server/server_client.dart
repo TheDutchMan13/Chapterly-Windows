@@ -115,6 +115,7 @@ class ServerBook {
     this.durationMs,
     this.hasCover = false,
     this.progress,
+    this.trackCount = 1,
   });
 
   final String id;
@@ -135,7 +136,13 @@ class ServerBook {
   /// Your saved place, if you have one.
   final ServerProgress? progress;
 
+  /// How many files: an audiobook can be one file per chapter.
+  final int trackCount;
+
   bool get isAudiobook => kind == 'audiobook';
+
+  /// An audiobook of several files, downloaded one by one.
+  bool get isMultiTrack => isAudiobook && trackCount > 1;
 
   /// A file name for the download.
   String get fileName {
@@ -155,7 +162,9 @@ class ServerBook {
     final series = value['series'];
     final size = value['size'];
     final duration = value['durationMs'];
+    final tracks = value['trackCount'];
     return ServerBook(
+      trackCount: tracks is int && tracks > 0 ? tracks : 1,
       id: id,
       title: title,
       author: author is String ? author : '',
@@ -167,6 +176,36 @@ class ServerBook {
       durationMs: duration is int && duration > 0 ? duration : null,
       hasCover: value['hasCover'] == true,
       progress: ServerProgress.fromJson(value['progress']),
+    );
+  }
+}
+
+/// One file of an audiobook.
+class ServerTrack {
+  const ServerTrack({
+    required this.index,
+    required this.name,
+    required this.size,
+    this.durationMs,
+  });
+
+  final int index;
+  final String name;
+  final int size;
+  final int? durationMs;
+
+  static ServerTrack? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final index = value['index'];
+    final name = value['name'];
+    final size = value['size'];
+    final duration = value['durationMs'];
+    if (index is! int || name is! String) return null;
+    return ServerTrack(
+      index: index,
+      name: name,
+      size: size is int ? size : 0,
+      durationMs: duration is int && duration > 0 ? duration : null,
     );
   }
 }
@@ -435,16 +474,42 @@ class ServerClient {
     return [for (final item in list) ?ServerBookmark.fromJson(item)];
   }
 
+  /// The files of an audiobook, in playing order.
+  Future<List<ServerTrack>> tracks(String bookId) async {
+    final data = _json(await _send(
+      () => _client.get(_uri('/v1/books/$bookId/tracks'), headers: authHeaders),
+    ));
+    final list = data is Map ? data['tracks'] : null;
+    if (list is! List) return const [];
+    return [for (final item in list) ?ServerTrack.fromJson(item)]
+      ..sort((a, b) => a.index.compareTo(b.index));
+  }
+
   /// Downloads a book's file to [target]. It is written beside it first and
   /// only takes [target]'s name once it is complete. Returns the size.
   Future<int> download(
     String bookId,
     File target, {
     void Function(int received, int? total)? onProgress,
-  }) async {
+  }) =>
+      _fetch(_uri('/v1/books/$bookId/file'), target, onProgress);
+
+  /// Downloads one file of an audiobook of several.
+  Future<int> downloadTrack(
+    String bookId,
+    int index,
+    File target, {
+    void Function(int received, int? total)? onProgress,
+  }) =>
+      _fetch(_uri('/v1/books/$bookId/tracks/$index/file'), target, onProgress);
+
+  Future<int> _fetch(
+    Uri uri,
+    File target,
+    void Function(int received, int? total)? onProgress,
+  ) async {
     final partial = File('${target.path}.part');
-    final request = http.Request('GET', _uri('/v1/books/$bookId/file'))
-      ..headers.addAll(authHeaders);
+    final request = http.Request('GET', uri)..headers.addAll(authHeaders);
     IOSink? sink;
     try {
       final response = await _client.send(request).timeout(timeout);
