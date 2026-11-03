@@ -13,6 +13,16 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.14.0',
+    date: '2026-11-03',
+    changes: [
+      'A more colourful Statistics page: coloured tiles with icons, a bar '
+          'that shows how your books are spread over the shelves (each shelf '
+          'has its own colour), coloured bars for formats and ratings, and '
+          'every part in its own rounded block',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.13.1',
     date: '2026-11-03',
     changes: [

@@ -13,7 +13,17 @@ import '../models/book_format.dart';
 import '../models/shelf.dart';
 import 'book_insights.dart';
 import 'reader_stats_card.dart';
+import 'stats_widgets.dart';
 import 'year_review_screen.dart';
+
+const _formatColors = [
+  statsBlue,
+  statsGreen,
+  statsViolet,
+  statsCoral,
+  statsAmber,
+  statsTeal,
+];
 
 const _monthLetters = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 
@@ -338,7 +348,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     List<MapEntry<String, int>> entries,
   ) {
     return [
-      const SizedBox(height: 24),
       Text(title, style: Theme.of(context).textTheme.titleMedium),
       for (final entry in entries)
         Padding(
@@ -423,7 +432,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   List<Widget> _tasteSection(TasteProfile taste) {
     final textTheme = Theme.of(context).textTheme;
     return [
-      const SizedBox(height: 24),
       Text('Your taste', style: textTheme.titleMedium),
       Text(
         'From ${taste.ratedBooks} rated books (average '
@@ -543,50 +551,70 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                _StatTile(
+                StatTile(
                   label: 'Books finished',
+                  icon: Icons.check_circle_outline,
+                  color: statsGreen,
                   value: stats.finishedCount.toString(),
                 ),
-                _StatTile(
+                StatTile(
                   label: 'Pages read',
+                  icon: Icons.description_outlined,
+                  color: statsBlue,
                   value: stats.pagesRead.toString(),
                 ),
-                _StatTile(
+                StatTile(
                   label: 'Average rating',
+                  icon: Icons.star_outline,
+                  color: statsAmber,
                   value: average == null ? '–' : average.toStringAsFixed(1),
                 ),
-                _StatTile(
+                StatTile(
                   label: 'Average pages',
+                  icon: Icons.layers_outlined,
+                  color: statsViolet,
                   value: stats.averagePages?.toString() ?? '–',
                 ),
                 if (stats.loggedPages > 0)
-                  _StatTile(
+                  StatTile(
                     label: 'Pages in reading log',
+                    icon: Icons.edit_note,
+                    color: statsBlue,
                     value: stats.loggedPages.toString(),
                   ),
                 if (stats.loggedMinutes > 0)
-                  _StatTile(
+                  StatTile(
                     label: 'Time read',
+                    icon: Icons.schedule,
+                    color: statsCoral,
                     value: formatMinutes(stats.loggedMinutes),
                   ),
                 if (streak > 0)
-                  _StatTile(
+                  StatTile(
                     label: 'Reading streak',
+                    icon: Icons.local_fire_department_outlined,
+                    color: statsAmber,
                     value: '$streak ${streak == 1 ? 'day' : 'days'}',
                   ),
                 if (longestRun > 1)
-                  _StatTile(
+                  StatTile(
                     label: 'Longest streak',
+                    icon: Icons.emoji_events_outlined,
+                    color: statsPink,
                     value: '$longestRun days',
                   ),
                 if (pagesToday > 0)
-                  _StatTile(
+                  StatTile(
                     label: 'Pages today',
+                    icon: Icons.today_outlined,
+                    color: statsTeal,
                     value: pagesToday.toString(),
                   ),
                 if (longest != null)
-                  _StatTile(
+                  StatTile(
                     label: 'Longest book',
+                    icon: Icons.straighten,
+                    color: statsLime,
                     value: '${longest.pages} pages',
                     detail: longest.title,
                   ),
@@ -599,8 +627,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           // columns; a narrow one shows them one under another.
           final sections = <Widget>[
             if (year != null)
-              _section([
-                const SizedBox(height: 24),
+              _plainSection([
                 _goalCard(year, stats),
                 const SizedBox(height: 12),
                 _pagesGoalCard(year, stats),
@@ -641,7 +668,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               ]),
             if (year == null && overall.byYear.isNotEmpty)
               _section([
-                const SizedBox(height: 24),
                 Text('Books finished per year', style: textTheme.titleMedium),
                 const SizedBox(height: 8),
                 _BarChart(
@@ -663,7 +689,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               ])
             else if (year != null)
               _section([
-                const SizedBox(height: 24),
                 Text(
                   'Books finished per month in $year',
                   style: textTheme.titleMedium,
@@ -689,27 +714,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   _BarChart(labels: _monthLetters, values: stats.loggedByMonth),
                 ],
               ]),
-            if (year == null)
-              _section([
-                const SizedBox(height: 24),
-                Text('By shelf', style: textTheme.titleMedium),
-                for (final shelf in Shelf.values)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      children: [
-                        Expanded(child: Text(shelf.label)),
-                        Text('${stats.shelfCounts[shelf] ?? 0}'),
-                      ],
-                    ),
-                  ),
-              ]),
+            if (year == null) ShelfBreakdown(counts: stats.shelfCounts),
             if (stats.ratingCounts.values.any((count) => count > 0))
               _section([
-                const SizedBox(height: 24),
                 Text('Ratings', style: textTheme.titleMedium),
                 const SizedBox(height: 8),
                 _BarChart(
+                  color: statsAmber,
                   labels: const ['1★', '2★', '3★', '4★', '5★'],
                   values: [
                     for (var star = 1; star <= 5; star++)
@@ -718,21 +729,18 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 ),
               ]),
             if (stats.formatCounts.isNotEmpty)
-              _section([
-                const SizedBox(height: 24),
-                Text('By format', style: textTheme.titleMedium),
-                for (final format in BookFormat.values)
-                  if (stats.formatCounts.containsKey(format))
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          Expanded(child: Text(format.label)),
-                          Text('${stats.formatCounts[format]}'),
-                        ],
+              BarRows(
+                title: 'By format',
+                rows: [
+                  for (final format in BookFormat.values)
+                    if (stats.formatCounts.containsKey(format))
+                      (
+                        format.label,
+                        stats.formatCounts[format]!,
+                        _formatColors[format.index % _formatColors.length],
                       ),
-                    ),
-              ]),
+                ],
+              ),
             if (stats.topAuthors.isNotEmpty)
               _section(_countSection('Most read authors', stats.topAuthors)),
             if (stats.topTags.isNotEmpty)
@@ -740,7 +748,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             if (taste != null) _section(_tasteSection(taste)),
             if (paces.isNotEmpty)
               _section([
-                const SizedBox(height: 24),
                 Text('Reading pace', style: textTheme.titleMedium),
                 for (final (book, paceText) in paces)
                   Padding(
@@ -815,48 +822,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   /// One block of the statistics page.
-  Widget _section(List<Widget> children) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
-      );
-}
+  Widget _section(List<Widget> children) => StatsCard(children: children);
 
-class _StatTile extends StatelessWidget {
-  const _StatTile({required this.label, required this.value, this.detail});
-
-  final String label;
-  final String value;
-  final String? detail;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final detail = this.detail;
-    return Card(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 140, maxWidth: 220),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(value, style: textTheme.headlineSmall),
-              const SizedBox(height: 4),
-              Text(label, style: textTheme.bodySmall),
-              if (detail != null)
-                Text(
-                  detail,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: textTheme.bodySmall,
-                ),
-            ],
-          ),
+  /// A block that holds cards of its own, so it gets no card around it.
+  Widget _plainSection(List<Widget> children) => Padding(
+        padding: const EdgeInsets.only(top: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children,
         ),
-      ),
-    );
-  }
+      );
 }
 
 /// 1200 becomes "1.2k" so big numbers fit above a narrow bar.
@@ -867,15 +842,16 @@ String _compact(int value) {
 }
 
 class _BarChart extends StatelessWidget {
-  const _BarChart({required this.labels, required this.values});
+  const _BarChart({required this.labels, required this.values, this.color});
 
   final List<String> labels;
   final List<int> values;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     final maxValue = values.fold<int>(0, (max, value) => value > max ? value : max);
-    final color = Theme.of(context).colorScheme.primary;
+    final color = this.color ?? Theme.of(context).colorScheme.primary;
     final labelStyle = Theme.of(context).textTheme.labelSmall;
     return SizedBox(
       height: 170,
