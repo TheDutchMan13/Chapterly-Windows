@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../data/app_info.dart';
@@ -1080,6 +1081,7 @@ const _syncChoices = [0, 5, 15, 30, 60];
 class _SyncSettingsState extends State<_SyncSettings> {
   final _address = TextEditingController();
   final _code = TextEditingController();
+  bool _showCode = false;
   String? _problem;
   bool _finding = false;
 
@@ -1224,6 +1226,21 @@ class _SyncSettingsState extends State<_SyncSettings> {
             leading: const Icon(Icons.phone_android),
             title: const Text('Your phone'),
             subtitle: Text(widget.settings.syncAddress ?? ''),
+            trailing: IconButton(
+              tooltip: 'Copy address',
+              icon: const Icon(Icons.copy),
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                await Clipboard.setData(
+                  ClipboardData(text: widget.settings.syncAddress ?? ''),
+                );
+                messenger
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    const SnackBar(content: Text('Address copied')),
+                  );
+              },
+            ),
           ),
           ListTile(
             leading: const Icon(Icons.history),
@@ -1350,11 +1367,19 @@ class _SyncSettingsState extends State<_SyncSettings> {
           const SizedBox(height: 12),
           TextField(
             controller: _code,
-            obscureText: true,
-            decoration: const InputDecoration(
+            obscureText: !_showCode,
+            decoration: InputDecoration(
               labelText: 'Pairing code',
               hintText: 'ABCD-EFGH-JKLM-NPQR',
-              border: OutlineInputBorder(),
+              helperText: 'You can paste it, with or without the dashes',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                tooltip: _showCode ? 'Hide code' : 'Show code',
+                icon: Icon(
+                  _showCode ? Icons.visibility_off : Icons.visibility,
+                ),
+                onPressed: () => setState(() => _showCode = !_showCode),
+              ),
             ),
             onSubmitted: (_) => sync.busy ? null : _connect(),
           ),
