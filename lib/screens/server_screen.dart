@@ -7,6 +7,7 @@ import '../data/app_settings.dart';
 import '../data/book_repository.dart';
 import '../data/file_io.dart';
 import '../ebook/ebook_library.dart' show formatFileSize;
+import '../server/book_server.dart';
 import '../server/server_client.dart';
 import '../server/server_downloads.dart';
 import '../server/server_sync.dart';
@@ -383,18 +384,18 @@ class _BrowseViewState extends State<_BrowseView> {
 
   Future<void> _syncNow() async {
     final messenger = ScaffoldMessenger.of(context);
-    final moved = await widget.sync.syncNow();
+    String? text;
+    if (BookServer.sync == widget.sync) {
+      text = await BookServer.syncAll();
+    } else {
+      final moved = await widget.sync.syncNow();
+      if (moved > 0) text = 'Moved on in $moved ${moved == 1 ? 'book' : 'books'}';
+    }
     if (!mounted) return;
-    final problem = widget.sync.problem;
     messenger.showSnackBar(SnackBar(
-      content: Text(
-        problem ??
-            (moved == 0
-                ? 'Your places are up to date'
-                : 'Moved on in $moved ${moved == 1 ? 'book' : 'books'} '
-                    'from another device'),
-      ),
+      content: Text(widget.sync.problem ?? text ?? 'Everything is up to date'),
     ));
+    setState(() {});
   }
 
   Future<void> _disconnect() async {
@@ -437,6 +438,14 @@ class _BrowseViewState extends State<_BrowseView> {
         '${(progress.fraction * 100).round()}% read',
     ];
     return parts.join(' · ');
+  }
+
+  static String _ago(DateTime at) {
+    final gap = DateTime.now().difference(at);
+    if (gap.inMinutes < 1) return 'just now';
+    if (gap.inMinutes < 60) return '${gap.inMinutes} min ago';
+    if (gap.inHours < 24) return '${gap.inHours} h ago';
+    return '${gap.inDays} d ago';
   }
 
   static String _number(double value) =>
@@ -543,9 +552,17 @@ class _BrowseViewState extends State<_BrowseView> {
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'disconnect') _disconnect();
+              if (value == 'library') {
+                state.setLibrarySync(!state.librarySync);
+              }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'disconnect', child: Text('Disconnect')),
+            itemBuilder: (_) => [
+              CheckedPopupMenuItem(
+                value: 'library',
+                checked: state.librarySync,
+                child: const Text('Sync my whole library'),
+              ),
+              const PopupMenuItem(value: 'disconnect', child: Text('Disconnect')),
             ],
           ),
         ],
@@ -600,6 +617,8 @@ class _BrowseViewState extends State<_BrowseView> {
                   if (_total > 0 || !_loading)
                     '$_total ${_total == 1 ? 'book' : 'books'}',
                   if (state.name case final name?) 'signed in as $name',
+                  if (state.librarySync && state.librarySyncedAt != null)
+                    'library synced ${_ago(state.librarySyncedAt!)}',
                 ].join(' · '),
                 style: Theme.of(context).textTheme.bodySmall,
               ),

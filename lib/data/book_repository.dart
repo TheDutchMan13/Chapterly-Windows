@@ -708,6 +708,21 @@ class BookRepository extends ChangeNotifier {
     );
   }
 
+  /// Sets the note on a book's quote with this text (from a highlight).
+  /// Nothing happens when there is no such quote.
+  Future<void> setQuoteNote(String id, String text, String? note) async {
+    final book = byId(id);
+    if (book == null) return;
+    final index = book.quotes.indexWhere((q) => q.text.trim() == text.trim());
+    if (index < 0) return;
+    final updated = book.quotes[index].withNote(note);
+    if (updated.note == book.quotes[index].note) return;
+    await _update(id, (b) => b.copyWith(quotes: [
+          for (var i = 0; i < b.quotes.length; i++)
+            i == index ? updated : b.quotes[i],
+        ]));
+  }
+
   Future<void> removeQuote(String id, int index) => _update(id, (book) {
         final quotes = [...book.quotes];
         if (index >= 0 && index < quotes.length) quotes.removeAt(index);

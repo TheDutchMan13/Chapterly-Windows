@@ -12,6 +12,7 @@ class ServerFailure implements Exception {
     this.message, {
     this.unreachable = false,
     this.notFound = false,
+    this.conflict = false,
   });
 
   final String message;
@@ -22,6 +23,9 @@ class ServerFailure implements Exception {
 
   /// The book is no longer on the server.
   final bool notFound;
+
+  /// Another device saved first (the library): merge again and retry.
+  final bool conflict;
 
   @override
   String toString() => message;
@@ -321,6 +325,12 @@ class ServerClient {
         'with "new-token" on the server.',
       );
     }
+    if (status == 409) {
+      throw const ServerFailure(
+        'Another device saved at the same time.',
+        conflict: true,
+      );
+    }
     if (status == 404) {
       throw const ServerFailure(
         'That book is no longer on the server.',
@@ -472,6 +482,40 @@ class ServerClient {
     final list = data is Map ? data['bookmarks'] : null;
     if (list is! List) return const [];
     return [for (final item in list) ?ServerBookmark.fromJson(item)];
+  }
+
+  /// Your whole library as your devices last saved it: its version, and
+  /// the library as sync text (null before the first save).
+  Future<({int version, String? library})> getLibrary() async {
+    final data = _json(await _send(
+      () => _client.get(_uri('/v1/library'), headers: authHeaders),
+    ));
+    if (data is! Map || data['version'] is! int) {
+      throw const ServerFailure('The server sent something Chapterly cannot read.');
+    }
+    final library = data['library'];
+    return (
+      version: data['version'] as int,
+      library: library is Map ? jsonEncode(library) : null,
+    );
+  }
+
+  /// Saves the merged library, merged from [version]. Throws a failure with
+  /// [ServerFailure.conflict] when another device saved in between.
+  Future<int> putLibrary(int version, String library) async {
+    final data = _json(await _send(
+      () => _client.put(
+        _uri('/v1/library'),
+        headers: {...authHeaders, 'Content-Type': 'application/json'},
+        // The library is sync text already; it goes in as it is.
+        body: '{"version":$version,"library":$library}',
+      ),
+    ));
+    final saved = data is Map ? data['version'] : null;
+    if (saved is! int) {
+      throw const ServerFailure('The server sent something Chapterly cannot read.');
+    }
+    return saved;
   }
 
   /// Puts a book on your other devices: each downloads it the next time it

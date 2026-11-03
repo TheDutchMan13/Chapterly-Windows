@@ -1411,9 +1411,13 @@ class BookDetailScreen extends StatelessWidget {
                               '\u201c${book.quotes[i].text}\u201d',
                               style: const TextStyle(fontStyle: FontStyle.italic),
                             ),
-                            subtitle: book.quotes[i].page == null
-                                ? null
-                                : Text('Page ${book.quotes[i].page}'),
+                            subtitle: book.quotes[i].page == null &&
+                                        book.quotes[i].note == null
+                                    ? null
+                                    : Text([
+                                        ?book.quotes[i].note,
+                                        if (book.quotes[i].page case final page?) 'Page $page',
+                                      ].join('\n')),
                             trailing: IconButton(
                               tooltip: 'Remove quote',
                               icon: const Icon(Icons.clear),

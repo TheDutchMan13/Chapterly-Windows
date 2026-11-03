@@ -142,6 +142,8 @@ class ServerState extends ChangeNotifier {
   String? _token;
   String? _name;
   String? _device;
+  bool _librarySync = true;
+  DateTime? _librarySyncedAt;
 
   /// By the server's id of the book.
   final _links = <String, ServerLink>{};
@@ -180,6 +182,9 @@ class ServerState extends ChangeNotifier {
       _token = tokens == null && token is String ? token : null;
       _name = name is String ? name : null;
     }
+    _librarySync = data['librarySync'] != false;
+    final synced = data['librarySyncedAt'];
+    _librarySyncedAt = synced is String ? DateTime.tryParse(synced) : null;
     final device = data['device'];
     if (device is String && RegExp(r'^[A-Za-z0-9_-]{6,64}$').hasMatch(device)) {
       _device = device;
@@ -199,6 +204,23 @@ class ServerState extends ChangeNotifier {
 
   /// Your name on the server.
   String? get name => _name;
+
+  /// Whether your whole library (books, shelves, notes, wish list) syncs
+  /// through the server, not only your places in its books.
+  bool get librarySync => _librarySync;
+
+  /// When the library last synced through the server.
+  DateTime? get librarySyncedAt => _librarySyncedAt;
+
+  Future<void> setLibrarySync(bool on) async {
+    _librarySync = on;
+    await _save();
+  }
+
+  Future<void> recordLibrarySync(DateTime at) async {
+    _librarySyncedAt = at;
+    await _save();
+  }
 
   /// Names this device to the server, so a book it sends to your other
   /// devices doesn't come back to it.
@@ -287,6 +309,9 @@ class ServerState extends ChangeNotifier {
       if (_token != null && tokens == null) 'token': _token,
       if (_name != null) 'name': _name,
       'device': device,
+      if (!_librarySync) 'librarySync': false,
+      if (_librarySyncedAt != null)
+        'librarySyncedAt': _librarySyncedAt!.toIso8601String(),
       'links': [for (final link in _links.values) link.toJson()],
     });
     return _writing = _writing.then((_) => _write(file, data));

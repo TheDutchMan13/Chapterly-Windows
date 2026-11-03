@@ -35,6 +35,7 @@ import 'screens/mini_player.dart';
 import 'screens/mini_timer.dart';
 import 'screens/now_playing.dart';
 import 'server/book_server.dart';
+import 'server/library_sync.dart';
 import 'server/server_downloads.dart';
 import 'server/server_platform.dart';
 import 'server/server_state.dart';
@@ -101,10 +102,11 @@ Future<void> main() async {
     File(p.join(dataDir.path, 'ebook_library.json')),
   );
   EbookReading.files = const WindowsEbookFiles();
+  EbookReading.repository = repository;
   EbookReading.booksDir = Directory(p.join(dataDir.path, 'books'));
   // The book server: browsing it, downloads, and keeping your place in its
   // books the same on every device.
-  await _setUpBookServer(dataDir, repository, listenController);
+  await _setUpBookServer(dataDir, repository, listenController, settings);
   // Links the files in your book and audiobook folders to your books.
   LibraryScanning.scanner = LibraryScanner(
     repository: repository,
@@ -142,6 +144,7 @@ Future<void> _setUpBookServer(
   Directory dataDir,
   BookRepository repository,
   ListenController listenController,
+  AppSettings settings,
 ) async {
   try {
     final state = await ServerState.load(
@@ -175,6 +178,13 @@ Future<void> _setUpBookServer(
     );
     BookServer.sync = sync;
     BookServer.downloads = downloads;
+    BookServer.library = LibrarySync(
+      sync: sync,
+      repository: repository,
+      settings: settings,
+      // Apart from the Wi-Fi sync's, which compares with the phone.
+      base: await SyncBase.load(File(p.join(dataDir.path, 'book_server_library.json'))),
+    );
     sync.start();
     final observer = _BookServerObserver(sync);
     WidgetsBinding.instance.addObserver(observer);
@@ -189,18 +199,8 @@ Future<void> _setUpBookServer(
 
 /// Syncs, and says so when a book moved on to a place saved elsewhere.
 Future<void> _syncAndTell(ServerSync sync) async {
-  if (!sync.state.connected) return;
-  final moved = await sync.syncNow();
-  // Books sent here from your other devices.
-  final came = await BookServer.downloads?.receiveSent() ?? const <String>[];
-  final text = [
-    if (came.length == 1) '"${came.single}" was sent here from another device',
-    if (came.length > 1) '${came.length} books were sent here from another device',
-    if (moved > 0)
-      'Carrying on in $moved ${moved == 1 ? 'book' : 'books'} from where '
-          'you were on another device',
-  ].join('. ');
-  if (text.isEmpty) return;
+  final text = await BookServer.syncAll();
+  if (text == null) return;
   _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(text)));
 }
 

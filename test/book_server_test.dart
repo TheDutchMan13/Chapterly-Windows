@@ -11,6 +11,9 @@ import 'package:chapterly/models/audio_progress.dart';
 import 'package:chapterly/models/book_format.dart';
 import 'package:chapterly/models/shelf.dart';
 import 'package:chapterly/screens/server_screen.dart';
+import 'package:chapterly/data/sync_three_way.dart';
+import 'package:chapterly/data/wish_list.dart';
+import 'package:chapterly/server/library_sync.dart';
 import 'package:chapterly/server/server_client.dart';
 import 'package:chapterly/server/server_downloads.dart';
 import 'package:chapterly/server/server_platform.dart';
@@ -43,6 +46,8 @@ class _Phone {
   late final Directory dir;
   late final ServerSync sync;
   late final ServerDownloads downloads;
+  final settings = AppSettings();
+  late final LibrarySync library;
 
   Future<void> setUp() async {
     await repository.load();
@@ -63,6 +68,12 @@ class _Phone {
       booksDir: Directory('${dir.path}/books'),
       audio: audio,
       audioDir: Directory('${dir.path}/audio'),
+    );
+    library = LibrarySync(
+      sync: sync,
+      repository: repository,
+      settings: settings,
+      base: SyncBase(),
     );
     await state.connect(Uri.parse('http://100.1.2.3:8780'), server.token, 'hans');
   }
@@ -771,6 +782,128 @@ void main() {
       await phone.download('dune');
       expect(phone.repository.books, hasLength(2));
     });
+  });
+
+  group('syncing the whole library', () {
+    late FakeServer server;
+    late _Phone phone;
+    late _Phone pc;
+
+    setUp(() async {
+      server = FakeServer();
+      phone = _Phone(server);
+      pc = _Phone(server);
+      await phone.setUp();
+      await pc.setUp();
+    });
+
+    tearDown(() async {
+      await phone.tearDown();
+      await pc.tearDown();
+    });
+
+    Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 5));
+
+    test('a book added on one device reaches the other', () async {
+      final id = await phone.repository.add(
+          title: 'Dune', author: 'Frank Herbert', shelf: Shelf.inProgress);
+      expect(await phone.library.syncNow(), 0);
+      expect(await pc.library.syncNow(), 1);
+      expect(pc.repository.byId(id)!.title, 'Dune');
+      expect(pc.state.librarySyncedAt, isNotNull);
+    });
+
+    test('different changes to the same book on both devices both stay',
+        () async {
+      final id = await phone.repository.add(
+          title: 'Dune', author: 'Frank Herbert', shelf: Shelf.inProgress);
+      await phone.library.syncNow();
+      await pc.library.syncNow();
+      await tick();
+      await phone.repository.setRating(id, 5);
+      await tick();
+      await pc.repository.setNotes(id, 'Spice!');
+      await phone.library.syncNow();
+      await pc.library.syncNow();
+      await phone.library.syncNow();
+      for (final device in [phone, pc]) {
+        final book = device.repository.byId(id)!;
+        expect(book.rating, 5);
+        expect(book.notes, 'Spice!');
+      }
+    });
+
+    test('a book deleted on one device goes on the other', () async {
+      final id = await phone.repository.add(
+          title: 'Emma', author: 'Jane Austen', shelf: Shelf.forLater);
+      await phone.library.syncNow();
+      await pc.library.syncNow();
+      await pc.repository.deleteForever(id);
+      await pc.library.syncNow();
+      await phone.library.syncNow();
+      expect(phone.repository.byId(id), isNull);
+    });
+
+    test('another device saving at the same moment is merged, not lost',
+        () async {
+      await phone.repository.add(title: 'Mine', author: 'A', shelf: Shelf.forLater);
+      await pc.repository.add(title: 'Theirs', author: 'B', shelf: Shelf.forLater);
+      var raced = false;
+      server.during = (method, path) async {
+        if (method == 'PUT' && path == '/v1/library' && !raced) {
+          raced = true;
+          // The PC saves between the phone's reading and saving.
+          server.during = null;
+          await pc.library.syncNow();
+        }
+      };
+      await phone.library.syncNow();
+      expect(raced, isTrue);
+      await pc.library.syncNow();
+      expect({for (final b in phone.repository.books) b.title}, {'Mine', 'Theirs'});
+      expect({for (final b in pc.repository.books) b.title}, {'Mine', 'Theirs'});
+    });
+
+    test('the wish list comes along', () async {
+      phone.settings.saveWish(Wish(id: 'w1', title: 'Dune Messiah', addedAt: DateTime(2026)));
+      await phone.library.syncNow();
+      await pc.library.syncNow();
+      expect(pc.settings.wishes.single.title, 'Dune Messiah');
+    });
+
+    test('switched off, nothing is sent', () async {
+      await phone.state.setLibrarySync(false);
+      await phone.repository.add(title: 'Dune', author: 'F', shelf: Shelf.forLater);
+      expect(await phone.library.syncNow(), 0);
+      expect(server.library, isNull);
+      expect(server.requests.where((r) => r.contains('/v1/library')), isEmpty);
+      // The choice is kept.
+      await phone.state.setLibrarySync(true);
+      expect(phone.state.librarySync, isTrue);
+    });
+  });
+
+  test('a note on a highlight goes on the quote and syncs with the book',
+      () async {
+    final server = FakeServer();
+    final phone = _Phone(server);
+    final pc = _Phone(server);
+    await phone.setUp();
+    await pc.setUp();
+    addTearDown(phone.tearDown);
+    addTearDown(pc.tearDown);
+    final id = await pc.repository.add(title: 'Dune', author: 'F', shelf: Shelf.inProgress);
+    await pc.repository.addQuote(id, 'Fear is the mind-killer.', page: 8);
+    await pc.repository.setQuoteNote(id, ' Fear is the mind-killer. ', 'The litany');
+    // No such quote: nothing happens.
+    await pc.repository.setQuoteNote(id, 'Something else', 'x');
+    await pc.library.syncNow();
+    await phone.library.syncNow();
+    final quote = phone.repository.byId(id)!.quotes.single;
+    expect(quote.note, 'The litany');
+    expect(quote.page, 8);
+    await pc.repository.setQuoteNote(id, 'Fear is the mind-killer.', '  ');
+    expect(pc.repository.byId(id)!.quotes.single.note, isNull);
   });
 
   group('the server state on this device', () {

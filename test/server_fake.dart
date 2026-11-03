@@ -20,6 +20,10 @@ class FakeServer {
   final bookmarks = <String, Map<String, Map<String, Object?>>>{};
   final requests = <String>[];
 
+  /// The stored library: its version and sync text.
+  int libraryVersion = 0;
+  String? library;
+
   /// Books sent to other devices: book id to the device that sent it.
   final sends = <String, String>{};
 
@@ -176,6 +180,22 @@ class FakeServer {
         reset: body['reset'] == true,
         base: body['base'] as String?,
       ));
+    }
+    if (path == '/v1/library') {
+      if (request.method == 'GET') {
+        return http.Response(
+          '{"version":$libraryVersion,"library":${library ?? 'null'}}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      final body = jsonDecode(request.body) as Map;
+      if (body['version'] != libraryVersion) {
+        return _json({'detail': 'Another device saved first.'}, 409);
+      }
+      libraryVersion++;
+      library = jsonEncode(body['library']);
+      return _json({'version': libraryVersion});
     }
     if (path == '/v1/sends') {
       if (request.method == 'POST') {
