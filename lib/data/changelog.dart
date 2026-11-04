@@ -13,6 +13,36 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.21.0',
+    date: '2026-11-04',
+    changes: [
+      'Syncing with your phone is safer: the pairing code never goes over '
+          'the Wi-Fi any more, nobody else on the network can read or change '
+          'your library on its way, and Chapterly checks that it is really '
+          'your phone answering. Update Chapterly on your phone too; you do '
+          'not need to pair again',
+      'A book or deletion dated far in the future (a device with its clock '
+          'wrong) no longer wins every sync',
+      'Tag my library: when Open Library cannot be reached, Wikidata is '
+          'still asked, and the review says which one was skipped. Wikidata '
+          'matches are stricter: films, TV series and games with the same '
+          'title are left out, and books by several authors are found',
+      'Audiobooks from the book server with very long track names keep all '
+          'their parts',
+      'Wrong PINs are counted on every PIN prompt, also after a restart, '
+          'and the wait gets longer each time. PINs are now stored in a way '
+          'that is much slower to guess',
+      'While Chapterly is locked, keyboard shortcuts no longer reach the '
+          'library behind the lock screen, and you can type the PIN on the '
+          'keyboard',
+      'Restoring a backup first saves a copy of your library as it was',
+      'A backup with the same book twice now restores, keeping the newest '
+          'copy',
+      'The daily update check tries again next time when it could not '
+          'reach GitHub',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.20.0',
     date: '2026-11-04',
     changes: [

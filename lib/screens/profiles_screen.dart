@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../data/pin_lock.dart';
 import '../data/profiles.dart';
 
 /// A profile's coloured circle with its first letter.
@@ -209,9 +210,12 @@ class ProfilesScreen extends StatelessWidget {
     if (store.hasPin(profile.id)) {
       final pin = await _askPin(context, profile);
       if (pin == null || !context.mounted) return;
-      if (!store.checkPin(profile.id, pin)) {
+      final problem =
+          await checkPinGuarded(() => store.checkPin(profile.id, pin));
+      if (!context.mounted) return;
+      if (problem != null) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Wrong PIN.')));
+            .showSnackBar(SnackBar(content: Text(problem)));
         return;
       }
     }

@@ -207,7 +207,13 @@ class ProfileStore extends ChangeNotifier {
     final prefs = scope(id);
     final hash = prefs.getString('pinHash');
     final salt = prefs.getString('pinSalt');
-    return hash != null && salt != null && hashPin(pin, salt) == hash;
+    if (hash == null || !pinMatches(pin, hash, oldSalt: salt)) return false;
+    if (isOldPinHash(hash)) {
+      // Saved the new way from now on.
+      prefs.setString('pinHash', hashNewPin(pin));
+      prefs.remove('pinSalt');
+    }
+    return true;
   }
 
   /// What is wrong with a name for a profile, or null when it can be used.

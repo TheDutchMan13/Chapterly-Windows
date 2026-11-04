@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../audio/audio_files.dart';
 import '../audio/audio_library.dart';
 import '../audio/listening.dart';
+import '../data/app_settings.dart';
+import '../data/auto_backup.dart';
 import '../data/backup.dart';
 import '../data/book_repository.dart';
 import '../data/cover_image.dart';
@@ -27,9 +29,13 @@ class FileDropTarget extends StatefulWidget {
     required this.repository,
     required this.child,
     this.onLinked,
+    this.settings,
   });
 
   final BookRepository repository;
+
+  /// For the safety copy made before a backup is restored.
+  final AppSettings? settings;
   final Widget child;
 
   /// Shows the book a dropped book file or audiobook was linked to.
@@ -178,6 +184,12 @@ class _FileDropTargetState extends State<FileDropTarget> {
             ),
           );
           if (confirmed != true) return;
+          // A copy of the library as it is now, in case the backup was the
+          // wrong one.
+          final settings = widget.settings;
+          if (settings != null) {
+            await runAutoBackup(repository, settings, force: true);
+          }
           await repository.restoreBackup(restored);
           _say(messenger, 'Restored ${restored.length} books.');
         case DroppedFileKind.csv:

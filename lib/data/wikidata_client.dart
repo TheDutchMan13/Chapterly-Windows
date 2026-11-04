@@ -72,19 +72,15 @@ class WikidataClient {
       });
       final found = search?['search'];
       if (found is! List) return [];
-      final lastName = _lastName(author);
+      final surnames = authorSurnames(author);
       final ids = <String>[];
       for (final hit in found.whereType<Map<String, dynamic>>()) {
         final label = (hit['label'] ?? '').toString().toLowerCase();
-        final description = (hit['description'] ?? '').toString().toLowerCase();
+        final description = (hit['description'] ?? '').toString();
         if (label != cleanTitle.toLowerCase()) continue;
-        // Only books: with an author, the description names them; without,
-        // it must at least say it is a written work.
-        final fits = lastName.isNotEmpty
-            ? description.contains(lastName)
-            : RegExp(r'novel|book|story|stories|poem|series|comic|manga')
-                .hasMatch(description);
-        if (fits && hit['id'] is String) ids.add(hit['id'] as String);
+        if (describesBookBy(description, surnames) && hit['id'] is String) {
+          ids.add(hit['id'] as String);
+        }
       }
       if (ids.isEmpty) return [];
 
@@ -119,17 +115,6 @@ class WikidataClient {
     }
   }
 
-  static String _lastName(String author) {
-    final words = author
-        .toLowerCase()
-        .split(RegExp(r'[\s,]+'))
-        .where((w) => w.length > 1)
-        .toList();
-    if (words.isEmpty) return '';
-    // "Herbert, Frank" lists the surname first; "Frank Herbert" last.
-    return author.contains(',') ? words.first : words.last;
-  }
-
   /// The genre (P136) item ids in an entity's claims.
   static List<String> _genreIds(Object? entity) {
     if (entity is! Map) return [];
@@ -146,4 +131,79 @@ class WikidataClient {
   }
 
   void close() => _client.close();
+}
+
+final _writtenWork = RegExp(
+  r'\b(novels?|books?|story|stories|novellas?|poems?|poetry|series|comics?|'
+  r'manga|short story collection|plays?)\b',
+  caseSensitive: false,
+);
+
+final _notWritten = RegExp(
+  r'\b(films?|television|tv series|episodes?|video games?|albums?|songs?|'
+  r'(?<!space )operas?)\b',
+  caseSensitive: false,
+);
+
+const _suffixes = {'jr', 'sr', 'ii', 'iii', 'iv'};
+
+/// The surname of one author's name: the last word ("Frank Herbert",
+/// "J. R. R. Tolkien"), leaving out "Jr." and the like.
+String? _surnameOf(String name) {
+  final words = [
+    for (final word in name.split(RegExp(r'\s+')))
+      if (word.replaceAll('.', '').length > 1 &&
+          !_suffixes.contains(word.replaceAll('.', '').toLowerCase()))
+        word.replaceAll(RegExp(r'^[.]+|[.]+$'), ''),
+  ];
+  return words.isEmpty ? null : words.last.toLowerCase();
+}
+
+/// The surnames of the authors in [author], lower case. Authors are split on
+/// "&", " and ", ";" and "/". A comma splits authors too ("Neil Gaiman,
+/// Terry Pratchett"), except in "Herbert, Frank" (two single words): that
+/// may be one author written surname first, or two surnames, so both words
+/// are kept.
+List<String> authorSurnames(String author) {
+  final surnames = <String>[];
+  final people = author.split(RegExp(r'\s*(?:&|;|/|\band\b)\s*',
+      caseSensitive: false));
+  for (final person in people) {
+    final parts = [
+      for (final part in person.split(','))
+        if (part.trim().isNotEmpty) part.trim(),
+    ];
+    if (parts.isEmpty) continue;
+    final singleWords = parts.every((part) => !part.contains(' '));
+    if (parts.length == 2 && singleWords) {
+      for (final part in parts) {
+        final word = _surnameOf(part);
+        if (word != null) surnames.add(word);
+      }
+      continue;
+    }
+    for (final part in parts) {
+      final surname = _surnameOf(part);
+      if (surname != null && !_suffixes.contains(surname)) {
+        surnames.add(surname);
+      }
+    }
+  }
+  return surnames.toSet().toList();
+}
+
+/// Whether a Wikidata [description] is of a written work (not a film, an
+/// album or the like) by one of the authors with [surnames], as a whole
+/// word. With no surnames, a written work is enough.
+bool describesBookBy(String description, List<String> surnames) {
+  if (!_writtenWork.hasMatch(description)) return false;
+  if (_notWritten.hasMatch(description)) return false;
+  if (surnames.isEmpty) return true;
+  return surnames.any(
+    (surname) => RegExp(
+      '(?<![\\p{L}\\p{N}])${RegExp.escape(surname)}(?![\\p{L}\\p{N}])',
+      caseSensitive: false,
+      unicode: true,
+    ).hasMatch(description),
+  );
 }

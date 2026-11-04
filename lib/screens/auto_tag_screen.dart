@@ -59,19 +59,34 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
           if (book.tags.isEmpty) book,
       ];
 
-  /// Open Library, a little apart, so a big library does not flood it.
+  /// Open Library asked to slow down during this run: it is not asked again
+  /// until the next one.
+  bool _openLibraryBusy = false;
+
+  /// Open Library, a little apart, so a big library does not flood it, and
+  /// Wikidata when switched on, even when Open Library could not be asked.
   Future<List<String>> _subjects(Book book) async {
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    final subjects = await _client.subjectsFor(
-      title: book.title,
-      author: book.author,
-      isbn: book.isbn,
-    );
-    if (!widget.settings.useWikidata) return subjects;
-    final genres = await _wikidata.genresFor(
-      title: book.title,
-      author: book.author,
-    );
+    List<String>? subjects;
+    if (!_openLibraryBusy) {
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      try {
+        subjects = await _client.subjectsFor(
+          title: book.title,
+          author: book.author,
+          isbn: book.isbn,
+        );
+      } on OpenLibraryException catch (error) {
+        if (error.busy) _openLibraryBusy = true;
+      } catch (_) {
+        // Could not be reached; Wikidata may still know.
+      }
+    }
+    final genres = widget.settings.useWikidata
+        ? await _wikidata.genresFor(title: book.title, author: book.author)
+        : const <String>[];
+    if (subjects == null) {
+      throw OpenLibraryUnavailable(found: genres, busy: _openLibraryBusy);
+    }
     return mergeSubjects(subjects, genres);
   }
 
@@ -80,6 +95,7 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
     if (books.isEmpty) return;
     setState(() {
       _stage = _Stage.running;
+      _openLibraryBusy = false;
       _testing = false;
       _stop = false;
       _done = 0;
@@ -110,6 +126,7 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
   Future<void> _test() async {
     setState(() {
       _stage = _Stage.running;
+      _openLibraryBusy = false;
       _testing = true;
       _stop = false;
       _done = 0;
@@ -293,6 +310,13 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
             style: theme.textTheme.bodyMedium,
           ),
         ),
+        if (_openLibraryBusy)
+          const _Notice(text: '$openLibraryBusyNote.'),
+        if (widget.settings.useWikidata && _wikidata.tooBusy)
+          const _Notice(
+            text: 'Wikidata asked Chapterly to slow down, so it was skipped '
+                'for the rest of this run.',
+          ),
         for (final plan in found)
           _PlanTile(plan: plan, onChanged: () => setState(() {})),
         if (empty.isNotEmpty)
@@ -430,6 +454,28 @@ class _ReportCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A one-line notice at the top of the review.
+class _Notice extends StatelessWidget {
+  const _Notice({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, size: 18, color: theme.colorScheme.tertiary),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: theme.textTheme.bodySmall)),
+        ],
       ),
     );
   }

@@ -12,6 +12,7 @@ import '../models/reading.dart';
 import '../models/shelf.dart';
 import '../models/wish_priority.dart';
 import 'app_settings.dart';
+import 'backup.dart' show newestOfEachBook;
 import 'fuzzy.dart';
 import 'book_sorting.dart';
 import 'book_store.dart';
@@ -1071,10 +1072,15 @@ class BookRepository extends ChangeNotifier {
 
   /// Replaces the whole library with [books] as they are. With
   /// [forgetRemoved], their ids are no longer marked removed for good.
+  /// The store is written first: if that fails, the library here is left
+  /// as it was.
   Future<void> replaceAll(List<Book> books, {bool forgetRemoved = false}) async {
-    final sorted = [...books]..sort((a, b) => b.addedAt.compareTo(a.addedAt));
-    _books.clear();
-    _books.addAll(sorted);
+    final sorted = [...newestOfEachBook(books)]
+      ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
+    await _store.replaceAll(sorted);
+    _books
+      ..clear()
+      ..addAll(sorted);
     _isLoaded = true;
     var forgot = false;
     if (forgetRemoved) {
@@ -1083,7 +1089,6 @@ class BookRepository extends ChangeNotifier {
       }
     }
     notifyListeners();
-    await _store.replaceAll(sorted);
     if (forgot) await _store.saveTombstones(Map.of(_tombstones));
   }
 

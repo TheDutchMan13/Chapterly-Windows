@@ -9,6 +9,7 @@ import 'package:chapterly/data/file_io.dart';
 import 'package:chapterly/ebook/ebook_library.dart';
 import 'package:chapterly/models/audio_bookmark.dart';
 import 'package:chapterly/models/audio_progress.dart';
+import 'package:chapterly/models/book.dart';
 import 'package:chapterly/models/book_format.dart';
 import 'package:chapterly/models/shelf.dart';
 import 'package:chapterly/screens/server_screen.dart';
@@ -685,6 +686,25 @@ void main() {
       expect([for (final t in tracks) t.lengthMs], [1000, 1000, 1000]);
     });
 
+    test('parts with very long names keep their extension', () async {
+      server.trackNames['parts'] = [
+        '${'Chapter one ' * 20}.mp3',
+        'Chapter two ' * 20,
+        'Three',
+      ];
+      final id = await phone.download('parts');
+      final tracks = phone.audio.linkFor(id)!.tracks;
+      expect(tracks, hasLength(3));
+      for (final track in tracks) {
+        expect(track.name, endsWith('.mp3'));
+        expect(File(_audioPath(track.location)).existsSync(), isTrue);
+      }
+      await phone.downloads.cleanUp();
+      for (final track in tracks) {
+        expect(File(_audioPath(track.location)).existsSync(), isTrue);
+      }
+    });
+
     test('a part that fails leaves nothing behind', () async {
       server.downloadStatus = 500;
       final result = await phone.downloads.download(await phone.serverBook('parts'));
@@ -916,6 +936,38 @@ void main() {
       );
       expect(server.libraryVersion, 3);
       expect(phone.repository.books, hasLength(1));
+    });
+
+    test('a damaged library on the server says so, not "update"', () async {
+      server.library = '{"app":"chapterly","protocol":2}';
+      server.libraryVersion = 3;
+      await expectLater(
+        phone.library.syncNow(),
+        throwsA(isA<ServerFailure>().having(
+          (f) => f.message,
+          'message',
+          allOf(contains('could not be read'), isNot(contains('Update'))),
+        )),
+      );
+      expect(server.libraryVersion, 3);
+    });
+
+    test('dates far ahead on the server are dated now', () async {
+      final ahead = Book(
+        id: 'ahead',
+        title: 'From the future',
+        author: 'A',
+        shelf: Shelf.forLater,
+        addedAt: DateTime(2026),
+        updatedAt: DateTime(2099),
+      );
+      server.library = encodeSyncPayload([ahead], {'gone': DateTime(2099)});
+      server.libraryVersion = 1;
+      await phone.library.syncNow();
+      final soon = DateTime.now().add(const Duration(days: 1));
+      expect(phone.repository.byId('ahead')!.updatedAt.isBefore(soon), isTrue);
+      expect(phone.repository.snapshot().tombstones['gone']!.isBefore(soon),
+          isTrue);
     });
 
     test('the wish list comes along', () async {

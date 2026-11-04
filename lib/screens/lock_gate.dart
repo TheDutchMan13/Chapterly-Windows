@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/app_settings.dart';
+import '../data/pin_lock.dart';
 import '../data/profiles.dart';
 import 'profiles_screen.dart';
 
@@ -65,10 +67,15 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        Visibility(
-          visible: !_locked,
-          maintainState: true,
-          child: widget.child,
+        // Kept alive behind the lock, but it takes no keys (such as Ctrl+V
+        // for a cover) while locked.
+        ExcludeFocus(
+          excluding: _locked,
+          child: Visibility(
+            visible: !_locked,
+            maintainState: true,
+            child: widget.child,
+          ),
         ),
         if (_locked)
           Positioned.fill(
@@ -96,21 +103,72 @@ class _PinScreen extends StatefulWidget {
 }
 
 class _PinScreenState extends State<_PinScreen> {
-  static const _maxTries = 5;
-  static const _waitSeconds = 30;
   static const _maxLength = 8;
 
   Timer? _timer;
   String _entry = '';
-  int _failures = 0;
   int _waiting = 0;
   String? _error;
   bool _choosingProfile = false;
+  bool _checking = false;
+
+  /// Wrong PINs are counted in the settings, so a restart does not give
+  /// more tries.
+  final Future<PinGuard> _guard = PinGuard.load();
+
+  @override
+  void initState() {
+    super.initState();
+    _guard.then((guard) {
+      if (mounted) _startWait(guard.waitLeft);
+    });
+  }
 
   @override
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  void _startWait(Duration wait) {
+    _timer?.cancel();
+    if (wait <= Duration.zero) return;
+    setState(() {
+      _entry = '';
+      _error = null;
+      _waiting = (wait.inMilliseconds / 1000).ceil();
+    });
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() => _waiting--);
+      if (_waiting <= 0) timer.cancel();
+    });
+  }
+
+  /// Typing on the keyboard works as well as the number pad.
+  KeyEventResult _key(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.backspace) {
+      _erase();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      unawaited(_check());
+      return KeyEventResult.handled;
+    }
+    final character = event.character;
+    if (character != null && RegExp(r'^[0-9]$').hasMatch(character)) {
+      _type(character);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   void _type(String digit) {
@@ -126,29 +184,34 @@ class _PinScreenState extends State<_PinScreen> {
     setState(() => _entry = _entry.substring(0, _entry.length - 1));
   }
 
-  void _check() {
-    if (_waiting > 0 || _entry.isEmpty) return;
-    if (widget.settings.checkPin(_entry)) {
-      widget.onUnlocked();
-      return;
-    }
-    _failures++;
-    if (_failures >= _maxTries) {
-      _failures = 0;
-      setState(() {
-        _entry = '';
-        _waiting = _waitSeconds;
-        _error = null;
-      });
-      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        setState(() => _waiting--);
-        if (_waiting <= 0) timer.cancel();
-      });
-    } else {
-      setState(() {
-        _entry = '';
-        _error = 'Wrong PIN.';
-      });
+  Future<void> _check() async {
+    if (_waiting > 0 || _entry.isEmpty || _checking) return;
+    _checking = true;
+    try {
+      final guard = await _guard;
+      if (!mounted) return;
+      final left = guard.waitLeft;
+      if (left > Duration.zero) {
+        _startWait(left);
+        return;
+      }
+      if (widget.settings.checkPin(_entry)) {
+        await guard.recordSuccess();
+        widget.onUnlocked();
+        return;
+      }
+      final wait = await guard.recordFailure();
+      if (!mounted) return;
+      if (wait > Duration.zero) {
+        _startWait(wait);
+      } else {
+        setState(() {
+          _entry = '';
+          _error = 'Wrong PIN.';
+        });
+      }
+    } finally {
+      _checking = false;
     }
   }
 
@@ -169,103 +232,107 @@ class _PinScreenState extends State<_PinScreen> {
   @override
   Widget build(BuildContext context) {
     final message = _waiting > 0
-        ? 'Too many tries. Wait $_waiting seconds.'
+        ? pinWaitMessage(Duration(seconds: _waiting))
         : _error;
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.lock_outline, size: 48),
-                const SizedBox(height: 16),
-                Text(
-                  'Chapterly is locked',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                if (ProfileSwitching.store case final profiles?
-                    when profiles.hasOthers) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ProfileAvatar(profile: profiles.active, radius: 12),
-                      const SizedBox(width: 8),
-                      Text(profiles.active.name),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 16),
-                SizedBox(
-                  height: 40,
-                  child: Text(
-                    '\u2022 ' * _entry.length,
-                    style: Theme.of(context).textTheme.headlineMedium,
-                  ),
-                ),
-                SizedBox(
-                  height: 24,
-                  child: Text(
-                    message ?? '',
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _row([_digit('1'), _digit('2'), _digit('3')]),
-                _row([_digit('4'), _digit('5'), _digit('6')]),
-                _row([_digit('7'), _digit('8'), _digit('9')]),
-                _row([
-                  SizedBox(
-                    width: 72,
-                    height: 64,
-                    child: IconButton(
-                      icon: const Icon(Icons.backspace_outlined),
-                      onPressed: _waiting > 0 ? null : _erase,
-                    ),
-                  ),
-                  _digit('0'),
-                  SizedBox(
-                    width: 72,
-                    height: 64,
-                    child: IconButton.filled(
-                      icon: const Icon(Icons.check),
-                      onPressed: _waiting > 0 ? null : _check,
-                    ),
-                  ),
-                ]),
-                if (ProfileSwitching.store case final profiles?
-                    when profiles.hasOthers) ...[
+      body: Focus(
+        autofocus: true,
+        onKeyEvent: _key,
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_outline, size: 48),
                   const SizedBox(height: 16),
-                  if (!_choosingProfile)
-                    TextButton.icon(
-                      icon: const Icon(Icons.people_outline),
-                      label: const Text('Open another profile'),
-                      onPressed: () =>
-                          setState(() => _choosingProfile = true),
-                    )
-                  else
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      alignment: WrapAlignment.center,
+                  Text(
+                    'Chapterly is locked',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  if (ProfileSwitching.store case final profiles?
+                      when profiles.hasOthers) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        for (final profile in profiles.profiles)
-                          if (profile.id != profiles.active.id)
-                            ActionChip(
-                              avatar: ProfileAvatar(
-                                profile: profile,
-                                radius: 12,
-                              ),
-                              label: Text(profile.name),
-                              onPressed: () =>
-                                  ProfileSwitching.switchTo?.call(profile.id),
-                            ),
+                        ProfileAvatar(profile: profiles.active, radius: 12),
+                        const SizedBox(width: 8),
+                        Text(profiles.active.name),
                       ],
                     ),
+                  ],
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    height: 40,
+                    child: Text(
+                      '\u2022 ' * _entry.length,
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                  ),
+                  SizedBox(
+                    height: 24,
+                    child: Text(
+                      message ?? '',
+                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _row([_digit('1'), _digit('2'), _digit('3')]),
+                  _row([_digit('4'), _digit('5'), _digit('6')]),
+                  _row([_digit('7'), _digit('8'), _digit('9')]),
+                  _row([
+                    SizedBox(
+                      width: 72,
+                      height: 64,
+                      child: IconButton(
+                        icon: const Icon(Icons.backspace_outlined),
+                        onPressed: _waiting > 0 ? null : _erase,
+                      ),
+                    ),
+                    _digit('0'),
+                    SizedBox(
+                      width: 72,
+                      height: 64,
+                      child: IconButton.filled(
+                        icon: const Icon(Icons.check),
+                        onPressed: _waiting > 0 ? null : _check,
+                      ),
+                    ),
+                  ]),
+                  if (ProfileSwitching.store case final profiles?
+                      when profiles.hasOthers) ...[
+                    const SizedBox(height: 16),
+                    if (!_choosingProfile)
+                      TextButton.icon(
+                        icon: const Icon(Icons.people_outline),
+                        label: const Text('Open another profile'),
+                        onPressed: () =>
+                            setState(() => _choosingProfile = true),
+                      )
+                    else
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          for (final profile in profiles.profiles)
+                            if (profile.id != profiles.active.id)
+                              ActionChip(
+                                avatar: ProfileAvatar(
+                                  profile: profile,
+                                  radius: 12,
+                                ),
+                                label: Text(profile.name),
+                                onPressed: () =>
+                                    ProfileSwitching.switchTo?.call(profile.id),
+                              ),
+                        ],
+                      ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),

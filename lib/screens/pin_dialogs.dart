@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../data/app_settings.dart';
+import '../data/pin_lock.dart';
 
 /// Asks for a new PIN twice. Returns it, or null if cancelled.
 Future<String?> askNewPin(BuildContext context) {
@@ -110,11 +111,20 @@ class _CurrentPinDialogState extends State<_CurrentPinDialog> {
     super.dispose();
   }
 
-  void _check() {
-    if (widget.settings.checkPin(_pin.text)) {
+  bool _checking = false;
+
+  Future<void> _check() async {
+    if (_checking) return;
+    _checking = true;
+    final pin = _pin.text;
+    final problem = await checkPinGuarded(() => widget.settings.checkPin(pin));
+    _checking = false;
+    if (!mounted) return;
+    if (problem == null) {
       Navigator.of(context).pop(true);
     } else {
-      setState(() => _error = 'Wrong PIN.');
+      _pin.clear();
+      setState(() => _error = problem);
     }
   }
 

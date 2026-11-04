@@ -944,20 +944,24 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Saves a PIN (stored as a salted hash, never as the PIN itself).
+  /// Saves a PIN (stored as a slow salted hash, never as the PIN itself).
   void setPin(String pin) {
-    final salt = newPinSalt();
-    _pinSalt = salt;
-    _pinHash = hashPin(pin, salt);
-    prefs?.setString('pinSalt', salt);
+    _pinSalt = null;
+    _pinHash = hashNewPin(pin);
+    prefs?.remove('pinSalt');
     prefs?.setString('pinHash', _pinHash!);
     notifyListeners();
   }
 
+  /// Whether [pin] is this profile's PIN. A PIN saved the old way is saved
+  /// the new way once it is typed right.
   bool checkPin(String pin) {
     final hash = _pinHash;
-    final salt = _pinSalt;
-    return hash != null && salt != null && hashPin(pin, salt) == hash;
+    if (hash == null || !pinMatches(pin, hash, oldSalt: _pinSalt)) {
+      return false;
+    }
+    if (isOldPinHash(hash)) setPin(pin);
+    return true;
   }
 
   void clearPin() {

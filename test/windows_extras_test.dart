@@ -245,6 +245,33 @@ void main() {
       expect(calls, 1);
     });
 
+    test('a daily check that failed is tried again next time', () async {
+      var calls = 0;
+      var status = 500;
+      final client = MockClient((_) async {
+        calls++;
+        return http.Response(status == 200 ? release('v9.0.0') : '', status);
+      });
+      final settings = AppSettings();
+      final now = DateTime(2026, 10, 30, 12);
+
+      expect(await checkForUpdateIfDue(settings, client: client, now: now),
+          isNull);
+      expect(settings.lastUpdateCheck, isNull);
+      status = 200;
+      expect(
+        (await checkForUpdateIfDue(
+          settings,
+          client: client,
+          now: now.add(const Duration(minutes: 5)),
+        ))
+            ?.version,
+        '9.0.0',
+      );
+      expect(calls, 2);
+      expect(settings.lastUpdateCheck, isNotNull);
+    });
+
     test('the switches are remembered', () async {
       SharedPreferences.setMockInitialValues({});
       final settings = await AppSettings.load();

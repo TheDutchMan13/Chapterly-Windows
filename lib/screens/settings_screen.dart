@@ -350,6 +350,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           action: 'Restore',
         );
         if (!confirmed || !mounted) return;
+        // A copy of the library as it is now, in case the backup was the
+        // wrong one.
+        await runAutoBackup(widget.repository, widget.settings, force: true);
         await widget.repository.restoreBackup(books);
         if (mounted) _say('Restored ${books.length} books.');
       });

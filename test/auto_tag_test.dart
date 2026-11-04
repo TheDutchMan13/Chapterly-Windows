@@ -59,6 +59,43 @@ void main() {
       expect(plan.proposals, isEmpty);
       expect(plan.note, 'Open Library has nothing on this book');
     });
+
+    test('Open Library out of reach is said so, and Wikidata still counts',
+        () async {
+      final library = [
+        _book('1', 'Dune', 'Frank Herbert', ['Space opera']),
+        _book('2', 'Hyperion', 'Dan Simmons'),
+      ];
+      final failed = await planBookTags(
+        library[1],
+        library,
+        subjects: (_) async => throw const OpenLibraryUnavailable(),
+      );
+      expect(failed.note, openLibraryUnreachableNote);
+
+      final crashed = await planBookTags(
+        library[1],
+        library,
+        subjects: (_) async => throw Exception('offline'),
+      );
+      expect(crashed.note, openLibraryUnreachableNote);
+
+      final busy = await planBookTags(
+        library[1],
+        library,
+        subjects: (_) async => throw const OpenLibraryUnavailable(busy: true),
+      );
+      expect(busy.note, openLibraryBusyNote);
+
+      final fromWikidata = await planBookTags(
+        library[1],
+        library,
+        subjects: (_) async =>
+            throw const OpenLibraryUnavailable(found: ['Space opera']),
+      );
+      expect(fromWikidata.checkedTags, ['Space opera']);
+      expect(fromWikidata.note, isNull);
+    });
   });
 
   test('planTags stops when asked and says how far it got', () async {

@@ -178,9 +178,12 @@ Future<AvailableUpdate?> checkForUpdateIfDue(
   final time = now ?? DateTime.now();
   if (!settings.checkUpdates) return null;
   if (!updateCheckDue(settings.lastUpdateCheck, time)) return null;
-  settings.setLastUpdateCheck(time);
   try {
-    return await checkForUpdate(client: client, current: current);
+    final update = await checkForUpdate(client: client, current: current);
+    // Only a check that worked counts: one that failed (offline, GitHub
+    // busy) is tried again next time.
+    settings.setLastUpdateCheck(time);
+    return update;
   } on UpdateCheckFailure {
     return null;
   }

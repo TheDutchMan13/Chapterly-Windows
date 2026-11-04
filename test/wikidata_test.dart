@@ -95,6 +95,66 @@ void main() {
     expect(await client.genresFor(title: 'Dune', author: 'Frank Herbert'), isEmpty);
   });
 
+  test('authors are split into surnames', () {
+    expect(authorSurnames('Frank Herbert'), ['herbert']);
+    expect(authorSurnames('Neil Gaiman, Terry Pratchett'), ['gaiman', 'pratchett']);
+    expect(authorSurnames('Neil Gaiman & Terry Pratchett'), ['gaiman', 'pratchett']);
+    expect(authorSurnames('Gaiman and Pratchett'), ['gaiman', 'pratchett']);
+    expect(authorSurnames('Gaiman; Pratchett / Moore'),
+        ['gaiman', 'pratchett', 'moore']);
+    expect(authorSurnames('Herbert, Frank'), containsAll(['herbert']));
+    expect(authorSurnames('Gaiman, Pratchett'), ['gaiman', 'pratchett']);
+    expect(authorSurnames('J. R. R. Tolkien'), ['tolkien']);
+    expect(authorSurnames('Martin Luther King Jr.'), ['king']);
+    expect(authorSurnames(''), isEmpty);
+  });
+
+  test('a surname must be a whole word in the description', () {
+    expect(describesBookBy('English novel by Jane Austen', ['ng']), isFalse);
+    expect(describesBookBy('novel set in a lost kingdom', ['king']), isFalse);
+    expect(describesBookBy('2011 novel by Celeste Ng', ['ng']), isTrue);
+    expect(describesBookBy('1986 novel by Stephen King', ['king']), isTrue);
+    expect(describesBookBy('novel by Charlotte Brontë', ['brontë']), isTrue);
+  });
+
+  test('only written works are matched', () {
+    expect(
+      describesBookBy('2021 film based on the novel by Frank Herbert', ['herbert']),
+      isFalse,
+    );
+    expect(describesBookBy('television series based on the novel by Herbert',
+        ['herbert']), isFalse);
+    expect(describesBookBy('video game based on the book by Herbert', ['herbert']),
+        isFalse);
+    expect(describesBookBy('album by Frank Herbert', ['herbert']), isFalse);
+    expect(describesBookBy('painting by Frank Herbert', ['herbert']), isFalse);
+    expect(describesBookBy('space opera novel by Frank Herbert', ['herbert']),
+        isTrue);
+    expect(describesBookBy('play by William Shakespeare', ['shakespeare']), isTrue);
+    expect(describesBookBy('1990 novel by Terry Pratchett and Neil Gaiman',
+        authorSurnames('Gaiman, Pratchett')), isTrue);
+    expect(describesBookBy('1990 novel by Terry Pratchett and Neil Gaiman',
+        authorSurnames('Neil Gaiman, Terry Pratchett')), isTrue);
+    expect(describesBookBy('poetry collection', const []), isTrue);
+    expect(describesBookBy('2021 film', const []), isFalse);
+  });
+
+  test('a film with the same title and author is not matched', () async {
+    final client = WikidataClient(
+      client: MockClient((request) async => _json({
+            'search': [
+              {
+                'id': 'Q1',
+                'label': 'Dune',
+                'description': '2021 film based on the novel by Frank Herbert',
+              },
+            ],
+          })),
+      pause: Duration.zero,
+    );
+    expect(await client.genresFor(title: 'Dune', author: 'Frank Herbert'), isEmpty);
+  });
+
   test('mergeSubjects drops repeats ignoring capitals', () {
     expect(
       mergeSubjects(['Space opera', 'Fantasy'], ['fantasy', 'Novel']),

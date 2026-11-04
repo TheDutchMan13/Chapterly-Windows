@@ -133,6 +133,18 @@ void main() {
     expect(safeTrackName(0, '../../evil.mp3'), isNot(contains('/')));
     expect(safeTrackName(1, '..'), '002 track');
     expect(safeTrackName(2, 'CON.'), '003 CON');
+  });
+
+  test('a long track name is shortened before its extension', () {
+    final long = safeTrackName(0, '${'a' * 200}.mp3');
+    expect(long, endsWith('a.mp3'));
+    expect(long.length, lessThanOrEqualTo(154));
+    final dotted = safeTrackName(1, '${'b' * 148}. . .M4B');
+    expect(dotted, endsWith('b.m4b'));
+    expect(safeTrackName(2, 'c' * 300, format: 'mp3'), endsWith('c.mp3'));
+    expect(safeTrackName(3, 'Intro', format: 'mp3'), '004 Intro.mp3');
+    expect(safeTrackName(4, 'Intro.m4a', format: 'mp3'), '005 Intro.m4a');
+    expect(safeTrackName(5, 'Intro', format: 'epub'), '006 Intro');
     expect(isInside(r'C:\books', r'C:\books\server-x.epub'), isTrue);
     expect(isInside(r'C:\books', r'C:\books\..\x.epub'), isFalse);
     expect(isInside(r'C:\books', r'C:\other\x.epub'), isFalse);

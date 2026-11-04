@@ -37,8 +37,29 @@ class TagPlan {
       ];
 }
 
-/// Open Library's subjects for a book.
+/// Open Library's subjects for a book. It may throw
+/// [OpenLibraryUnavailable] with what other sources found.
 typedef SubjectLookup = Future<List<String>> Function(Book book);
+
+/// Shown for a book when Open Library could not be asked about it.
+const openLibraryUnreachableNote = 'Open Library could not be reached';
+
+/// Shown for a book when Open Library was skipped because it asked to slow
+/// down.
+const openLibraryBusyNote =
+    'Open Library asked Chapterly to slow down, so it was skipped for the '
+    'rest of this run';
+
+/// Thrown by a [SubjectLookup] when Open Library could not be asked, with
+/// what other sources (Wikidata) found meanwhile.
+class OpenLibraryUnavailable implements Exception {
+  const OpenLibraryUnavailable({this.found = const [], this.busy = false});
+
+  final List<String> found;
+
+  /// Skipped because Open Library asked to slow down.
+  final bool busy;
+}
 
 /// At most this many tags per book.
 const maxTagsPerBook = 5;
@@ -84,10 +105,15 @@ Future<TagPlan> planBookTags(
   required SubjectLookup subjects,
 }) async {
   List<String> found;
+  String? problem;
   try {
     found = await subjects(book);
+  } on OpenLibraryUnavailable catch (error) {
+    found = error.found;
+    problem = error.busy ? openLibraryBusyNote : openLibraryUnreachableNote;
   } catch (_) {
     found = const [];
+    problem = openLibraryUnreachableNote;
   }
   final proposals = [
     for (final s in suggestTags(
@@ -108,9 +134,11 @@ Future<TagPlan> planBookTags(
     book: book,
     proposals: proposals,
     note: proposals.isEmpty
-        ? (found.isEmpty
-            ? 'Open Library has nothing on this book'
-            : 'None of the Open Library subjects fit your tags')
+        ? (problem != null && found.isEmpty
+            ? problem
+            : found.isEmpty
+                ? 'Open Library has nothing on this book'
+                : 'None of the Open Library subjects fit your tags')
         : null,
   );
 }

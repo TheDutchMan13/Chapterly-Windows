@@ -295,6 +295,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         autofocus: true,
         child: FileDropTarget(
           repository: widget.repository,
+          settings: widget.settings,
           onLinked: _openById,
           child: LayoutBuilder(
             builder: (context, constraints) {

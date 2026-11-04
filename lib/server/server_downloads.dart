@@ -69,15 +69,30 @@ bool isInside(String dir, String path) {
 }
 
 /// A track's file name: numbered, so they play in the server's order, with
-/// nothing that Windows forbids or that could leave the folder.
-String safeTrackName(int index, String name) {
+/// nothing that Windows forbids or that could leave the folder. A long name
+/// is shortened before its extension, which is kept (or taken from the
+/// book's [format] when the name has none), so the file is still known as
+/// audio.
+String safeTrackName(int index, String name, {String? format}) {
+  final trailing = RegExp(r'[. ]+$');
   var clean = name
       .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), ' ')
-      .replaceAll(RegExp(r'[. ]+$'), '')
+      .replaceAll(trailing, '')
       .trim();
-  if (clean.length > 150) clean = clean.substring(0, 150);
+  var extension = '';
+  final dot = clean.lastIndexOf('.');
+  if (dot > 0 && isAudioFileName(clean)) {
+    extension = clean.substring(dot).toLowerCase();
+    clean = clean.substring(0, dot).replaceAll(trailing, '').trim();
+  } else if (format != null && audioExtensions.contains(format.toLowerCase())) {
+    extension = '.${format.toLowerCase()}';
+  }
+  final room = 150 - extension.length;
+  if (clean.length > room) {
+    clean = clean.substring(0, room).replaceAll(trailing, '').trim();
+  }
   if (clean.isEmpty || clean.replaceAll('.', '').isEmpty) clean = 'track';
-  return '${(index + 1).toString().padLeft(3, '0')} $clean';
+  return '${(index + 1).toString().padLeft(3, '0')} $clean$extension';
 }
 
 class ServerDownloads extends ChangeNotifier {
@@ -213,7 +228,8 @@ class ServerDownloads extends ChangeNotifier {
         var done = 0;
         for (final track in tracks) {
           // Numbered, so they play in the server's order.
-          final name = safeTrackName(track.index, track.name);
+          final name =
+              safeTrackName(track.index, track.name, format: book.format);
           final file = File('${target.path}$sep$name');
           final got = await client.downloadTrack(
             book.id,
@@ -250,6 +266,11 @@ class ServerDownloads extends ChangeNotifier {
         if (files != null) {
           try {
             link = await buildAudioLink(files, picked);
+            // A file it did not take as audio would be left out of the
+            // book (and deleted by clean-up later): use them all instead.
+            if (link != null && link.tracks.length != picked.length) {
+              link = null;
+            }
           } catch (_) {
             // Lengths and chapters unread; the files still play.
           }
@@ -280,6 +301,14 @@ class ServerDownloads extends ChangeNotifier {
             days: old?.days ?? const [],
           ),
         );
+        // The file it replaces goes, when it is one of the downloads here
+        // (never a file of yours from elsewhere).
+        final oldPath = old?.path;
+        if (oldPath != null &&
+            oldPath != target.path &&
+            isInside(booksDir!.path, oldPath)) {
+          await _deleteQuietly(File(oldPath));
+        }
       }
       await _link(bookId, book);
       return DownloadResult(bookId: bookId);

@@ -3,9 +3,15 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class OpenLibraryException implements Exception {
-  const OpenLibraryException(this.message);
+  const OpenLibraryException(this.message, {this.statusCode});
 
   final String message;
+
+  /// The HTTP status Open Library answered with, when it answered.
+  final int? statusCode;
+
+  /// Open Library asked to be left alone for a while (429 or 503).
+  bool get busy => statusCode == 429 || statusCode == 503;
 
   @override
   String toString() => message;
@@ -209,6 +215,7 @@ class OpenLibraryClient {
     if (response.statusCode != 200) {
       throw OpenLibraryException(
         'Open Library returned status ${response.statusCode}',
+        statusCode: response.statusCode,
       );
     }
     // Decode as UTF-8 ourselves so names like "Brontë" are not garbled.

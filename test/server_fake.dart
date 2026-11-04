@@ -17,6 +17,9 @@ class FakeServer {
   final books = <String, Map<String, Object?>>{};
   final files = <String, Uint8List>{};
   final tracks = <String, List<Uint8List>>{};
+
+  /// Names the server gives a book's tracks, instead of "Part 1.mp3".
+  final trackNames = <String, List<String>>{};
   final progress = <String, Map<String, Object?>>{};
   final bookmarks = <String, Map<String, Map<String, Object?>>>{};
   final requests = <String>[];
@@ -162,7 +165,7 @@ class FakeServer {
       return _json({
         'tracks': [
           for (var i = 0; i < list.length; i++)
-            {'index': i, 'name': 'Part ${i + 1}.mp3', 'size': list[i].length, 'durationMs': 1000},
+            {'index': i, 'name': trackNames[parts[3]]?[i] ?? 'Part ${i + 1}.mp3', 'size': list[i].length, 'durationMs': 1000},
         ],
       });
     }
