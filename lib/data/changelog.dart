@@ -13,6 +13,21 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.18.0',
+    date: '2026-11-03',
+    changes: [
+      'Tag my library (Tags screen): finds tags for every book that has '
+          'none. Open Library first, matched to your own tags; you tick or '
+          'untick each one before anything is added, with Undo',
+      'Optional: ask Claude about the books Open Library cannot tag, with '
+          'your own API key (Settings > Claude). It gets only the title, '
+          'author, Open Library subjects and your tag names',
+      'Test on your tagged books: hides their tags, finds tags for them, '
+          'and shows how many of yours came back, for Open Library alone and '
+          'with Claude',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.17.0',
     date: '2026-11-03',
     changes: [

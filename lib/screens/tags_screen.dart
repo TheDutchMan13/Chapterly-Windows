@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
+import 'auto_tag_screen.dart';
 
 // Windows app only.
 
@@ -84,7 +85,23 @@ class TagsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Tags')),
+      appBar: AppBar(
+        title: const Text('Tags'),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.auto_awesome_outlined),
+            label: const Text('Tag my library'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => AutoTagScreen(
+                  repository: repository,
+                  settings: settings,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: ListenableBuilder(
         listenable: repository,
         builder: (context, _) {

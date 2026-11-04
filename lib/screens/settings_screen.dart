@@ -18,6 +18,7 @@ import '../data/theme_options.dart';
 import '../data/update_check.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
+import 'claude_settings.dart';
 import 'pin_dialogs.dart';
 import 'profiles_screen.dart';
 import 'reminder_settings.dart';
@@ -853,6 +854,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ],
+          ),
+          _SettingsGroup(
+            icon: Icons.auto_awesome_outlined,
+            title: 'Claude',
+            subtitle: 'Optional: tags for books Open Library cannot tag',
+            children: [ClaudeSettings(settings: widget.settings)],
           ),
           _SettingsGroup(
             icon: Icons.lock_outline,

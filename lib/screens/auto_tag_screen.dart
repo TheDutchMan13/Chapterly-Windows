@@ -1,0 +1,513 @@
+import 'package:flutter/material.dart';
+
+import '../data/app_settings.dart';
+import '../data/auto_tag.dart';
+import '../data/book_repository.dart';
+import '../data/claude_client.dart';
+import '../data/open_library_client.dart';
+import '../models/book.dart';
+
+// Windows app only.
+
+/// Finds tags for the books that have none: Open Library first, then (if
+/// you switch it on) Claude for the books Open Library cannot tag. Nothing
+/// is added until you have looked at the list. It can also be tried on
+/// books you tagged yourself, to see how well each way works.
+class AutoTagScreen extends StatefulWidget {
+  const AutoTagScreen({
+    super.key,
+    required this.repository,
+    required this.settings,
+    this.client,
+    this.keyStore,
+  });
+
+  final BookRepository repository;
+  final AppSettings settings;
+
+  /// For tests; the real Open Library otherwise.
+  final OpenLibraryClient? client;
+
+  /// For tests; the open profile's key store otherwise.
+  final ClaudeKeyStore? keyStore;
+
+  @override
+  State<AutoTagScreen> createState() => _AutoTagScreenState();
+}
+
+enum _Stage { start, running, review }
+
+class _AutoTagScreenState extends State<AutoTagScreen> {
+  late final OpenLibraryClient _client =
+      widget.client ?? OpenLibraryClient();
+  _Stage _stage = _Stage.start;
+  String? _claudeKey;
+  bool _keyChecked = false;
+  bool _useClaude = true;
+  bool _stop = false;
+  bool _testing = false;
+  int _done = 0;
+  int _total = 0;
+  String _current = '';
+  TagRun? _run;
+  TagTestReport? _report;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadKey();
+  }
+
+  @override
+  void dispose() {
+    _stop = true;
+    super.dispose();
+  }
+
+  Future<void> _loadKey() async {
+    final key = await (widget.keyStore ?? ClaudeKeyStore.current).read();
+    if (!mounted) return;
+    setState(() {
+      _claudeKey = key;
+      _keyChecked = true;
+    });
+  }
+
+  List<Book> get _untagged => [
+        for (final book in widget.repository.books)
+          if (book.tags.isEmpty) book,
+      ];
+
+  /// Open Library, a little apart, so a big library does not flood it.
+  Future<List<String>> _subjects(Book book) async {
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    return _client.subjectsFor(
+      title: book.title,
+      author: book.author,
+      isbn: book.isbn,
+    );
+  }
+
+  TagPicker? get _claude {
+    final key = _claudeKey;
+    if (!_useClaude || key == null) return null;
+    return claudeTagPicker(ClaudeClient(
+      apiKey: key,
+      model: widget.settings.claudeModel ?? defaultClaudeModel,
+    ));
+  }
+
+  Future<void> _find() async {
+    final books = _untagged;
+    if (books.isEmpty) return;
+    setState(() {
+      _stage = _Stage.running;
+      _testing = false;
+      _stop = false;
+      _done = 0;
+      _total = books.length;
+      _current = '';
+    });
+    final run = await planTags(
+      books,
+      widget.repository.books,
+      subjects: _subjects,
+      claude: _claude,
+      stopped: () => _stop,
+      onProgress: (done, total, book) {
+        if (!mounted) return;
+        setState(() {
+          _done = done;
+          _total = total;
+          _current = book?.title ?? '';
+        });
+      },
+    );
+    if (!mounted) return;
+    setState(() {
+      _run = run;
+      _stage = _Stage.review;
+    });
+  }
+
+  Future<void> _test() async {
+    setState(() {
+      _stage = _Stage.running;
+      _testing = true;
+      _stop = false;
+      _done = 0;
+      _total = pickTestBooks(widget.repository.books).length;
+      _current = '';
+    });
+    final report = await runTagTest(
+      widget.repository.books,
+      subjects: _subjects,
+      claude: _claude,
+      stopped: () => _stop,
+      onProgress: (done, total) {
+        if (mounted) setState(() => _done = done);
+      },
+    );
+    if (!mounted) return;
+    setState(() {
+      _report = report;
+      _stage = _Stage.start;
+    });
+  }
+
+  Future<void> _apply() async {
+    final plans = _run?.plans ?? const <TagPlan>[];
+    final tagsByBook = {
+      for (final plan in plans)
+        if (plan.checkedTags.isNotEmpty) plan.book.id: plan.checkedTags,
+    };
+    if (tagsByBook.isEmpty) return;
+    final before = [
+      for (final id in tagsByBook.keys) ?widget.repository.byId(id),
+    ];
+    final messenger = ScaffoldMessenger.of(context);
+    await widget.repository.addTagsToBooks(tagsByBook);
+    if (!mounted) return;
+    setState(() {
+      _run = null;
+      _stage = _Stage.start;
+    });
+    final count = tagsByBook.length;
+    messenger.showSnackBar(SnackBar(
+      content: Text('Added tags to $count book${count == 1 ? '' : 's'}.'),
+      action: SnackBarAction(
+        label: 'Undo',
+        onPressed: () => widget.repository.putBack(before),
+      ),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Tag my library')),
+      body: switch (_stage) {
+        _Stage.start => _startView(context),
+        _Stage.running => _runningView(context),
+        _Stage.review => _reviewView(context),
+      },
+      bottomNavigationBar: _stage == _Stage.review ? _applyBar(context) : null,
+    );
+  }
+
+  Widget _startView(BuildContext context) {
+    final untagged = _untagged.length;
+    final tested = pickTestBooks(widget.repository.books).length;
+    final theme = Theme.of(context);
+    final hasKey = _claudeKey != null;
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          untagged == 0
+              ? 'Every book in your library has tags.'
+              : '$untagged book${untagged == 1 ? ' has' : 's have'} no tags.',
+          style: theme.textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Chapterly looks each book up on Open Library and matches its '
+          'subjects to your tags (and to the tags on your other books by the '
+          'same author or in the same series). Sure matches are ticked; you '
+          'check the list before anything is added. Books that already have '
+          'tags are not changed.',
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text("Ask Claude about books Open Library can't tag"),
+          subtitle: Text(
+            !_keyChecked
+                ? 'Checking for your Claude API key...'
+                : hasKey
+                    ? 'Only for those books. Sends their title, author, Open '
+                        'Library subjects and your tag names to Claude, with '
+                        'your API key (Settings > Claude). Nothing else.'
+                    : 'Add your Claude API key in Settings > Claude first.',
+          ),
+          value: hasKey && _useClaude,
+          onChanged: hasKey ? (value) => setState(() => _useClaude = value) : null,
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              icon: const Icon(Icons.auto_awesome_outlined),
+              label: Text('Find tags for $untagged book${untagged == 1 ? '' : 's'}'),
+              onPressed: untagged == 0 ? null : _find,
+            ),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.science_outlined),
+              label: Text('Test on $tested tagged book${tested == 1 ? '' : 's'}'),
+              onPressed: tested == 0 ? null : _test,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'The test hides the tags of some books you tagged yourself, finds '
+          'tags for them, and counts how many of yours came back. Nothing is '
+          'changed.',
+          style: theme.textTheme.bodySmall,
+        ),
+        if (_report case final report?) ...[
+          const SizedBox(height: 16),
+          _ReportCard(report: report),
+        ],
+      ],
+    );
+  }
+
+  Widget _runningView(BuildContext context) {
+    final progress = _total == 0 ? null : _done / _total;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _testing
+                    ? 'Testing on your tagged books: $_done of $_total'
+                    : 'Looking up $_done of $_total',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              LinearProgressIndicator(value: progress),
+              const SizedBox(height: 8),
+              Text(
+                _current,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: _stop ? null : () => setState(() => _stop = true),
+                child: Text(_stop ? 'Stopping...' : 'Stop'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _reviewView(BuildContext context) {
+    final run = _run!;
+    final found = [
+      for (final plan in run.plans)
+        if (plan.proposals.isNotEmpty) plan,
+    ];
+    final empty = [
+      for (final plan in run.plans)
+        if (plan.proposals.isEmpty) plan,
+    ];
+    final theme = Theme.of(context);
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        if (run.claudeProblem case final problem?)
+          MaterialBanner(
+            content: Text('Claude stopped: $problem The other books were '
+                'looked up on Open Library only.'),
+            actions: [
+              TextButton(
+                onPressed: () => setState(() => _run = TagRun(
+                      plans: run.plans,
+                      claudeCalls: run.claudeCalls,
+                    )),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+          child: Text(
+            'Tap a tag to add or leave it out. Ticked tags are added; new '
+            'tag names start unticked.',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+        for (final plan in found)
+          _PlanTile(plan: plan, onChanged: () => setState(() {})),
+        if (empty.isNotEmpty)
+          ExpansionTile(
+            title: Text(
+              'No tags found for ${empty.length} '
+              'book${empty.length == 1 ? '' : 's'}',
+            ),
+            children: [
+              for (final plan in empty)
+                ListTile(
+                  dense: true,
+                  title: Text(plan.book.title),
+                  subtitle: Text([
+                    if (plan.book.author.isNotEmpty) plan.book.author,
+                    ?plan.note,
+                  ].join(' · ')),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _applyBar(BuildContext context) {
+    final plans = _run?.plans ?? const <TagPlan>[];
+    final books = plans.where((p) => p.checkedTags.isNotEmpty).length;
+    final tags = plans.fold<int>(0, (sum, p) => sum + p.checkedTags.length);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text('$tags tag${tags == 1 ? '' : 's'} on $books '
+                  'book${books == 1 ? '' : 's'}'),
+            ),
+            TextButton(
+              onPressed: () => setState(() {
+                _run = null;
+                _stage = _Stage.start;
+              }),
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: books == 0 ? null : _apply,
+              child: Text('Add tags to $books book${books == 1 ? '' : 's'}'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlanTile extends StatelessWidget {
+  const _PlanTile({required this.plan, required this.onChanged});
+
+  final TagPlan plan;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final book = plan.book;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(book.title, style: Theme.of(context).textTheme.titleSmall),
+          if (book.author.isNotEmpty)
+            Text(book.author, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              for (final p in plan.proposals)
+                Tooltip(
+                  message: p.reason.isEmpty
+                      ? (p.source == TagSource.claude ? 'Claude' : 'Open Library')
+                      : p.reason,
+                  child: FilterChip(
+                    avatar: Icon(
+                      p.source == TagSource.claude
+                          ? Icons.auto_awesome
+                          : Icons.public,
+                      size: 16,
+                    ),
+                    label: Text(p.isNew ? '${p.tag} (new)' : p.tag),
+                    selected: p.checked,
+                    onSelected: (value) {
+                      p.checked = value;
+                      onChanged();
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReportCard extends StatelessWidget {
+  const _ReportCard({required this.report});
+
+  final TagTestReport report;
+
+  String _percent(double value) => '${(value * 100).round()}%';
+
+  Widget _row(BuildContext context, String name, MethodScore score) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(name, style: theme.textTheme.titleSmall),
+          Text(
+            'Found ${score.found} of your ${score.yourTags} tags '
+            '(${_percent(score.foundShare)}).',
+          ),
+          Text(
+            '${score.right} of the ${score.suggested} tags it would add were '
+            'yours (${_percent(score.rightShare)}).',
+          ),
+          Text(
+            'At least one of your tags on ${score.booksHit} of '
+            '${score.books} books; nothing at all on ${score.booksEmpty}.',
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final claude = report.withClaude;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Test result', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            _row(context, 'Open Library only', report.openLibrary),
+            if (claude != null)
+              _row(
+                context,
+                'Open Library, then Claude '
+                '(${report.claudeCalls} question${report.claudeCalls == 1 ? '' : 's'} to Claude)',
+                claude,
+              ),
+            if (report.claudeProblem case final problem?)
+              Text(
+                'Claude stopped during the test: $problem',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            const SizedBox(height: 4),
+            Text(
+              'A tag of yours that it missed is not always wrong: it may '
+              'pick a different tag of yours that also fits.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

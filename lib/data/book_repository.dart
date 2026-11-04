@@ -867,6 +867,25 @@ class BookRepository extends ChangeNotifier {
     );
   }
 
+  /// Adds each book's tags in [tagsByBook] to that book, skipping ones it
+  /// already has (in any capitals). Saved in one go.
+  Future<void> addTagsToBooks(Map<String, List<String>> tagsByBook) {
+    final ids = {
+      for (final entry in tagsByBook.entries)
+        if (entry.value.any((t) => t.trim().isNotEmpty)) entry.key,
+    };
+    return _updateMany(ids, (book) {
+      final tags = [...book.tags];
+      for (final raw in tagsByBook[book.id] ?? const <String>[]) {
+        final tag = raw.trim();
+        if (tag.isEmpty) continue;
+        if (tags.any((t) => t.toLowerCase() == tag.toLowerCase())) continue;
+        tags.add(tag);
+      }
+      return book.copyWith(tags: tags);
+    });
+  }
+
   Future<void> addTagToAll(Set<String> ids, String tag) {
     final clean = tag.trim();
     if (clean.isEmpty) return Future.value();

@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:tray_manager/tray_manager.dart' as tray;
 
 import '../server/server_platform.dart';
+import 'claude_client.dart';
 import 'profiles.dart';
 import 'secure_code_store.dart';
 
@@ -67,6 +68,11 @@ Future<void> removeProfileFiles(String id) async {
     await SecureTokenStore(storageKey: SecureTokenStore.keyFor(id)).delete();
   } catch (_) {
     // No token saved.
+  }
+  try {
+    await ClaudeKeyStore(storageKey: ClaudeKeyStore.keyFor(id)).delete();
+  } catch (_) {
+    // No Claude key saved.
   }
   final base = await getApplicationSupportDirectory();
   final paths = id == mainProfileId

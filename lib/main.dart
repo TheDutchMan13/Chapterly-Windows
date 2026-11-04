@@ -15,6 +15,7 @@ import 'data/sync_three_way.dart';
 import 'data/app_settings.dart';
 import 'data/auto_backup.dart';
 import 'data/book_repository.dart';
+import 'data/claude_client.dart';
 import 'data/file_io.dart';
 import 'data/library_scan.dart';
 import 'data/open_library_client.dart';
@@ -72,6 +73,8 @@ Future<void> main() async {
   // C:\Users\<you>\AppData\Roaming\...\chapterly, or profiles\<id> in it
   final dataDir = await profileDataDir(profile.id);
   openProfileDir = dataDir;
+  ClaudeKeyStore.current =
+      ClaudeKeyStore(storageKey: ClaudeKeyStore.keyFor(profile.id));
   final repository = BookRepository(
     await SqliteBookStore.open(p.join(dataDir.path, 'chapterly.db')),
   );

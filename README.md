@@ -50,6 +50,12 @@ Made for a PC:
   Calibre library adds the books you do not have yet
 - This year's reading goal at the top of the Library, saved filters, a tag
   manager (rename, merge, delete) and a series tracker with missing numbers
+- Tag my library (Tags screen): tags for every untagged book from Open
+  Library, matched to your own tags, checked by you before they are added.
+  Optionally Claude, with your own API key (Settings > Claude), for the
+  books Open Library cannot tag; it gets only the title, author, Open
+  Library subjects and your tag names. A test mode measures both on books
+  you have tagged yourself
 - Audiobook bookmarks with notes (synced with the phone), a mini player
   that stays on top, media keys and Windows' media pop-up, and keep running
   in the tray

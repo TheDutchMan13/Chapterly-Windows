@@ -91,6 +91,7 @@ class AppSettings extends ChangeNotifier {
   int _reminderMinutes = 20 * 60;
   DateTime? _reminderShownOn;
   bool _closeToTray = false;
+  String? _claudeModel;
   bool _smartRewind = true;
   bool _bookmarksMoved = false;
   Set<String> _notDuplicates = {};
@@ -203,6 +204,10 @@ class AppSettings extends ChangeNotifier {
   /// Closing the window keeps Chapterly running in the system tray (so an
   /// audiobook keeps playing) instead of quitting.
   bool get closeToTray => _closeToTray;
+
+  /// The Claude model for picking tags, such as claude-haiku-5-5. Null for
+  /// Chapterly's choice.
+  String? get claudeModel => _claudeModel;
 
   /// Go back a few seconds when playing an audiobook again after a pause.
   bool get smartRewind => _smartRewind;
@@ -367,6 +372,7 @@ class AppSettings extends ChangeNotifier {
     settings._wishes = decodeWishes(prefs.getString('wishes'));
     settings._goalOnLibrary = prefs.getBool('goalOnLibrary') ?? true;
     settings._closeToTray = prefs.getBool('closeToTray') ?? false;
+    settings._claudeModel = prefs.getString('claudeModel');
     settings._smartRewind = prefs.getBool('smartRewind') ?? true;
     settings._bookmarksMoved = prefs.getBool('bookmarksMoved') ?? false;
     settings._notDuplicates = {...?prefs.getStringList('notDuplicates')};
@@ -787,6 +793,17 @@ class AppSettings extends ChangeNotifier {
   void addNotDuplicate(String pairKey) {
     if (!_notDuplicates.add(pairKey)) return;
     prefs?.setStringList('notDuplicates', _notDuplicates.toList());
+    notifyListeners();
+  }
+
+  void setClaudeModel(String? value) {
+    final clean = value?.trim() ?? '';
+    _claudeModel = clean.isEmpty ? null : clean;
+    if (_claudeModel == null) {
+      prefs?.remove('claudeModel');
+    } else {
+      prefs?.setString('claudeModel', _claudeModel!);
+    }
     notifyListeners();
   }
 
