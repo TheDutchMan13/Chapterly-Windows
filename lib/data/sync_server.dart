@@ -255,7 +255,6 @@ class SyncServer {
       reply = jsonEncode({'error': 'Sync failed on the phone.'});
     }
     response.statusCode = status;
-    if (status == 204) return;
     response.headers.contentType = ContentType.binary;
     response.add(
       await key.seal(
@@ -291,7 +290,8 @@ class SyncServer {
       return (200, picture);
     }
     await covers.put(hash, body);
-    return (204, '');
+    // A sealed empty answer, like the phone: a 204 could not carry it.
+    return (200, '');
   }
 
   /// The request's body, or null when it is larger than [limit] bytes.

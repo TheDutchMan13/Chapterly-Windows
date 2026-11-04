@@ -272,7 +272,6 @@ class SyncClient {
         requestContext(method, path, challenge),
       );
     final (status, bytes) = await _fetch(request, limit, syncTimeout, step);
-    if (status == 204 && bytes.isEmpty) return const _Answer(204, '');
     try {
       final opened = await session.key.open(
         bytes,
