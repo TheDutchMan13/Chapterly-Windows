@@ -350,7 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           action: 'Restore',
         );
         if (!confirmed || !mounted) return;
-        await widget.repository.replaceAll(books);
+        await widget.repository.restoreBackup(books);
         if (mounted) _say('Restored ${books.length} books.');
       });
 

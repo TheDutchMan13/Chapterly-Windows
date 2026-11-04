@@ -90,7 +90,7 @@ void main() {
     await repo.deleteForever(a);
     expect(repo.snapshot().tombstones, contains(a));
     final restoredAt = DateTime.now();
-    await repo.replaceAll([old]);
+    await repo.restoreBackup([old]);
     expect(repo.snapshot().tombstones, isNot(contains(a)));
     expect(repo.byId(a)!.updatedAt.isBefore(restoredAt), isFalse);
   });

@@ -178,7 +178,7 @@ class _FileDropTargetState extends State<FileDropTarget> {
             ),
           );
           if (confirmed != true) return;
-          await repository.replaceAll(restored);
+          await repository.restoreBackup(restored);
           _say(messenger, 'Restored ${restored.length} books.');
         case DroppedFileKind.csv:
           final result = importBooksFromCsv(text);

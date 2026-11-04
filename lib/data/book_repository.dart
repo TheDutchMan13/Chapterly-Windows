@@ -1057,25 +1057,34 @@ class BookRepository extends ChangeNotifier {
     return stamped.length;
   }
 
-  /// Replaces the whole library, for restoring a backup. The restored
-  /// books count as changed now, and a book removed for good since the
-  /// backup is no longer marked removed, so the next sync keeps the
-  /// restored library instead of taking it back to what it replaced.
-  Future<void> replaceAll(List<Book> books) async {
+  /// Restores a backup: replaces the whole library with [books]. They
+  /// count as changed now, and a book removed for good since the backup is
+  /// no longer marked removed, so the next sync keeps the restored library
+  /// instead of taking it back to what it replaced.
+  Future<void> restoreBackup(List<Book> books) {
     final stamp = DateTime.now();
-    final sorted = [
-      for (final book in books) book.copyWith(updatedAt: stamp),
-    ]..sort((a, b) => b.addedAt.compareTo(a.addedAt));
+    return replaceAll(
+      [for (final book in books) book.copyWith(updatedAt: stamp)],
+      forgetRemoved: true,
+    );
+  }
+
+  /// Replaces the whole library with [books] as they are. With
+  /// [forgetRemoved], their ids are no longer marked removed for good.
+  Future<void> replaceAll(List<Book> books, {bool forgetRemoved = false}) async {
+    final sorted = [...books]..sort((a, b) => b.addedAt.compareTo(a.addedAt));
     _books.clear();
     _books.addAll(sorted);
     _isLoaded = true;
-    final hadTombstones = _tombstones.isNotEmpty;
-    for (final book in sorted) {
-      _tombstones.remove(book.id);
+    var forgot = false;
+    if (forgetRemoved) {
+      for (final book in sorted) {
+        if (_tombstones.remove(book.id) != null) forgot = true;
+      }
     }
     notifyListeners();
     await _store.replaceAll(sorted);
-    if (hadTombstones) await _store.saveTombstones(Map.of(_tombstones));
+    if (forgot) await _store.saveTombstones(Map.of(_tombstones));
   }
 
   Future<void> _update(String id, Book Function(Book) change) =>
