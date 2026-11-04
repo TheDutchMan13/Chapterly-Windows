@@ -332,8 +332,8 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
           child: Text(
-            'Tap a tag to add or leave it out. Ticked tags are added; new '
-            'tag names start unticked.',
+            'Tap a tag to add or leave it out. Ticked tags are added. Claude\'s '
+            'suggestions and new tag names start unticked.',
             style: theme.textTheme.bodyMedium,
           ),
         ),

@@ -167,7 +167,8 @@ Future<TagPlan> planBookTags(
       tag: yours ?? raw.trim(),
       source: TagSource.claude,
       isNew: yours == null,
-      checked: yours != null,
+      // Claude's suggestions wait for you to tick them.
+      checked: false,
       reason: yours == null ? 'New tag, from Claude' : 'Claude',
     ));
   }
@@ -339,7 +340,7 @@ class TagTestReport {
 }
 
 /// Up to [count] of your tagged books, spread over the library.
-List<Book> pickTestBooks(List<Book> library, {int count = 50}) {
+List<Book> pickTestBooks(List<Book> library, {int count = 150}) {
   final tagged = [
     for (final book in library)
       if (book.deletedAt == null && book.tags.isNotEmpty) book,
@@ -351,13 +352,14 @@ List<Book> pickTestBooks(List<Book> library, {int count = 50}) {
 
 /// Hides the tags of some tagged books, finds tags for them with Open
 /// Library alone and with Open Library and then Claude, and compares the
-/// result with the tags you gave them. Only the tags it would add without
-/// asking count.
+/// result with the tags you gave them. Open Library counts only the tags it
+/// would add on its own. Claude counts every tag it suggests, since its
+/// suggestions wait for you to tick them.
 Future<TagTestReport> runTagTest(
   List<Book> library, {
   required SubjectLookup subjects,
   TagPicker? claude,
-  int count = 50,
+  int count = 150,
   void Function(int done, int total)? onProgress,
   bool Function()? stopped,
 }) async {
@@ -397,7 +399,11 @@ Future<TagTestReport> runTagTest(
             },
             yourTags: names,
           );
-          both = {for (final t in plan.checkedTags) t.toLowerCase()};
+          both = {
+            for (final p in plan.proposals)
+              if (p.checked || p.source == TagSource.claude)
+                p.tag.toLowerCase(),
+          };
         } on ClaudeFailure catch (failure) {
           problem = failure.message;
           picker = null;

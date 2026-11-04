@@ -21,7 +21,8 @@ const changelog = [
           'untick each one before anything is added, with Undo',
       'Optional: ask Claude about the books Open Library cannot tag, with '
           'your own API key (Settings > Claude). It gets only the title, '
-          'author, Open Library subjects and your tag names',
+          'author, Open Library subjects and your tag names. Its suggestions '
+          'start unticked, so you check them first',
       'Test on your tagged books: hides their tags, finds tags for them, '
           'and shows how many of yours came back, for Open Library alone and '
           'with Claude',

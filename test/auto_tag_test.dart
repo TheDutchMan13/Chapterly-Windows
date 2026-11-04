@@ -68,7 +68,7 @@ void main() {
       expect(sentTags, ['Sci-Fi']);
       // Your tag, in your spelling, is ticked; new names are not.
       final byTag = {for (final p in plan.proposals) p.tag: p};
-      expect(byTag['Sci-Fi']!.checked, isTrue);
+      expect(byTag['Sci-Fi']!.checked, isFalse);
       expect(byTag['Sci-Fi']!.source, TagSource.claude);
       expect(byTag['Sci-Fi']!.isNew, isFalse);
       expect(byTag['Cowboys in space']!.checked, isFalse);
@@ -78,7 +78,7 @@ void main() {
         plan.proposals.where((p) => p.tag.toLowerCase() == 'space westerns'),
         hasLength(1),
       );
-      expect(plan.checkedTags, ['Sci-Fi']);
+      expect(plan.checkedTags, isEmpty);
     });
 
     test('an unreadable answer costs only that book its Claude tags', () async {
