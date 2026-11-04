@@ -3,23 +3,20 @@ import 'package:flutter/material.dart';
 import '../data/app_settings.dart';
 import '../data/auto_tag.dart';
 import '../data/book_repository.dart';
-import '../data/claude_client.dart';
 import '../data/open_library_client.dart';
 import '../models/book.dart';
 
 // Windows app only.
 
-/// Finds tags for the books that have none: Open Library first, then (if
-/// you switch it on) Claude for the books Open Library cannot tag. Nothing
-/// is added until you have looked at the list. It can also be tried on
-/// books you tagged yourself, to see how well each way works.
+/// Finds tags for the books that have none, from Open Library. Nothing is
+/// added until you have looked at the list. It can also be tried on books
+/// you tagged yourself, to see how well it works.
 class AutoTagScreen extends StatefulWidget {
   const AutoTagScreen({
     super.key,
     required this.repository,
     required this.settings,
     this.client,
-    this.keyStore,
   });
 
   final BookRepository repository;
@@ -28,9 +25,6 @@ class AutoTagScreen extends StatefulWidget {
   /// For tests; the real Open Library otherwise.
   final OpenLibraryClient? client;
 
-  /// For tests; the open profile's key store otherwise.
-  final ClaudeKeyStore? keyStore;
-
   @override
   State<AutoTagScreen> createState() => _AutoTagScreenState();
 }
@@ -38,39 +32,20 @@ class AutoTagScreen extends StatefulWidget {
 enum _Stage { start, running, review }
 
 class _AutoTagScreenState extends State<AutoTagScreen> {
-  late final OpenLibraryClient _client =
-      widget.client ?? OpenLibraryClient();
+  late final OpenLibraryClient _client = widget.client ?? OpenLibraryClient();
   _Stage _stage = _Stage.start;
-  String? _claudeKey;
-  bool _keyChecked = false;
-  bool _useClaude = true;
-  bool _stop = false;
   bool _testing = false;
+  bool _stop = false;
   int _done = 0;
   int _total = 0;
   String _current = '';
-  TagRun? _run;
+  List<TagPlan>? _plans;
   TagTestReport? _report;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadKey();
-  }
 
   @override
   void dispose() {
     _stop = true;
     super.dispose();
-  }
-
-  Future<void> _loadKey() async {
-    final key = await (widget.keyStore ?? ClaudeKeyStore.current).read();
-    if (!mounted) return;
-    setState(() {
-      _claudeKey = key;
-      _keyChecked = true;
-    });
   }
 
   List<Book> get _untagged => [
@@ -88,15 +63,6 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
     );
   }
 
-  TagPicker? get _claude {
-    final key = _claudeKey;
-    if (!_useClaude || key == null) return null;
-    return claudeTagPicker(ClaudeClient(
-      apiKey: key,
-      model: widget.settings.claudeModel ?? defaultClaudeModel,
-    ));
-  }
-
   Future<void> _find() async {
     final books = _untagged;
     if (books.isEmpty) return;
@@ -108,11 +74,10 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
       _total = books.length;
       _current = '';
     });
-    final run = await planTags(
+    final plans = await planTags(
       books,
       widget.repository.books,
       subjects: _subjects,
-      claude: _claude,
       stopped: () => _stop,
       onProgress: (done, total, book) {
         if (!mounted) return;
@@ -125,7 +90,7 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
     );
     if (!mounted) return;
     setState(() {
-      _run = run;
+      _plans = plans;
       _stage = _Stage.review;
     });
   }
@@ -142,7 +107,6 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
     final report = await runTagTest(
       widget.repository.books,
       subjects: _subjects,
-      claude: _claude,
       stopped: () => _stop,
       onProgress: (done, total) {
         if (mounted) setState(() => _done = done);
@@ -156,7 +120,7 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
   }
 
   Future<void> _apply() async {
-    final plans = _run?.plans ?? const <TagPlan>[];
+    final plans = _plans ?? const <TagPlan>[];
     final tagsByBook = {
       for (final plan in plans)
         if (plan.checkedTags.isNotEmpty) plan.book.id: plan.checkedTags,
@@ -169,7 +133,7 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
     await widget.repository.addTagsToBooks(tagsByBook);
     if (!mounted) return;
     setState(() {
-      _run = null;
+      _plans = null;
       _stage = _Stage.start;
     });
     final count = tagsByBook.length;
@@ -199,7 +163,6 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
     final untagged = _untagged.length;
     final tested = pickTestBooks(widget.repository.books).length;
     final theme = Theme.of(context);
-    final hasKey = _claudeKey != null;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -217,22 +180,6 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
           'check the list before anything is added. Books that already have '
           'tags are not changed.',
         ),
-        const SizedBox(height: 8),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text("Ask Claude about books Open Library can't tag"),
-          subtitle: Text(
-            !_keyChecked
-                ? 'Checking for your Claude API key...'
-                : hasKey
-                    ? 'Only for those books. Sends their title, author, Open '
-                        'Library subjects and your tag names to Claude, with '
-                        'your API key (Settings > Claude). Nothing else.'
-                    : 'Add your Claude API key in Settings > Claude first.',
-          ),
-          value: hasKey && _useClaude,
-          onChanged: hasKey ? (value) => setState(() => _useClaude = value) : null,
-        ),
         const SizedBox(height: 16),
         Wrap(
           spacing: 12,
@@ -240,12 +187,16 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
           children: [
             FilledButton.icon(
               icon: const Icon(Icons.auto_awesome_outlined),
-              label: Text('Find tags for $untagged book${untagged == 1 ? '' : 's'}'),
+              label: Text(
+                'Find tags for $untagged book${untagged == 1 ? '' : 's'}',
+              ),
               onPressed: untagged == 0 ? null : _find,
             ),
             OutlinedButton.icon(
               icon: const Icon(Icons.science_outlined),
-              label: Text('Test on $tested tagged book${tested == 1 ? '' : 's'}'),
+              label: Text(
+                'Test on $tested tagged book${tested == 1 ? '' : 's'}',
+              ),
               onPressed: tested == 0 ? null : _test,
             ),
           ],
@@ -284,11 +235,7 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
               const SizedBox(height: 12),
               LinearProgressIndicator(value: progress),
               const SizedBox(height: 8),
-              Text(
-                _current,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              Text(_current, maxLines: 1, overflow: TextOverflow.ellipsis),
               const SizedBox(height: 16),
               OutlinedButton(
                 onPressed: _stop ? null : () => setState(() => _stop = true),
@@ -302,38 +249,24 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
   }
 
   Widget _reviewView(BuildContext context) {
-    final run = _run!;
+    final plans = _plans ?? const <TagPlan>[];
     final found = [
-      for (final plan in run.plans)
+      for (final plan in plans)
         if (plan.proposals.isNotEmpty) plan,
     ];
     final empty = [
-      for (final plan in run.plans)
+      for (final plan in plans)
         if (plan.proposals.isEmpty) plan,
     ];
     final theme = Theme.of(context);
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
-        if (run.claudeProblem case final problem?)
-          MaterialBanner(
-            content: Text('Claude stopped: $problem The other books were '
-                'looked up on Open Library only.'),
-            actions: [
-              TextButton(
-                onPressed: () => setState(() => _run = TagRun(
-                      plans: run.plans,
-                      claudeCalls: run.claudeCalls,
-                    )),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
           child: Text(
-            'Tap a tag to add or leave it out. Ticked tags are added. Claude\'s '
-            'suggestions and new tag names start unticked.',
+            'Tap a tag to add or leave it out. Ticked tags are added. New tag '
+            'names start unticked.',
             style: theme.textTheme.bodyMedium,
           ),
         ),
@@ -362,7 +295,7 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
   }
 
   Widget _applyBar(BuildContext context) {
-    final plans = _run?.plans ?? const <TagPlan>[];
+    final plans = _plans ?? const <TagPlan>[];
     final books = plans.where((p) => p.checkedTags.isNotEmpty).length;
     final tags = plans.fold<int>(0, (sum, p) => sum + p.checkedTags.length);
     return SafeArea(
@@ -376,7 +309,7 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
             ),
             TextButton(
               onPressed: () => setState(() {
-                _run = null;
+                _plans = null;
                 _stage = _Stage.start;
               }),
               child: const Text('Cancel'),
@@ -417,16 +350,8 @@ class _PlanTile extends StatelessWidget {
             children: [
               for (final p in plan.proposals)
                 Tooltip(
-                  message: p.reason.isEmpty
-                      ? (p.source == TagSource.claude ? 'Claude' : 'Open Library')
-                      : p.reason,
+                  message: p.reason.isEmpty ? 'Open Library' : p.reason,
                   child: FilterChip(
-                    avatar: Icon(
-                      p.source == TagSource.claude
-                          ? Icons.auto_awesome
-                          : Icons.public,
-                      size: 16,
-                    ),
                     label: Text(p.isNew ? '${p.tag} (new)' : p.tag),
                     selected: p.checked,
                     onSelected: (value) {
@@ -450,60 +375,35 @@ class _ReportCard extends StatelessWidget {
 
   String _percent(double value) => '${(value * 100).round()}%';
 
-  Widget _row(BuildContext context, String name, MethodScore score) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(name, style: theme.textTheme.titleSmall),
-          Text(
-            'Found ${score.found} of your ${score.yourTags} tags '
-            '(${_percent(score.foundShare)}).',
-          ),
-          Text(
-            '${score.right} of the ${score.suggested} tags it would add were '
-            'yours (${_percent(score.rightShare)}).',
-          ),
-          Text(
-            'At least one of your tags on ${score.booksHit} of '
-            '${score.books} books; nothing at all on ${score.booksEmpty}.',
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final claude = report.withClaude;
+    final score = report.openLibrary;
+    final theme = Theme.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Test result', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 4),
-            _row(context, 'Open Library only', report.openLibrary),
-            if (claude != null)
-              _row(
-                context,
-                'Open Library, then Claude '
-                '(${report.claudeCalls} question${report.claudeCalls == 1 ? '' : 's'} to Claude)',
-                claude,
-              ),
-            if (report.claudeProblem case final problem?)
-              Text(
-                'Claude stopped during the test: $problem',
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            const SizedBox(height: 4),
+            Text('Test result', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 6),
             Text(
-              'A tag of yours that it missed is not always wrong: it may '
-              'pick a different tag of yours that also fits.',
-              style: Theme.of(context).textTheme.bodySmall,
+              'Found ${score.found} of your ${score.yourTags} tags '
+              '(${_percent(score.foundShare)}).',
+            ),
+            Text(
+              '${score.right} of the ${score.suggested} tags it would add were '
+              'yours (${_percent(score.rightShare)}).',
+            ),
+            Text(
+              'At least one of your tags on ${score.booksHit} of '
+              '${score.books} books; nothing at all on ${score.booksEmpty}.',
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'A tag of yours that it missed is not always wrong: it may pick '
+              'a different tag of yours that also fits.',
+              style: theme.textTheme.bodySmall,
             ),
           ],
         ),
