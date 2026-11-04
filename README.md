@@ -75,6 +75,9 @@ Made for a PC:
 - Remembers the window size and place
 - Optional daily update check (asks GitHub for the newest release number;
   nothing about you or your books is sent)
+- Shelves of your own: on one of your shelves, select books (Ctrl+click or
+  Shift+click) and use More to move them to another of your shelves or take
+  them off this one (both with Undo)
 - Profiles: several people on one PC, each with their own books, shelves,
   statistics, goals, settings, phone pairing, book server connection and
   optional PIN (Settings, at the top, or the PIN screen). Opening another

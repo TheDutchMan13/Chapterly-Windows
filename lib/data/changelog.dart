@@ -13,6 +13,18 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.16.0',
+    date: '2026-11-03',
+    changes: [
+      'Move books between your own shelves: open one of your shelves, '
+          'select books, then More > Move to another shelf of mine. The '
+          'books leave that shelf and go to the one you pick (or a new '
+          'one), with Undo',
+      'Take books off a shelf of your own: select them, then More > Remove '
+          'from the shelf. The books stay in your library',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.15.0',
     date: '2026-11-03',
     changes: [

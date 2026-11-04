@@ -509,12 +509,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Future<void> _addSelectedToShelf() async {
-    final names = allCollectionNames(widget.settings, widget.repository);
+  /// Asks which of your own shelves, from [names] or a new one. Null when
+  /// the dialog is closed without a choice.
+  Future<String?> _chooseShelf(String title, List<String> names) async {
     final choice = await showDialog<String>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
-        title: const Text('Add to shelf'),
+        title: Text(title),
         children: [
           for (final name in names)
             SimpleDialogOption(
@@ -528,7 +529,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ],
       ),
     );
-    if (choice == null || !mounted) return;
+    if (choice == null || !mounted) return null;
     var name = choice;
     if (name.isEmpty) {
       final controller = TextEditingController();
@@ -556,12 +557,82 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
       );
       controller.dispose();
-      if (typed == null || typed.trim().isEmpty || !mounted) return;
+      if (typed == null || typed.trim().isEmpty || !mounted) return null;
       name = typed.trim();
       widget.settings.addCollection(name);
     }
+    return name;
+  }
+
+  Future<void> _addSelectedToShelf() async {
+    final name = await _chooseShelf(
+      'Add to shelf',
+      allCollectionNames(widget.settings, widget.repository),
+    );
+    if (name == null || !mounted) return;
     await widget.repository.addToCollectionAll({..._selected}, name);
     if (mounted) setState(_selected.clear);
+  }
+
+  /// The name of the shelf of your own that is open, or null on one of the
+  /// main shelves.
+  String? _openOwnShelf(BuildContext context) {
+    final index = DefaultTabController.maybeOf(context)?.index;
+    if (index == null) return null;
+    final own = index - Shelf.values.length;
+    final names = _collections;
+    return own >= 0 && own < names.length ? names[own] : null;
+  }
+
+  /// Moves the selected books from the open shelf of your own to another.
+  Future<void> _moveSelectedToOwnShelf(String from) async {
+    final names = [
+      for (final name in _collections)
+        if (name.toLowerCase() != from.toLowerCase()) name,
+    ];
+    final to = await _chooseShelf('Move to shelf', names);
+    if (to == null || !mounted) return;
+    final ids = {..._selected};
+    final before = [for (final id in ids) ?widget.repository.byId(id)];
+    final messenger = ScaffoldMessenger.of(context);
+    await widget.repository.moveBetweenCollections(ids, from: from, to: to);
+    if (!mounted) return;
+    setState(_selected.clear);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Moved ${ids.length} book${ids.length == 1 ? '' : 's'} '
+          'from $from to $to',
+        ),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => widget.repository.putBack(before),
+        ),
+      ),
+    );
+  }
+
+  /// Takes the selected books off the open shelf of your own. The books
+  /// stay in the library.
+  Future<void> _removeSelectedFromOwnShelf(String shelf) async {
+    final ids = {..._selected};
+    final before = [for (final id in ids) ?widget.repository.byId(id)];
+    final messenger = ScaffoldMessenger.of(context);
+    await widget.repository.removeFromCollectionAll(ids, shelf);
+    if (!mounted) return;
+    setState(_selected.clear);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Took ${ids.length} book${ids.length == 1 ? '' : 's'} '
+          'off $shelf',
+        ),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => widget.repository.putBack(before),
+        ),
+      ),
+    );
   }
 
   /// Fills in blank ISBNs, years, covers and pages of the selected books
@@ -1519,10 +1590,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
             icon: const Icon(Icons.delete_outline),
             onPressed: _trashSelected,
           ),
-          PopupMenuButton<VoidCallback>(
+          Builder(
+            builder: (context) => PopupMenuButton<VoidCallback>(
             tooltip: 'More',
             onSelected: (action) => action(),
             itemBuilder: (_) => [
+              // On a shelf of your own: move books to another one, or take
+              // them off it.
+              if (_openOwnShelf(context) case final shelf?) ...[
+                PopupMenuItem(
+                  value: () => _moveSelectedToOwnShelf(shelf),
+                  child: const Text('Move to another shelf of mine'),
+                ),
+                PopupMenuItem(
+                  value: () => _removeSelectedFromOwnShelf(shelf),
+                  child: Text('Remove from $shelf'),
+                ),
+              ],
               PopupMenuItem(
                 value: _changeFormatSelected,
                 child: const Text('Change format'),
@@ -1540,6 +1624,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: const Text('Refresh details from Open Library'),
               ),
             ],
+            ),
           ),
         ],
         bottom: tabBar,

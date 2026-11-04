@@ -648,6 +648,54 @@ class BookRepository extends ChangeNotifier {
     });
   }
 
+  /// Takes every book in [ids] off the shelf [name]. The books stay.
+  Future<void> removeFromCollectionAll(Set<String> ids, String name) {
+    final wanted = name.trim().toLowerCase();
+    if (wanted.isEmpty) return Future.value();
+    final onShelf = {
+      for (final book in _books)
+        if (ids.contains(book.id) && _isOn(book, wanted)) book.id,
+    };
+    return _updateMany(onShelf, (book) => _without(book, wanted));
+  }
+
+  /// Moves every book in [ids] from your shelf [from] to your shelf [to]:
+  /// it leaves [from] and is put on [to]. A book that is not on [from] is
+  /// just put on [to].
+  Future<void> moveBetweenCollections(
+    Set<String> ids, {
+    required String from,
+    required String to,
+  }) {
+    final source = from.trim().toLowerCase();
+    final target = to.trim();
+    if (target.isEmpty || source == target.toLowerCase()) {
+      return Future.value();
+    }
+    final changing = {
+      for (final book in _books)
+        if (ids.contains(book.id) &&
+            (_isOn(book, source) || !_isOn(book, target.toLowerCase())))
+          book.id,
+    };
+    return _updateMany(changing, (book) {
+      final left = _without(book, source);
+      return _isOn(left, target.toLowerCase())
+          ? left
+          : left.copyWith(collections: [...left.collections, target]);
+    });
+  }
+
+  bool _isOn(Book book, String lowerName) =>
+      book.collections.any((c) => c.toLowerCase() == lowerName);
+
+  Book _without(Book book, String lowerName) => book.copyWith(
+        collections: [
+          for (final c in book.collections)
+            if (c.toLowerCase() != lowerName) c,
+        ],
+      );
+
   /// Renames a shelf on every book that is on it (trash included).
   Future<void> renameCollection(String from, String to) {
     final clean = to.trim();
