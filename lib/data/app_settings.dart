@@ -79,6 +79,7 @@ class AppSettings extends ChangeNotifier {
   bool _reviewSync = true;
   int _syncEveryMinutes = 15;
   bool _checkUpdates = true;
+  bool _useWikidata = false;
   DateTime? _lastUpdateCheck;
   String? _booksFolder;
   String? _audiobooksFolder;
@@ -183,6 +184,9 @@ class AppSettings extends ChangeNotifier {
 
   /// Ask GitHub once a day whether a newer Chapterly for Windows is out.
   bool get checkUpdates => _checkUpdates;
+
+  /// Also ask Wikidata for genres when tagging the library.
+  bool get useWikidata => _useWikidata;
 
   /// The folder with your EPUB and PDF files, scanned to link them to books.
   String? get booksFolder => _booksFolder;
@@ -359,6 +363,7 @@ class AppSettings extends ChangeNotifier {
     settings._reviewSync = prefs.getBool('reviewSync') ?? true;
     settings._syncEveryMinutes = prefs.getInt('syncEveryMinutes') ?? 15;
     settings._checkUpdates = prefs.getBool('checkUpdates') ?? true;
+    settings._useWikidata = prefs.getBool('useWikidata') ?? false;
     settings._lastUpdateCheck = _fromMillis(prefs.getInt('lastUpdateCheck'));
     settings._booksFolder = prefs.getString('booksFolder');
     settings._audiobooksFolder = prefs.getString('audiobooksFolder');
@@ -859,6 +864,12 @@ class AppSettings extends ChangeNotifier {
   void setLastScan(DateTime when) {
     _lastScanAt = when;
     prefs?.setInt('lastScanAt', when.millisecondsSinceEpoch);
+    notifyListeners();
+  }
+
+  void setUseWikidata(bool value) {
+    _useWikidata = value;
+    prefs?.setBool('useWikidata', value);
     notifyListeners();
   }
 

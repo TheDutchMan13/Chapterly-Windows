@@ -4,6 +4,7 @@ import '../data/app_settings.dart';
 import '../data/auto_tag.dart';
 import '../data/book_repository.dart';
 import '../data/open_library_client.dart';
+import '../data/wikidata_client.dart';
 import '../models/book.dart';
 
 // Windows app only.
@@ -17,6 +18,7 @@ class AutoTagScreen extends StatefulWidget {
     required this.repository,
     required this.settings,
     this.client,
+    this.wikidata,
   });
 
   final BookRepository repository;
@@ -24,6 +26,9 @@ class AutoTagScreen extends StatefulWidget {
 
   /// For tests; the real Open Library otherwise.
   final OpenLibraryClient? client;
+
+  /// For tests; the real Wikidata otherwise.
+  final WikidataClient? wikidata;
 
   @override
   State<AutoTagScreen> createState() => _AutoTagScreenState();
@@ -33,6 +38,7 @@ enum _Stage { start, running, review }
 
 class _AutoTagScreenState extends State<AutoTagScreen> {
   late final OpenLibraryClient _client = widget.client ?? OpenLibraryClient();
+  late final WikidataClient _wikidata = widget.wikidata ?? WikidataClient();
   _Stage _stage = _Stage.start;
   bool _testing = false;
   bool _stop = false;
@@ -56,11 +62,17 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
   /// Open Library, a little apart, so a big library does not flood it.
   Future<List<String>> _subjects(Book book) async {
     await Future<void>.delayed(const Duration(milliseconds: 150));
-    return _client.subjectsFor(
+    final subjects = await _client.subjectsFor(
       title: book.title,
       author: book.author,
       isbn: book.isbn,
     );
+    if (!widget.settings.useWikidata) return subjects;
+    final genres = await _wikidata.genresFor(
+      title: book.title,
+      author: book.author,
+    );
+    return mergeSubjects(subjects, genres);
   }
 
   Future<void> _find() async {
@@ -180,7 +192,18 @@ class _AutoTagScreenState extends State<AutoTagScreen> {
           'check the list before anything is added. Books that already have '
           'tags are not changed.',
         ),
-        const SizedBox(height: 16),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Also use Wikidata'),
+          subtitle: const Text(
+            'Adds the genres Wikidata lists for a book. Slower, and it sends '
+            'each title and author to wikidata.org.',
+          ),
+          value: widget.settings.useWikidata,
+          onChanged: (value) =>
+              setState(() => widget.settings.setUseWikidata(value)),
+        ),
+        const SizedBox(height: 8),
         Wrap(
           spacing: 12,
           runSpacing: 8,

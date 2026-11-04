@@ -13,6 +13,16 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.20.0',
+    date: '2026-11-04',
+    changes: [
+      'Tag my library can also ask Wikidata for a book\'s genres. Switch on '
+          '"Also use Wikidata" on that screen. It is off by default because '
+          'it sends each title and author to wikidata.org, and it goes slowly '
+          'on purpose to stay within Wikidata\'s limits',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.19.0',
     date: '2026-11-04',
     changes: [

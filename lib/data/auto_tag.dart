@@ -43,6 +43,15 @@ typedef SubjectLookup = Future<List<String>> Function(Book book);
 /// At most this many tags per book.
 const maxTagsPerBook = 5;
 
+/// Subjects from two sources in one list, without repeats (ignoring capitals).
+List<String> mergeSubjects(List<String> first, List<String> second) {
+  final seen = <String>{};
+  return [
+    for (final s in [...first, ...second])
+      if (seen.add(s.trim().toLowerCase())) s,
+  ];
+}
+
 /// An Open Library match this good is added without asking.
 const _sureScore = 0.8;
 
