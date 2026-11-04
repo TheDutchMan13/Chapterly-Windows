@@ -24,7 +24,14 @@ const csvColumns = [
   'Series Number',
 ];
 
-String _csvCell(String value) {
+/// Text a spreadsheet would run as a formula ("=HYPERLINK(...)") when the
+/// file is opened. Such a cell is written with a ' in front, which
+/// spreadsheets show as text, and the ' is taken off again on import.
+final _formulaStart = RegExp(r'^[=+\-@\t\r]');
+final _guardedFormula = RegExp(r"^'[=+\-@\t\r]");
+
+String _csvCell(String rawValue) {
+  final value = _formulaStart.hasMatch(rawValue) ? "'$rawValue" : rawValue;
   final needsQuotes = value.contains(',') ||
       value.contains('"') ||
       value.contains('\n') ||
@@ -122,6 +129,7 @@ String _cell(List<String> row, List<int> columns) {
   for (final column in columns) {
     if (column < row.length) {
       final value = row[column].trim();
+      if (_guardedFormula.hasMatch(value)) return value.substring(1);
       if (value.isNotEmpty) return value;
     }
   }

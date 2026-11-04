@@ -32,14 +32,17 @@ class _UpdateDialog extends StatefulWidget {
 
 class _UpdateDialogState extends State<_UpdateDialog> {
   bool _downloading = false;
-  bool _cancelled = false;
+  // Each download has its own number: Cancel, or a new Install, makes an
+  // older one stop and never start its installer.
+  int _attempt = 0;
   double? _progress;
   String? _problem;
 
   Future<void> _install() async {
+    final attempt = ++_attempt;
+    bool stale() => attempt != _attempt || !mounted;
     setState(() {
       _downloading = true;
-      _cancelled = false;
       _problem = null;
       _progress = null;
     });
@@ -47,11 +50,11 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       final file = await downloadInstaller(
         widget.update,
         onProgress: (fraction) {
-          if (mounted) setState(() => _progress = fraction);
+          if (!stale()) setState(() => _progress = fraction);
         },
-        cancelled: () => _cancelled,
+        cancelled: stale,
       );
-      if (file == null || !mounted) return;
+      if (file == null || stale()) return;
       // Save where you are in an audiobook before closing.
       final player = Listening.controller;
       if (player != null && player.playing) {
@@ -61,14 +64,14 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       await startInstaller(file);
       exit(0);
     } on UpdateDownloadFailure catch (failure) {
-      if (mounted) {
+      if (!stale()) {
         setState(() {
           _downloading = false;
           _problem = failure.message;
         });
       }
     } catch (_) {
-      if (mounted) {
+      if (!stale()) {
         setState(() {
           _downloading = false;
           _problem = "The installer couldn't be started.";
@@ -136,7 +139,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           ? [
               TextButton(
                 onPressed: () {
-                  _cancelled = true;
+                  _attempt++;
                   setState(() => _downloading = false);
                 },
                 child: const Text('Cancel'),

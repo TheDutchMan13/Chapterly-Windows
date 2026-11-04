@@ -25,13 +25,14 @@ Future<Directory> profileDataDir(String id) async {
 }
 
 /// The folder in Documents\Chapterly for a profile's automatic backups,
-/// named after the profile. Null for the first profile, whose backups stay
-/// in Documents\Chapterly itself.
+/// named after the profile and its id ("Anna (k3x9q2ab)"), so two profiles
+/// with names that look alike never share one. Null for the first profile,
+/// whose backups stay in Documents\Chapterly itself.
 String? profileBackupFolder(Profile profile) {
   if (profile.isMain) return null;
   final safe =
       profile.name.trim().replaceAll(RegExp(r'[^A-Za-z0-9 _-]'), '_').trim();
-  return safe.isEmpty ? profile.id : safe;
+  return safe.isEmpty ? profile.id : '$safe (${profile.id})';
 }
 
 /// The first profile's files in the app's data folder. The folder also

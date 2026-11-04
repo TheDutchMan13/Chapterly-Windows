@@ -56,6 +56,30 @@ class DownloadedBook {
 /// Brings books from the server into your library: downloads the file,
 /// finds the book you already have (or adds it to For later), links the
 /// two and takes your saved place.
+/// The formats a book from the server may have. Its file is named by its
+/// format, so anything else is refused.
+const serverFormats = {'epub', 'pdf', 'm4b', 'm4a', 'mp3'};
+
+/// Whether [path] is inside the folder [dir] (not the folder itself).
+bool isInside(String dir, String path) {
+  final sep = Platform.pathSeparator;
+  final root = dir.endsWith(sep) ? dir : '$dir$sep';
+  final parts = path.split(RegExp(r'[\\/]'));
+  return path.startsWith(root) && !parts.contains('..') && !parts.contains('.');
+}
+
+/// A track's file name: numbered, so they play in the server's order, with
+/// nothing that Windows forbids or that could leave the folder.
+String safeTrackName(int index, String name) {
+  var clean = name
+      .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), ' ')
+      .replaceAll(RegExp(r'[. ]+$'), '')
+      .trim();
+  if (clean.length > 150) clean = clean.substring(0, 150);
+  if (clean.isEmpty || clean.replaceAll('.', '').isEmpty) clean = 'track';
+  return '${(index + 1).toString().padLeft(3, '0')} $clean';
+}
+
 class ServerDownloads extends ChangeNotifier {
   ServerDownloads({
     required this.sync,
@@ -89,9 +113,13 @@ class ServerDownloads extends ChangeNotifier {
   double? progressOf(String serverId) => _active[serverId];
 
   /// Whether this device can open a book of this kind.
-  bool canOpen(ServerBook book) => book.isAudiobook
-      ? audio != null && audioDir != null
-      : ebooks != null && booksDir != null && ebookFormatOf(book.fileName) != null;
+  bool canOpen(ServerBook book) =>
+      serverFormats.contains(book.format) &&
+      (book.isAudiobook
+          ? audio != null && audioDir != null
+          : ebooks != null &&
+              booksDir != null &&
+              ebookFormatOf(book.fileName) != null);
 
   /// The book in your library that has [book]'s file on this device.
   String? localBookFor(ServerBook book) {
@@ -159,6 +187,14 @@ class ServerDownloads extends ChangeNotifier {
     // An audiobook of several files goes in a folder of its own.
     final FileSystemEntity target =
         book.isMultiTrack ? Directory(base) : File('$base.${book.format}');
+    // Only ever inside the books folder, whatever the server sends.
+    if (!isInside(dir.path, target.path)) {
+      _active.remove(book.id);
+      notifyListeners();
+      return const DownloadResult(
+        problem: 'The server sent a name that is not safe.',
+      );
+    }
     void progress(double? value) {
       _active[book.id] = value;
       notifyListeners();
@@ -177,8 +213,7 @@ class ServerDownloads extends ChangeNotifier {
         var done = 0;
         for (final track in tracks) {
           // Numbered, so they play in the server's order.
-          final name = '${(track.index + 1).toString().padLeft(3, '0')} '
-              '${track.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), ' ')}';
+          final name = safeTrackName(track.index, track.name);
           final file = File('${target.path}$sep$name');
           final got = await client.downloadTrack(
             book.id,

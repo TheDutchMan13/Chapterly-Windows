@@ -44,8 +44,11 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
-      _leftAt = DateTime.now();
+    // Minimized on Windows is "hidden", not "paused": either one starts
+    // the time away.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _leftAt ??= DateTime.now();
     } else if (state == AppLifecycleState.resumed) {
       final left = _leftAt;
       _leftAt = null;

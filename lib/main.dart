@@ -331,13 +331,15 @@ class ChapterlyApp extends StatelessWidget {
         theme: buildTheme(settings, Brightness.light),
         darkTheme: buildTheme(settings, Brightness.dark),
         themeMode: settings.themeMode,
-        builder: (context, child) => MiniTimerHost(
-          child: MiniPlayerHost(
-            child: CoverPasteShortcut(
-              repository: repository,
-              messengerKey: _messengerKey,
-              child: LockGate(
-                settings: settings,
+        // Everything is behind the lock: the mini player, the timer and
+        // pasting a cover too.
+        builder: (context, child) => LockGate(
+          settings: settings,
+          child: MiniTimerHost(
+            child: MiniPlayerHost(
+              child: CoverPasteShortcut(
+                repository: repository,
+                messengerKey: _messengerKey,
                 child: NowPlayingFrame(
                   repository: repository,
                   child: child ?? const SizedBox.shrink(),

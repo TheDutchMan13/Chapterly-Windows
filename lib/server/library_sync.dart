@@ -149,6 +149,20 @@ class LibrarySync {
       rethrow;
     }
 
+    // The pictures this device does not have yet come from the server,
+    // fetched before the library is looked at again: from that snapshot
+    // until the library is saved nothing waits, so a change made here
+    // meanwhile can't be overwritten.
+    await forEachLimited(missingCovers(merged.books, pool), (hash) async {
+      final picture = await client.getCover(hash);
+      if (picture == null) return;
+      try {
+        pool.put(hash, picture);
+      } on FormatException {
+        // A damaged picture: the book is left without a cover.
+      }
+    });
+
     // Taken here, keeping a change made on this device while syncing; the
     // next sync sends it. A book changed here meanwhile that the merge
     // changed too is merged field by field (the copy from before the sync
@@ -184,18 +198,8 @@ class LibrarySync {
       remote: applyBooks,
       remoteTombstones: now.tombstones,
     );
-    // The pictures this device does not have yet come from the server. One
-    // it no longer has (a book whose picture was lost) is left without a
-    // cover rather than holding up the sync.
-    await forEachLimited(missingCovers(applied.books, pool), (hash) async {
-      final picture = await client.getCover(hash);
-      if (picture == null) return;
-      try {
-        pool.put(hash, picture);
-      } on FormatException {
-        // A damaged picture: the book is left without a cover.
-      }
-    });
+    // A picture still missing (a book whose picture was lost) is left
+    // without a cover rather than holding up the sync.
     final lost = missingCovers(applied.books, pool).toSet();
     final books = withCoverPictures([
       for (final book in applied.books)

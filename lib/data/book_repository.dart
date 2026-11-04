@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/audio_bookmark.dart';
@@ -794,7 +796,9 @@ class BookRepository extends ChangeNotifier {
     final stamp = DateTime.now();
     for (var i = 0; i < _books.length; i++) {
       if (_books[i].id == merged.id) {
-        _books[i] = merged.copyWith(updatedAt: stamp);
+        final updated = merged.copyWith(updatedAt: stamp);
+        _nextCopy[_books[i]] ??= updated;
+        _books[i] = updated;
       }
     }
     notifyListeners();
@@ -895,21 +899,70 @@ class BookRepository extends ChangeNotifier {
     });
   }
 
-  /// Puts earlier copies of books back, for undoing a bulk change.
+  /// The copy the next change made from a book: for each copy of a book
+  /// that was in the library, what the change right after it turned it
+  /// into (itself when that change left it as it was). Undo uses it to
+  /// take back only what that change did.
+  final _nextCopy = Expando<Book>();
+
+  /// Undoes a bulk change: [earlier] are the books as they were just
+  /// before it. Only what that change did is taken back, field by field,
+  /// so a change made since (a rating, a note, a sync) is kept, and a book
+  /// the change left as it was is not touched.
   Future<void> putBack(List<Book> earlier) async {
     final byId = {for (final book in earlier) book.id: book};
     final changed = <Book>[];
+    final stamp = DateTime.now();
     for (var i = 0; i < _books.length; i++) {
       final old = byId[_books[i].id];
-      if (old != null) {
-        final restored = old.copyWith(updatedAt: DateTime.now());
-        _books[i] = restored;
-        changed.add(restored);
+      if (old == null) continue;
+      final current = _books[i];
+      if (identical(current, old)) continue;
+      final made = _nextCopy[old];
+      if (made != null && identical(made, old)) continue;
+      final Book restored;
+      if (made == null) {
+        // Not known what the change did: the earlier copy as a whole.
+        restored = old;
+      } else {
+        final was = old.toJson();
+        final after = made.toJson();
+        final now = current.toJson();
+        var any = false;
+        for (final key in {...was.keys, ...after.keys}) {
+          if (key == 'updatedAt' || key == 'id') continue;
+          if (_sameJson(was[key], after[key])) continue; // not changed by it
+          if (!_sameJson(now[key], after[key])) continue; // changed again since
+          if (was.containsKey(key)) {
+            now[key] = was[key];
+          } else {
+            now.remove(key);
+          }
+          any = true;
+        }
+        if (!any) continue;
+        // Through JSON text, as a sync reads a book.
+        restored = Book.fromJson(
+          jsonDecode(jsonEncode(now)) as Map<String, dynamic>,
+        );
       }
+      final put = restored.copyWith(updatedAt: stamp);
+      _books[i] = put;
+      changed.add(put);
     }
     if (changed.isEmpty) return;
     notifyListeners();
     await _store.saveAll(changed);
+  }
+
+  static bool _sameJson(Object? a, Object? b) =>
+      identical(a, b) || jsonEncode(a) == jsonEncode(b);
+
+  /// The same book in every field but the time it was changed.
+  static bool _sameBook(Book a, Book b) {
+    final x = a.toJson()..remove('updatedAt');
+    final y = b.toJson()..remove('updatedAt');
+    return jsonEncode(x) == jsonEncode(y);
   }
 
   // ---- trash
@@ -988,21 +1041,41 @@ class BookRepository extends ChangeNotifier {
       if (known.add(_duplicateKey(book))) fresh.add(book);
     }
     if (fresh.isEmpty) return 0;
-    _books.addAll(fresh);
+    // Imported now: a sync must not drop them as old, or as books removed
+    // for good before.
+    final stamp = DateTime.now();
+    final stamped = [for (final book in fresh) book.copyWith(updatedAt: stamp)];
+    final removed = stamped.where((b) => _tombstones.containsKey(b.id)).toList();
+    for (final book in removed) {
+      _tombstones.remove(book.id);
+    }
+    _books.addAll(stamped);
     _books.sort((a, b) => b.addedAt.compareTo(a.addedAt));
     notifyListeners();
-    await _store.saveAll(fresh);
-    return fresh.length;
+    await _store.saveAll(stamped);
+    if (removed.isNotEmpty) await _store.saveTombstones(Map.of(_tombstones));
+    return stamped.length;
   }
 
-  /// Replaces the whole library, for restoring a backup.
+  /// Replaces the whole library, for restoring a backup. The restored
+  /// books count as changed now, and a book removed for good since the
+  /// backup is no longer marked removed, so the next sync keeps the
+  /// restored library instead of taking it back to what it replaced.
   Future<void> replaceAll(List<Book> books) async {
-    final sorted = [...books]..sort((a, b) => b.addedAt.compareTo(a.addedAt));
+    final stamp = DateTime.now();
+    final sorted = [
+      for (final book in books) book.copyWith(updatedAt: stamp),
+    ]..sort((a, b) => b.addedAt.compareTo(a.addedAt));
     _books.clear();
     _books.addAll(sorted);
     _isLoaded = true;
+    final hadTombstones = _tombstones.isNotEmpty;
+    for (final book in sorted) {
+      _tombstones.remove(book.id);
+    }
     notifyListeners();
     await _store.replaceAll(sorted);
+    if (hadTombstones) await _store.saveTombstones(Map.of(_tombstones));
   }
 
   Future<void> _update(String id, Book Function(Book) change) =>
@@ -1012,11 +1085,19 @@ class BookRepository extends ChangeNotifier {
     final changed = <Book>[];
     final stamp = DateTime.now();
     for (var i = 0; i < _books.length; i++) {
-      if (ids.contains(_books[i].id)) {
-        final updated = change(_books[i]).copyWith(updatedAt: stamp);
-        _books[i] = updated;
-        changed.add(updated);
+      final old = _books[i];
+      if (!ids.contains(old.id)) continue;
+      final next = change(old);
+      // A book the change leaves as it was keeps its time, so a sync
+      // doesn't send it, or let it win over a real change elsewhere.
+      if (identical(next, old) || _sameBook(next, old)) {
+        _nextCopy[old] ??= old;
+        continue;
       }
+      final updated = next.copyWith(updatedAt: stamp);
+      _nextCopy[old] ??= updated;
+      _books[i] = updated;
+      changed.add(updated);
     }
     if (changed.isEmpty) return;
     notifyListeners();

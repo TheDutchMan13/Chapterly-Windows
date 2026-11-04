@@ -502,7 +502,8 @@ class PcSync extends ChangeNotifier {
   /// Takes the pictures this PC lacks from the phone. A book whose picture
   /// the phone no longer has comes back without a cover rather than holding
   /// up the sync.
-  Future<List<Book>> _withPictures(
+  /// Fetches the pictures [books] name that this PC does not have yet.
+  Future<void> _fetchPictures(
     Uri address,
     String code,
     List<Book> books,
@@ -517,6 +518,12 @@ class PcSync extends ChangeNotifier {
         // A damaged picture: the book is left without a cover.
       }
     });
+  }
+
+  /// [books] with their pictures from [pool]. One it does not have is
+  /// left without a cover rather than holding up the sync. Does not wait
+  /// for anything, so nothing can change the library in between.
+  List<Book> _attachPictures(List<Book> books, CoverPool pool) {
     final lost = missingCovers(books, pool).toSet();
     return withCoverPictures([
       for (final book in books)
@@ -587,6 +594,10 @@ class PcSync extends ChangeNotifier {
         coverHashesOf(sent.books),
         pool,
       );
+      // The pictures this PC does not have yet come from the phone. They
+      // are fetched first: from the snapshot below until the library is
+      // saved, nothing waits, so a change made meanwhile can't be lost.
+      await _fetchPictures(address, code, reply.books, pool);
       // Merge the reply with the library as it is now, so a change made on
       // this PC while the sync was running is not lost. The phone's copy wins
       // a tie, so both sides end up the same.
@@ -603,8 +614,7 @@ class PcSync extends ChangeNotifier {
       final refBooks = reply.features.contains('audioBookmarks')
           ? merged.books
           : keepPcBookmarks(merged.books, nowBooks);
-      // The pictures this PC does not have yet come from the phone.
-      final books = await _withPictures(address, code, refBooks, pool);
+      final books = _attachPictures(refBooks, pool);
       final changed = countSyncChanges(now.books, books);
       await repository.applySynced(books, merged.tombstones);
       // The wish list: the newer copy of each wish wins, including a wish

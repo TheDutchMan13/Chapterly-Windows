@@ -10,12 +10,18 @@ import 'app_settings.dart';
 const latestReleaseApi =
     'https://api.github.com/repos/TheDutchMan13/Chapterly-Windows/releases/latest';
 
+/// Where this app's releases live. A link anywhere else is not used.
+const _releasePages = 'https://github.com/TheDutchMan13/Chapterly-Windows/';
+const _releaseFiles =
+    'https://github.com/TheDutchMan13/Chapterly-Windows/releases/download/';
+
 class AvailableUpdate {
   const AvailableUpdate({
     required this.version,
     required this.url,
     this.installerUrl,
     this.installerBytes,
+    this.installerSha256,
   });
 
   /// Such as 1.2.0.
@@ -30,23 +36,38 @@ class AvailableUpdate {
 
   /// Its size, for the progress bar.
   final int? installerBytes;
+
+  /// The SHA-256 GitHub gives for the file (64 hex characters). The
+  /// download is checked against it before it is run, and an installer
+  /// without one is never downloaded here.
+  final String? installerSha256;
 }
 
 final _installerName = RegExp(r'^Chapterly-Setup-[0-9][0-9.]*\.exe$');
+final _sha256Digest = RegExp(r'^sha256:([0-9a-fA-F]{64})$');
 
-/// The installer among a release's files: the right name, from GitHub.
-({String url, int? bytes})? _installerAsset(Object? assets) {
+/// The installer among a release's files: the right name, from this app's
+/// releases on GitHub, with a checksum to check it against.
+({String url, int? bytes, String sha256})? _installerAsset(Object? assets) {
   if (assets is! List) return null;
   for (final asset in assets) {
     if (asset is! Map) continue;
     final name = asset['name'];
     final url = asset['browser_download_url'];
     final size = asset['size'];
+    final digest = asset['digest'];
+    final sha = digest is String ? _sha256Digest.firstMatch(digest) : null;
     if (name is String &&
         url is String &&
+        sha != null &&
         _installerName.hasMatch(name) &&
-        url.startsWith('https://github.com/')) {
-      return (url: url, bytes: size is int ? size : null);
+        url.startsWith(_releaseFiles) &&
+        !url.contains('..')) {
+      return (
+        url: url,
+        bytes: size is int ? size : null,
+        sha256: sha.group(1)!.toLowerCase(),
+      );
     }
   }
   return null;
@@ -98,17 +119,19 @@ AvailableUpdate? parseLatestRelease(String body, {String current = appVersion}) 
   final tag = data['tag_name'];
   final url = data['html_url'];
   if (tag is! String || url is! String) return null;
-  if (!url.startsWith('https://github.com/')) return null;
+  if (!url.startsWith(_releasePages)) return null;
   if (data['draft'] == true || data['prerelease'] == true) return null;
   if (!isNewerVersion(tag, current)) return null;
-  final version =
-      tag.startsWith('v') || tag.startsWith('V') ? tag.substring(1) : tag;
+  // Built from the numbers only: the version names a file on disk, so
+  // nothing else from the tag may end up in it.
+  final version = _versionParts(tag)!.join('.');
   final installer = _installerAsset(data['assets']);
   return AvailableUpdate(
     version: version,
     url: url,
     installerUrl: installer?.url,
     installerBytes: installer?.bytes,
+    installerSha256: installer?.sha256,
   );
 }
 

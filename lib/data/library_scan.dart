@@ -685,21 +685,38 @@ class LibraryScanner extends ChangeNotifier {
     required String title,
     required String author,
     required Shelf shelf,
+  }) async =>
+      (await _addAndLink(item, title: title, author: author, shelf: shelf))
+          .problem;
+
+  /// Adds a new book and links the item to it. The book is the one [add]
+  /// made, by its id; if the file can't be linked, the new book is taken
+  /// away again rather than left empty in your library.
+  Future<({String? problem, String? bookId})> _addAndLink(
+    ScanItem item, {
+    required String title,
+    required String author,
+    required Shelf shelf,
   }) async {
-    await repository.add(
-      title: title,
-      author: author,
-      shelf: shelf,
-      format: item.kind == ScanKind.book
-          ? BookFormat.ebook
-          : BookFormat.audiobook,
-    );
-    // A new book goes first in the list.
-    final added = repository.allBooks.firstOrNull;
-    if (added == null || added.title != title) {
-      return 'The book could not be added.';
+    final String id;
+    try {
+      id = await repository.add(
+        title: title,
+        author: author,
+        shelf: shelf,
+        format: item.kind == ScanKind.book
+            ? BookFormat.ebook
+            : BookFormat.audiobook,
+      );
+    } catch (_) {
+      return (problem: 'The book could not be added.', bookId: null);
     }
-    return linkToBook(item, added.id);
+    final problem = await linkToBook(item, id);
+    if (problem != null) {
+      await repository.deleteForever(id);
+      return (problem: problem, bookId: null);
+    }
+    return (problem: null, bookId: id);
   }
 
   /// Linking a pending item to a book, from the review: when it worked the
@@ -716,14 +733,10 @@ class LibraryScanner extends ChangeNotifier {
     required String author,
     required Shelf shelf,
   }) async {
-    final problem = await linkToNewBook(
-      item,
-      title: title,
-      author: author,
-      shelf: shelf,
-    );
-    if (problem == null) await _settle(item);
-    return problem;
+    final result =
+        await _addAndLink(item, title: title, author: author, shelf: shelf);
+    if (result.problem == null) await _settle(item);
+    return result.problem;
   }
 
   /// Adds each file of [decisions] to your library as a new book on
@@ -756,17 +769,16 @@ class LibraryScanner extends ChangeNotifier {
         final key = '${titleKey(title)}|${titleKey(author)}';
         final existing = fresh[key];
         if (existing == null) {
-          final problem = await resolveWithNewBook(
+          final result = await _addAndLink(
             item,
             title: title,
             author: author,
             shelf: shelf,
           );
-          if (problem == null) {
+          if (result.bookId case final id?) {
+            await _settle(item);
             added++;
-            // A new book goes first in the list.
-            final book = repository.allBooks.firstOrNull;
-            if (book != null && book.title == title) fresh[key] = book.id;
+            fresh[key] = id;
           } else {
             left++;
           }

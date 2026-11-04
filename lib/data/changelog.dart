@@ -13,6 +13,37 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.19.0',
+    date: '2026-11-04',
+    changes: [
+      'Updates are safer: Chapterly only downloads an installer from its own '
+          'releases on GitHub, and checks it against the checksum GitHub '
+          'gives before running it. Cancelling a download and starting '
+          'again can no longer start the first one',
+      'Syncing with your phone or the book server no longer loses a change '
+          'you make while cover pictures are being fetched',
+      'Undo after a bulk change takes back only what that change did: a '
+          'rating, note or tag you added since is kept, and books the change '
+          'left alone are not touched',
+      'A bulk change that changes nothing on a book leaves it as it was, so '
+          'it is not sent again by the next sync',
+      'Restoring a backup or importing books now sticks: the next sync no '
+          'longer takes the books back to what they were, or removes them '
+          'again',
+      'The app lock now locks when Chapterly is minimized, and covers the '
+          'mini player and timer too',
+      'Each profile keeps its automatic backups in a folder named after it '
+          'and its id, so two profiles with names that look alike never '
+          'share one (older backups stay where they were)',
+      'Adding a file as a new book no longer leaves an empty book behind '
+          'when the file cannot be linked',
+      'Books from the book server are only saved inside your books folder, '
+          'under a safe name',
+      'CSV export: cells that a spreadsheet would run as a formula are '
+          'saved as text',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.18.0',
     date: '2026-11-03',
     changes: [

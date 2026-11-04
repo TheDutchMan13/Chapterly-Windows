@@ -8,6 +8,7 @@ import 'package:chapterly/data/update_check.dart';
 import 'package:chapterly/data/update_install.dart';
 import 'package:chapterly/data/window_control.dart';
 import 'package:chapterly/screens/mini_player.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -19,8 +20,12 @@ AudioLink _threeFiles() => const AudioLink(tracks: [
       AudioTrack(location: 'c', name: 'c.mp3', lengthMs: 30000),
     ]);
 
-String _release({List<Map<String, Object?>> assets = const []}) => jsonEncode({
-      'tag_name': 'v9.0.0',
+String _release({
+  List<Map<String, Object?>> assets = const [],
+  String tag = 'v9.0.0',
+}) =>
+    jsonEncode({
+      'tag_name': tag,
       'html_url': 'https://github.com/TheDutchMan13/Chapterly-Windows/releases/tag/v9.0.0',
       'draft': false,
       'prerelease': false,
@@ -49,6 +54,7 @@ void main() {
           {
             'name': 'Chapterly-Setup-9.0.0.exe',
             'size': 30000000,
+            'digest': 'sha256:${'AB' * 32}',
             'browser_download_url':
                 'https://github.com/TheDutchMan13/Chapterly-Windows/releases/download/v9.0.0/Chapterly-Setup-9.0.0.exe',
           },
@@ -57,6 +63,36 @@ void main() {
       )!;
       expect(update.installerUrl, endsWith('Chapterly-Setup-9.0.0.exe'));
       expect(update.installerBytes, 30000000);
+      expect(update.installerSha256, 'ab' * 32);
+    });
+
+    test('an installer without a checksum, or from another repository, is not used', () {
+      const good =
+          'https://github.com/TheDutchMan13/Chapterly-Windows/releases/download/v9.0.0/Chapterly-Setup-9.0.0.exe';
+      AvailableUpdate parse(Map<String, Object?> asset) =>
+          parseLatestRelease(_release(assets: [asset]), current: '1.0.0')!;
+      expect(
+        parse({'name': 'Chapterly-Setup-9.0.0.exe', 'browser_download_url': good})
+            .installerUrl,
+        isNull,
+      );
+      expect(
+        parse({
+          'name': 'Chapterly-Setup-9.0.0.exe',
+          'digest': 'sha256:${'ab' * 32}',
+          'browser_download_url':
+              'https://github.com/someone/else/releases/download/v9/Chapterly-Setup-9.0.0.exe',
+        }).installerUrl,
+        isNull,
+      );
+    });
+
+    test('the version is only numbers, whatever the tag says', () {
+      final update = parseLatestRelease(
+        _release(tag: r'v9.0.0-..\..\evil'),
+        current: '1.0.0',
+      )!;
+      expect(update.version, '9.0.0');
     });
 
     test('files from elsewhere or with other names are ignored', () {
@@ -89,10 +125,11 @@ void main() {
       });
       final progress = <double?>[];
       final file = await downloadInstaller(
-        const AvailableUpdate(
+        AvailableUpdate(
           version: '9.0.0',
           url: 'https://github.com/x',
           installerUrl: 'https://github.com/x/Chapterly-Setup-9.0.0.exe',
+          installerSha256: sha256.convert(body).toString(),
         ),
         client: client,
         folder: temp,
@@ -103,16 +140,41 @@ void main() {
       expect(progress.last, 1.0);
     });
 
+    test('a download that does not match its checksum is deleted', () async {
+      final temp = Directory.systemTemp.createTempSync('update_test');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final body = List<int>.filled(2 * 1024 * 1024, 7);
+      final client = MockClient((request) async => http.Response.bytes(body, 200));
+      await expectLater(
+        downloadInstaller(
+          AvailableUpdate(
+            version: '9.0.0',
+            url: 'https://github.com/x',
+            installerUrl: 'https://github.com/x/Chapterly-Setup-9.0.0.exe',
+            installerSha256: 'ab' * 32,
+          ),
+          client: client,
+          folder: temp,
+        ),
+        throwsA(isA<UpdateDownloadFailure>()),
+      );
+      expect(
+        temp.listSync(recursive: true).whereType<File>(),
+        isEmpty,
+      );
+    });
+
     test('a tiny download is refused', () async {
       final temp = Directory.systemTemp.createTempSync('update_test');
       addTearDown(() => temp.deleteSync(recursive: true));
       final client = MockClient((request) async => http.Response('oops', 200));
       await expectLater(
         downloadInstaller(
-          const AvailableUpdate(
+          AvailableUpdate(
             version: '9.0.0',
             url: 'https://github.com/x',
             installerUrl: 'https://github.com/x/Chapterly-Setup-9.0.0.exe',
+            installerSha256: 'ab' * 32,
           ),
           client: client,
           folder: temp,
