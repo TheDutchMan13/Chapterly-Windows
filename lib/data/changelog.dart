@@ -13,6 +13,17 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.17.0',
+    date: '2026-11-03',
+    changes: [
+      'Files to check: "Add all" above the files that are not in your '
+          'library adds every one as a new book, on the shelf you pick, with '
+          'the title and author found in the file (or read from its name). An '
+          'ebook and an audiobook of the same book share one book; files it '
+          'cannot name, or a second ebook of the same book, stay in the list',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.16.0',
     date: '2026-11-03',
     changes: [

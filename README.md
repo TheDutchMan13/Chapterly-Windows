@@ -44,7 +44,8 @@ Made for a PC:
 - Book and audiobook folders (Settings): Scan now, or when Chapterly opens,
   links the files in your folders to the matching books. Only clear matches
   are linked, existing links are never replaced, and unsure files wait in a
-  list for you. Pointing the books folder at a Calibre library also fills
+  list for you (Files to check). "Add all" there adds every file that is not
+  in your library as a new book, on the shelf you pick. Pointing the books folder at a Calibre library also fills
   blank covers, series, tags, ISBN and year from Calibre, and Import from
   Calibre library adds the books you do not have yet
 - This year's reading goal at the top of the Library, saved filters, a tag

@@ -726,6 +726,65 @@ class LibraryScanner extends ChangeNotifier {
     return problem;
   }
 
+  /// Adds each file of [decisions] to your library as a new book on
+  /// [shelf], with the title and author found in the file (or read from its
+  /// name). An ebook and an audiobook with the same title and author end up
+  /// on one book. A file that cannot be dealt with alone stays in the list:
+  /// one with no readable title, or a second ebook (or audiobook) of a book
+  /// added in this run. [onProgress] is told after each file.
+  Future<AddAllResult> addAllAsNewBooks(
+    List<ScanDecision> decisions, {
+    required Shelf shelf,
+    void Function(int done, int total)? onProgress,
+  }) async {
+    // Books added in this run, by title and author, for the second file of
+    // a book (its audiobook, say).
+    final fresh = <String, String>{};
+    var added = 0;
+    var joined = 0;
+    var left = 0;
+    var done = 0;
+    for (final decision in decisions) {
+      final item = decision.item;
+      final found = FoundBookInfo(title: item.title, author: item.author);
+      final info = found.isEmpty ? guessFromFileName(item.name) : found;
+      final title = info.title.trim();
+      final author = info.author.trim();
+      if (title.isEmpty) {
+        left++;
+      } else {
+        final key = '${titleKey(title)}|${titleKey(author)}';
+        final existing = fresh[key];
+        if (existing == null) {
+          final problem = await resolveWithNewBook(
+            item,
+            title: title,
+            author: author,
+            shelf: shelf,
+          );
+          if (problem == null) {
+            added++;
+            // A new book goes first in the list.
+            final book = repository.allBooks.firstOrNull;
+            if (book != null && book.title == title) fresh[key] = book.id;
+          } else {
+            left++;
+          }
+        } else if (hasLink(item.kind, existing)) {
+          // It would replace the file that book already has.
+          left++;
+        } else if (await resolveWithBook(item, existing) == null) {
+          joined++;
+        } else {
+          left++;
+        }
+      }
+      done++;
+      onProgress?.call(done, decisions.length);
+    }
+    return AddAllResult(added: added, joined: joined, left: left);
+  }
+
   // ---- Importing from a Calibre library
 
   /// Looks through a Calibre library and says what an import would do.
@@ -892,6 +951,35 @@ class LibraryScanner extends ChangeNotifier {
     ];
     await memory.save();
     notifyListeners();
+  }
+}
+
+/// What adding all the unknown files as new books did.
+class AddAllResult {
+  const AddAllResult({
+    required this.added,
+    required this.joined,
+    required this.left,
+  });
+
+  /// New books made from a file.
+  final int added;
+
+  /// Files linked to a book that was added a moment before (the audiobook
+  /// of an ebook, say).
+  final int joined;
+
+  /// Files that are still in the list to check.
+  final int left;
+
+  String get summary {
+    final parts = [
+      'Added $added book${added == 1 ? '' : 's'}.',
+      if (joined > 0)
+        '$joined file${joined == 1 ? '' : 's'} went to a book just added.',
+      if (left > 0) '$left still need${left == 1 ? 's' : ''} a look.',
+    ];
+    return parts.join(' ');
   }
 }
 
