@@ -81,6 +81,31 @@ void main() {
       expect(plan.checkedTags, ['Sci-Fi']);
     });
 
+    test('an unreadable answer costs only that book its Claude tags', () async {
+      final library = [
+        _book('1', 'A', 'X'),
+        _book('2', 'B', 'Y'),
+        _book('3', 'C', 'Z'),
+      ];
+      final asked = <String>[];
+      final run = await planTags(
+        library,
+        library,
+        subjects: _subjects({}),
+        claude: (b, s, t) async {
+          asked.add(b.title);
+          if (b.title == 'A') {
+            throw const ClaudeUnreadable('no text');
+          }
+          return ['Dragons'];
+        },
+      );
+      expect(asked, ['A', 'B', 'C']);
+      expect(run.claudeProblem, isNull);
+      expect(run.plans[0].note, 'Claude\'s answer could not be read');
+      expect(run.plans[1].proposals.map((p) => p.tag), contains('Dragons'));
+    });
+
     test('a book nobody knows gets nothing, with the reason', () async {
       final library = [
         _book('1', 'Dune', 'Frank Herbert', ['Sci-Fi']),
@@ -311,6 +336,25 @@ void main() {
           'message',
           contains('did not accept the API key'),
         )),
+      );
+    });
+
+    test('an answer with no text is unreadable, not a failure', () async {
+      final client = ClaudeClient(
+        apiKey: 'k',
+        client: MockClient((_) async => http.Response(
+              jsonEncode({
+                'content': [
+                  {'type': 'thinking', 'thinking': '...'},
+                ],
+                'stop_reason': 'max_tokens',
+              }),
+              200,
+            )),
+      );
+      await expectLater(
+        client.ask(system: '', prompt: 'x'),
+        throwsA(isA<ClaudeUnreadable>()),
       );
     });
 

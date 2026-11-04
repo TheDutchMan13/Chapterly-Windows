@@ -138,8 +138,19 @@ Future<TagPlan> planBookTags(
 
   final names = yourTags ?? tagNames(library);
   final known = {for (final name in names) name.toLowerCase(): name};
-  // ClaudeFailure goes up to the caller, which stops asking Claude.
-  final picked = await claude(book, found, names);
+  // A failure with the key or the account (ClaudeFailure) goes up to the
+  // caller, which stops asking Claude. An unreadable answer only costs this
+  // book its Claude tags.
+  List<String> picked;
+  try {
+    picked = await claude(book, found, names);
+  } on ClaudeUnreadable {
+    return TagPlan(
+      book: book,
+      proposals: proposals,
+      note: 'Claude\'s answer could not be read',
+    );
+  }
   final have = {for (final p in proposals) p.tag.toLowerCase()};
   for (final raw in picked.take(maxTagsPerBook)) {
     final key = raw.trim().toLowerCase();
@@ -268,6 +279,7 @@ TagPicker claudeTagPicker(ClaudeClient client) =>
           await client.ask(
             system: _system,
             prompt: tagPrompt(book, subjects, yourTags),
+            maxTokens: 600,
           ),
         );
 

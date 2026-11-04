@@ -26,6 +26,17 @@ class ClaudeFailure implements Exception {
   String toString() => message;
 }
 
+/// Claude answered, but the answer had no text Chapterly could read. Only
+/// that book is affected: the rest can still be asked.
+class ClaudeUnreadable implements Exception {
+  const ClaudeUnreadable(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Sends one message at a time to Claude with your own API key.
 class ClaudeClient {
   ClaudeClient({
@@ -88,8 +99,10 @@ class ClaudeClient {
       ];
       if (parts.isNotEmpty) return parts.join();
     }
-    throw const ClaudeFailure(
-      'Claude sent an answer Chapterly could not read.',
+    final stop = data is Map ? data['stop_reason'] : null;
+    throw ClaudeUnreadable(
+      'Claude sent an answer Chapterly could not read'
+      '${stop == null ? '' : ' (stop reason: $stop)'}.',
     );
   }
 
