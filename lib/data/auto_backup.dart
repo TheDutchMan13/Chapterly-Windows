@@ -12,6 +12,10 @@ const autoBackupKeep = 5;
 
 const _prefix = 'chapterly-auto-';
 
+/// The open profile's own folder inside the backup folders, or null for the
+/// first profile. Set at start-up.
+String? autoBackupSubfolder;
+
 String _two(int n) => n.toString().padLeft(2, '0');
 
 /// chapterly-auto-2026-10-29-2141.json, so the names sort by date.
@@ -36,7 +40,11 @@ Future<List<Directory>> autoBackupFolders() async {
   } catch (_) {
     // Not available (for example in tests).
   }
-  return folders;
+  final sub = autoBackupSubfolder;
+  if (sub == null) return folders;
+  return [
+    for (final folder in folders) Directory('${folder.path}$separator$sub'),
+  ];
 }
 
 /// Removes the oldest automatic backups in [folder], keeping [keep].

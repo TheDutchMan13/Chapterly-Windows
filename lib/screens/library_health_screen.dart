@@ -9,6 +9,7 @@ import '../data/book_repository.dart';
 import '../data/cover_hash.dart';
 import '../data/duplicates.dart';
 import '../data/library_health.dart';
+import '../data/profile_files.dart';
 import '../data/stalled.dart';
 import '../ebook/ebook_reading.dart';
 import '../models/book.dart';
@@ -71,7 +72,7 @@ class _LibraryHealthScreenState extends State<LibraryHealthScreen> {
     });
     var prints = widget.coverPrints;
     if (prints == null) {
-      final dir = await getApplicationSupportDirectory();
+      final dir = openProfileDir ?? await getApplicationSupportDirectory();
       prints = await CoverPrints.load(File(p.join(dir.path, 'cover_prints.json')));
     }
     final report = await checkCovers(

@@ -75,6 +75,15 @@ Made for a PC:
 - Remembers the window size and place
 - Optional daily update check (asks GitHub for the newest release number;
   nothing about you or your books is sent)
+- Profiles: several people on one PC, each with their own books, shelves,
+  statistics, goals, settings, phone pairing, book server connection and
+  optional PIN (Settings, at the top, or the PIN screen). Opening another
+  profile restarts Chapterly. Each profile syncs with the same person's
+  profile on the phone
+- Book server: connect to your own
+  [Chapterly Server](https://github.com/TheDutchMan13/Chapterly-Server)
+  (Library, the More menu > Book server) to browse and download your books and
+  sync your place and library from anywhere Tailscale reaches
 
 ## Syncing with your phone
 
@@ -110,6 +119,12 @@ steps for submitting them with each release.
 - Library: `%APPDATA%\com.chapterly\chapterly\chapterly.db`. The exact folder
   comes from the company name in the Windows build.
 - Automatic backups: `Documents\Chapterly`, the last five kept.
+- Profiles: the first profile (your library from before profiles) uses the
+  places above. Other profiles keep their library, sync state, book server
+  state and reader and audiobook lists in `profiles\<id>` in the same folder,
+  their settings under `p.<id>.` keys, their pairing code and book server
+  token under `chapterly_sync_code_<id>` and `chapterly_server_token_<id>`,
+  and their backups in `Documents\Chapterly\<profile name>`.
 
 ## Building
 

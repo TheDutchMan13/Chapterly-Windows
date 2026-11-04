@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import 'audio/audio_bookmarks.dart';
 import 'audio/audio_library.dart';
@@ -20,6 +19,8 @@ import 'data/file_io.dart';
 import 'data/library_scan.dart';
 import 'data/open_library_client.dart';
 import 'data/pc_sync.dart';
+import 'data/profile_files.dart';
+import 'data/profiles.dart';
 import 'data/reading_nudge.dart';
 import 'data/secure_code_store.dart';
 import 'data/sqlite_book_store.dart';
@@ -47,23 +48,39 @@ import 'server/server_sync.dart';
 /// Lets code outside the screens (such as Ctrl+V for a cover) show messages.
 final _messengerKey = GlobalKey<ScaffoldMessengerState>();
 
+/// The profile Chapterly opened with.
+String _profileId = mainProfileId;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await PluginWindowControl.initialize();
   MiniTimer.instance.window = const PluginWindowControl();
   MiniPlayer.instance.window = const PluginWindowControl();
-  // C:\Users\<you>\AppData\Roaming\...\chapterly
-  final dataDir = await getApplicationSupportDirectory();
-  await Directory(dataDir.path).create(recursive: true);
+  // The open profile. Choosing another one restarts Chapterly with it.
+  final profiles = await ProfileStore.load();
+  final profile = profiles.active;
+  _profileId = profile.id;
+  ProfileSwitching.store = profiles;
+  ProfileSwitching.switchRestarts = true;
+  ProfileSwitching.removeFiles = removeProfileFiles;
+  ProfileSwitching.switchTo = (id) async {
+    await profiles.setActive(id);
+    await _beforeRestart();
+    await restartChapterly();
+  };
+  autoBackupSubfolder = profileBackupFolder(profile);
+  // C:\Users\<you>\AppData\Roaming\...\chapterly, or profiles\<id> in it
+  final dataDir = await profileDataDir(profile.id);
+  openProfileDir = dataDir;
   final repository = BookRepository(
     await SqliteBookStore.open(p.join(dataDir.path, 'chapterly.db')),
   );
   await repository.load();
-  final settings = await AppSettings.load();
+  final settings = await AppSettings.load(profiles.scope(profile.id));
   final pcSync = PcSync(
     repository: repository,
     settings: settings,
-    codeStore: const SecureCodeStore(),
+    codeStore: SecureCodeStore(storageKey: SecureCodeStore.keyFor(profile.id)),
     base: await SyncBase.load(File(p.join(dataDir.path, 'sync_base.json'))),
   );
   await pcSync.load();
@@ -178,6 +195,21 @@ void _remindNowAndThen(BookRepository repository, AppSettings settings) {
   Timer.periodic(const Duration(minutes: 10), (_) => check());
 }
 
+/// Saves your place on the book server and stops the player, before
+/// Chapterly restarts with another profile.
+Future<void> _beforeRestart() async {
+  try {
+    await BookServer.sync?.send().timeout(const Duration(seconds: 3));
+  } catch (_) {
+    // Sent next time this profile opens.
+  }
+  try {
+    await Listening.controller?.close();
+  } catch (_) {
+    // Already stopped.
+  }
+}
+
 Future<void> _setUpBookServer(
   Directory dataDir,
   BookRepository repository,
@@ -187,7 +219,7 @@ Future<void> _setUpBookServer(
   try {
     final state = await ServerState.load(
       File(p.join(dataDir.path, 'book_server.json')),
-      tokens: const SecureTokenStore(),
+      tokens: SecureTokenStore(storageKey: SecureTokenStore.keyFor(_profileId)),
     );
     final sync = ServerSync(
       state: state,

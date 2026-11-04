@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/app_settings.dart';
+import '../data/profiles.dart';
+import 'profiles_screen.dart';
 
 /// Hides the app behind a PIN screen when a PIN is set: when the app starts,
 /// and when it comes back after being away longer than the chosen time.
@@ -100,6 +102,7 @@ class _PinScreenState extends State<_PinScreen> {
   int _failures = 0;
   int _waiting = 0;
   String? _error;
+  bool _choosingProfile = false;
 
   @override
   void dispose() {
@@ -179,6 +182,18 @@ class _PinScreenState extends State<_PinScreen> {
                   'Chapterly is locked',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
+                if (ProfileSwitching.store case final profiles?
+                    when profiles.hasOthers) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ProfileAvatar(profile: profiles.active, radius: 12),
+                      const SizedBox(width: 8),
+                      Text(profiles.active.name),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
                 SizedBox(
                   height: 40,
@@ -217,6 +232,36 @@ class _PinScreenState extends State<_PinScreen> {
                     ),
                   ),
                 ]),
+                if (ProfileSwitching.store case final profiles?
+                    when profiles.hasOthers) ...[
+                  const SizedBox(height: 16),
+                  if (!_choosingProfile)
+                    TextButton.icon(
+                      icon: const Icon(Icons.people_outline),
+                      label: const Text('Open another profile'),
+                      onPressed: () =>
+                          setState(() => _choosingProfile = true),
+                    )
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        for (final profile in profiles.profiles)
+                          if (profile.id != profiles.active.id)
+                            ActionChip(
+                              avatar: ProfileAvatar(
+                                profile: profile,
+                                radius: 12,
+                              ),
+                              label: Text(profile.name),
+                              onPressed: () =>
+                                  ProfileSwitching.switchTo?.call(profile.id),
+                            ),
+                      ],
+                    ),
+                ],
               ],
             ),
           ),

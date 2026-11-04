@@ -26,6 +26,11 @@ Reply `200`:
 
 Use it to check that an address is a Chapterly phone before pairing.
 
+When the phone has more than one profile, the reply also has `"profile"`, the
+name of the profile open on the phone. Only the open profile answers, with its
+own pairing code; a code of another profile gets a `401` whose `error` names
+the open profile.
+
 ### `POST /v1/sync`
 
 Header: `Authorization: Bearer <code>`, `Content-Type: application/json`.

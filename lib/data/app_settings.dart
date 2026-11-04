@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
 import 'pin_lock.dart';
+import 'profiles.dart';
 import 'quote_of_day.dart';
 import 'saved_filters.dart';
 import 'wish_list.dart';
@@ -56,7 +57,7 @@ class AppSettings extends ChangeNotifier {
   /// Brown, the colour Chapterly starts with.
   static const int defaultAccent = 0xFF795548;
 
-  final SharedPreferences? prefs;
+  final ScopedPrefs? prefs;
   SortField _sortField = SortField.dateAdded;
   bool _ascending = false;
   DisplayMode _display = DisplayMode.list;
@@ -322,8 +323,10 @@ class AppSettings extends ChangeNotifier {
   /// How long the app can be in the background before it asks for the PIN.
   int get lockAfterSeconds => _lockAfterSeconds;
 
-  static Future<AppSettings> load() async {
-    final prefs = await SharedPreferences.getInstance();
+  /// Reads the settings of one profile ([scope]), or of the first profile.
+  static Future<AppSettings> load([ScopedPrefs? scope]) async {
+    final prefs =
+        scope ?? ScopedPrefs(await SharedPreferences.getInstance(), '');
     final settings = AppSettings(prefs: prefs);
     settings._sortField =
         SortField.values.asNameMap()[prefs.getString('sortField')] ??

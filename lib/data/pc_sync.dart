@@ -194,6 +194,11 @@ class SyncClient {
       case 200:
         break;
       case 401:
+        // A phone with profiles says which profile is open there.
+        final wrongProfile = _errorText(text);
+        if (wrongProfile != null && wrongProfile.contains('profile')) {
+          throw SyncFailure(wrongProfile);
+        }
         throw const SyncFailure(
           'The pairing code is wrong. Check it on your phone under '
           'Settings > Sync with a PC.',

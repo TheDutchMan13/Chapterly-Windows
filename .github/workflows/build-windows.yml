@@ -3,6 +3,8 @@ name: Build Windows app
 on:
   push:
     branches: [main, book-server]
+  # Every pull request is analyzed, tested and built before it is merged.
+  pull_request:
   workflow_dispatch:
 
 jobs:

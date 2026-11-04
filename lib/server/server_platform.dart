@@ -1,5 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../data/profiles.dart';
 import 'server_state.dart';
 
 // What differs between the phone and the PC for the book server.
@@ -15,24 +16,32 @@ String audioLocationFor(String path) => path;
 /// Keeps your book server token in Windows' protected storage, not in a
 /// plain file, like the pairing code for syncing with the phone.
 class SecureTokenStore implements TokenStore {
-  const SecureTokenStore();
+  const SecureTokenStore({this.storageKey = _key});
 
   static const _key = 'chapterly_server_token';
+
+  /// Each profile has its own book server account. The first profile keeps
+  /// the token it had before profiles.
+  static String keyFor(String profileId) =>
+      profileId == mainProfileId ? _key : '${_key}_$profileId';
+
+  /// The name the token is saved under.
+  final String storageKey;
 
   FlutterSecureStorage get _storage => const FlutterSecureStorage();
 
   @override
   Future<String?> read() async {
     try {
-      return await _storage.read(key: _key);
+      return await _storage.read(key: storageKey);
     } catch (_) {
       return null;
     }
   }
 
   @override
-  Future<void> write(String token) => _storage.write(key: _key, value: token);
+  Future<void> write(String token) => _storage.write(key: storageKey, value: token);
 
   @override
-  Future<void> delete() => _storage.delete(key: _key);
+  Future<void> delete() => _storage.delete(key: storageKey);
 }
