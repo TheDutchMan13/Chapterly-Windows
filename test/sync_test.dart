@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:chapterly/data/book_repository.dart';
 import 'package:chapterly/data/book_store.dart';
 import 'package:chapterly/data/sync_merge.dart';
+import 'package:chapterly/data/sync_crypto.dart';
 import 'package:chapterly/data/sync_protocol.dart';
 import 'package:chapterly/data/sync_server.dart';
 import 'package:chapterly/models/book.dart';
@@ -152,48 +153,97 @@ void main() {
       await server.stop();
     });
 
-    Future<(int, String)> call(
+    Future<(int, List<int>)> call(
       String method,
       String path, {
-      String? code,
-      String? body,
+      String? challenge,
+      List<int>? body,
     }) async {
       final request = await client.openUrl(
         method,
         Uri.parse('http://127.0.0.1:${server.boundPort}$path'),
       );
-      if (code != null) request.headers.set('authorization', 'Bearer $code');
-      if (body != null) request.write(body);
+      if (challenge != null) {
+        request.headers.set('x-chapterly-challenge', challenge);
+      }
+      if (body != null) request.add(body);
       final response = await request.close();
-      final text = await utf8.decoder.bind(response).join();
-      return (response.statusCode, text);
+      final bytes = <int>[];
+      await for (final chunk in response) {
+        bytes.addAll(chunk);
+      }
+      return (response.statusCode, bytes);
     }
 
-    test('ping works without a code', () async {
-      final (status, text) = await call('GET', '/v1/ping');
+    Future<String> hello() async {
+      final (_, bytes) = await call('GET', '/v2/hello');
+      return (jsonDecode(utf8.decode(bytes)) as Map)['challenge'] as String;
+    }
+
+    test('ping works without a code and says it speaks sync 2', () async {
+      final (status, bytes) = await call('GET', '/v1/ping');
       expect(status, 200);
-      expect(text, contains('chapterly'));
+      expect(jsonDecode(utf8.decode(bytes)), containsPair('sync', 2));
     });
 
-    test('sync refuses a wrong code', () async {
-      final (status, _) = await call(
+    test('the old way of syncing asks for the PC app to be updated', () async {
+      final (status, bytes) = await call('POST', '/v1/sync', body: [1]);
+      expect(status, 426);
+      expect(utf8.decode(bytes), contains('Update Chapterly on your PC'));
+    });
+
+    test('a request sealed with another code is refused', () async {
+      final challenge = await hello();
+      final other = await SyncKey.fromCode('OTHERCODE');
+      final (status, bytes) = await call(
         'POST',
-        '/v1/sync',
-        code: 'WRONG',
-        body: '{}',
+        '/v2/sync',
+        challenge: challenge,
+        body: await other.seal(
+          utf8.encode('{}'),
+          requestContext('POST', '/v2/sync', challenge),
+        ),
       );
       expect(status, 401);
+      expect(utf8.decode(bytes), contains('code'));
     });
 
-    test('sync with the right code gets the reply', () async {
-      final (status, text) = await call(
+    test('an unknown challenge is refused', () async {
+      final key = await SyncKey.fromCode('SECRET');
+      final (status, bytes) = await call(
         'POST',
-        '/v1/sync',
-        code: 'SECRET',
-        body: 'hello',
+        '/v2/sync',
+        challenge: 'made-up',
+        body: await key.seal(
+          utf8.encode('{}'),
+          requestContext('POST', '/v2/sync', 'made-up'),
+        ),
       );
+      expect(status, 401);
+      expect(utf8.decode(bytes), contains('challenge'));
+    });
+
+    test('a sealed sync gets a sealed reply, and cannot be sent twice',
+        () async {
+      final challenge = await hello();
+      final key = await SyncKey.fromCode('SECRET');
+      final sealed = await key.seal(
+        utf8.encode('hello'),
+        requestContext('POST', '/v2/sync', challenge),
+      );
+      final (status, bytes) =
+          await call('POST', '/v2/sync', challenge: challenge, body: sealed);
       expect(status, 200);
-      expect(text, '{"echo":"hello"}');
+      final reply = await key.open(
+        bytes,
+        responseContext('POST', '/v2/sync', challenge),
+      );
+      expect(utf8.decode(reply), '{"echo":"hello"}');
+
+      final (again, text) =
+          await call('POST', '/v2/sync', challenge: challenge, body: sealed);
+      expect(again, 401);
+      expect(utf8.decode(text), contains('replay'));
     });
   });
 

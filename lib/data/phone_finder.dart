@@ -83,8 +83,10 @@ Future<bool> probeHost(
   try {
     await client.ping(Uri(scheme: 'http', host: host, port: port));
     return true;
-  } on SyncFailure {
-    return false;
+  } on SyncFailure catch (failure) {
+    // A Chapterly phone that needs updating is still found, so pairing
+    // can say so.
+    return failure.message == updatePhoneForSyncMessage;
   }
 }
 

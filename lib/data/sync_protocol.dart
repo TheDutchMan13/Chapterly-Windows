@@ -102,3 +102,26 @@ SyncPayload decodeSyncPayload(String text) {
     throw const FormatException('This sync message is damaged.');
   }
 }
+
+/// [payload] with book changes and deletions dated more than a day ahead
+/// dated now instead. A device with its clock far ahead would otherwise win
+/// every merge until that date comes.
+SyncPayload clampFutureDates(SyncPayload payload, {DateTime? now}) {
+  final at = now ?? DateTime.now();
+  final limit = at.add(const Duration(days: 1));
+  return SyncPayload(
+    books: [
+      for (final book in payload.books)
+        if (book.updatedAt.isAfter(limit))
+          book.copyWith(updatedAt: at)
+        else
+          book,
+    ],
+    tombstones: {
+      for (final entry in payload.tombstones.entries)
+        entry.key: entry.value.isAfter(limit) ? at : entry.value,
+    },
+    features: payload.features,
+    wishes: payload.wishes,
+  );
+}

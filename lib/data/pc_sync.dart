@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -11,6 +12,7 @@ import 'book_repository.dart';
 import 'phone_finder.dart';
 import 'sync_three_way.dart';
 import 'sync_covers.dart';
+import 'sync_crypto.dart';
 import 'sync_merge.dart';
 import 'sync_plan.dart';
 import 'sync_protocol.dart';
@@ -89,7 +91,52 @@ String? _errorText(String body) {
   return null;
 }
 
-/// Talks to the phone over the home network (see docs/SYNC.md).
+/// One sync run with the phone: the key made from the pairing code and the
+/// phone's challenge. Made by [SyncClient.connect].
+class SyncSession {
+  SyncSession._(this.address, this.key);
+
+  final Uri address;
+  final SyncKey key;
+  String? _challenge;
+}
+
+/// What the phone answered to a sealed request, opened.
+class _Answer {
+  const _Answer(this.status, this.text);
+
+  final int status;
+  final String text;
+}
+
+/// The most the PC reads of an answer from the phone.
+const maxSyncReplyBytes = 100 * 1024 * 1024;
+const maxCoverReplyBytes = 3 * 1024 * 1024;
+const maxOtherReplyBytes = 1024 * 1024;
+
+/// Shown when the phone's ping says it does not speak sync version 2.
+const updatePhoneForSyncMessage =
+    'Update Chapterly on your phone to sync with this PC.';
+
+const _updatePhoneForSync = SyncFailure(updatePhoneForSyncMessage);
+
+const _wrongCode = SyncFailure(
+  'The pairing code is wrong. Check it on your phone under '
+  'Settings > Sync with a PC.',
+);
+
+/// Shown when an answer is larger than Chapterly reads.
+const tooLargeReplyMessage = 'Your phone answered with more than Chapterly '
+    'will read, so nothing was changed. Check that the address is your phone.';
+
+class _TooLarge implements Exception {
+  const _TooLarge();
+}
+
+/// Talks to the phone over the home network. Every request but the ping and
+/// the hello is sealed with a key made from the pairing code, and so is
+/// every answer: the code never travels, and an answer that was not sealed
+/// with it is refused before anything is applied.
 class SyncClient {
   SyncClient({
     http.Client? client,
@@ -101,8 +148,8 @@ class SyncClient {
   final Duration pingTimeout;
   final Duration syncTimeout;
 
-  Future<http.Response> _send(
-    Future<http.Response> Function() request,
+  Future<T> _send<T>(
+    Future<T> Function() request,
     Duration timeout,
     String step,
   ) async {
@@ -122,20 +169,42 @@ class SyncClient {
   String _unreachable(String step, Object reason) =>
       '$unreachableMessage\n\nDetails ($step): $reason';
 
+  /// Sends [request] and reads the answer, at most [limit] bytes of it.
+  Future<(int, Uint8List)> _fetch(
+    http.BaseRequest request,
+    int limit,
+    Duration timeout,
+    String step,
+  ) async {
+    try {
+      return await _send(() async {
+        final response = await _client.send(request);
+        final length = response.contentLength;
+        if (length != null && length > limit) throw const _TooLarge();
+        final builder = BytesBuilder(copy: false);
+        await for (final chunk in response.stream) {
+          builder.add(chunk);
+          if (builder.length > limit) throw const _TooLarge();
+        }
+        return (response.statusCode, builder.takeBytes());
+      }, timeout, step);
+    } on _TooLarge {
+      throw const SyncFailure(tooLargeReplyMessage);
+    }
+  }
+
   /// Checks that [address] is a Chapterly phone that speaks this protocol.
   Future<void> ping(Uri address) async {
-    final response = await _send(
-      () => _client.get(address.replace(path: '/v1/ping')),
-      pingTimeout,
-      'ping',
-    );
+    final request = http.Request('GET', address.replace(path: '/v1/ping'));
+    final (status, bytes) =
+        await _fetch(request, maxOtherReplyBytes, pingTimeout, 'ping');
     Object? data;
     try {
-      data = jsonDecode(response.body);
+      data = jsonDecode(utf8.decode(bytes, allowMalformed: true));
     } on FormatException {
       throw _notChapterly;
     }
-    if (response.statusCode != 200 ||
+    if (status != 200 ||
         data is! Map ||
         data['app'] != 'chapterly' ||
         data['protocol'] is! int) {
@@ -144,53 +213,163 @@ class SyncClient {
     final protocol = data['protocol'] as int;
     if (protocol > syncProtocolVersion) throw _updateWindows;
     if (protocol < syncProtocolVersion) throw _updatePhone;
+    final sync = data['sync'];
+    if (sync is! int || sync < 2) throw _updatePhoneForSync;
+  }
+
+  /// Starts a sync run with the phone at [address]: makes the key from
+  /// [code] and asks the phone for a challenge.
+  Future<SyncSession> connect(Uri address, String code) async {
+    final session = SyncSession._(address, await SyncKey.fromCode(code));
+    await _hello(session);
+    return session;
+  }
+
+  Future<String> _hello(SyncSession session) async {
+    final request = http.Request(
+      'GET',
+      session.address.replace(path: '/v2/hello'),
+    );
+    final (status, bytes) =
+        await _fetch(request, maxOtherReplyBytes, pingTimeout, 'hello');
+    if (status == 404 || status == 426) throw _updatePhoneForSync;
+    Object? data;
+    try {
+      data = jsonDecode(utf8.decode(bytes, allowMalformed: true));
+    } on FormatException {
+      data = null;
+    }
+    final challenge = data is Map ? data['challenge'] : null;
+    if (status != 200 || challenge is! String || challenge.isEmpty) {
+      throw _notChapterly;
+    }
+    return session._challenge = challenge;
+  }
+
+  SyncFailure _notYourPhone(SyncSession session) => SyncFailure(
+        'The phone at ${session.address.host} did not answer with your sync '
+        'code. Pair again if you changed the code.',
+      );
+
+  /// Sends [plain] sealed to [path] and returns the phone's answer, opened.
+  /// An answer that is not sealed with the code is refused, except the
+  /// phone's own plain refusals (wrong code, old challenge, update needed).
+  Future<_Answer> _sealed(
+    SyncSession session,
+    String method,
+    String path,
+    String plain, {
+    required int limit,
+    required String step,
+    bool retried = false,
+  }) async {
+    final challenge = session._challenge ?? await _hello(session);
+    final request = http.Request(method, session.address.replace(path: path))
+      ..headers['X-Chapterly-Challenge'] = challenge
+      ..headers['Content-Type'] = 'application/octet-stream'
+      ..bodyBytes = await session.key.seal(
+        utf8.encode(plain),
+        requestContext(method, path, challenge),
+      );
+    final (status, bytes) = await _fetch(request, limit, syncTimeout, step);
+    if (status == 204 && bytes.isEmpty) return const _Answer(204, '');
+    try {
+      final opened = await session.key.open(
+        bytes,
+        responseContext(method, path, challenge),
+      );
+      return _Answer(status, utf8.decode(opened, allowMalformed: true));
+    } on SyncAuthException {
+      // Not sealed with the code: only a refusal is taken from it.
+    }
+    if (status >= 200 && status < 300) throw _notYourPhone(session);
+    final error = _errorText(utf8.decode(bytes, allowMalformed: true));
+    switch (status) {
+      case 401 when error == 'challenge':
+        if (retried) {
+          throw const SyncFailure(
+            'Your phone did not accept the sync. Try again.',
+          );
+        }
+        await _hello(session);
+        return _sealed(
+          session,
+          method,
+          path,
+          plain,
+          limit: limit,
+          step: step,
+          retried: true,
+        );
+      case 401 when error == 'code':
+        throw _wrongCode;
+      case 401:
+        throw const SyncFailure(
+          'Your phone did not accept the sync. Try again.',
+        );
+      case 404:
+      case 426:
+        throw _updatePhoneForSync;
+      case 429:
+        throw const SyncFailure(
+          'Your phone refused too many tries with a wrong pairing code. '
+          'Wait a minute and try again.',
+        );
+      default:
+        throw _notYourPhone(session);
+    }
   }
 
   /// Sends this PC's library ([body], made by [encodeSyncPayload]) and
   /// returns the merged library from the phone.
-  Future<SyncPayload> sync(Uri address, String code, String body) async {
-    final url = address.replace(path: '/v1/sync');
-    final headers = {
-      'Authorization': 'Bearer $code',
-      'Content-Type': 'application/json',
-    };
-    final http.Response response;
+  Future<SyncPayload> sync(SyncSession session, String body) async {
+    final _Answer answer;
     try {
-      response = await _send(
-        () => _client.post(url, headers: headers, body: body),
-        syncTimeout,
-        'sync',
+      answer = await _sealed(
+        session,
+        'POST',
+        '/v2/sync',
+        body,
+        limit: maxSyncReplyBytes,
+        step: 'sync',
       );
     } on SyncFailure catch (failure) {
-      if (failure.message.contains('no answer in')) rethrow;
-      // A phone that refuses the pairing code answers and hangs up without
+      if (!failure.message.startsWith(unreachableMessage) ||
+          failure.message.contains('no answer in')) {
+        rethrow;
+      }
+      // A phone that refuses the request answers and hangs up without
       // reading the library, which Windows reports as a broken connection.
       // Ask again with a tiny message to find out which it was.
-      http.Response? probe;
+      var accepted = false;
       try {
-        probe = await _client
-            .post(url, headers: headers, body: '{}')
-            .timeout(pingTimeout);
-      } catch (_) {
-        probe = null;
-      }
-      if (probe?.statusCode == 401) {
-        throw const SyncFailure(
-          'The pairing code is wrong. Check it on your phone under '
-          'Settings > Sync with a PC.',
+        await _sealed(
+          session,
+          'POST',
+          '/v2/sync',
+          '{}',
+          limit: maxOtherReplyBytes,
+          step: 'sync',
         );
+        accepted = true;
+      } on SyncFailure catch (problem) {
+        // A refusal (wrong code, not your phone) is the real reason.
+        if (!problem.message.startsWith(unreachableMessage)) rethrow;
+      } catch (_) {
+        // Could not ask again.
       }
-      final size = '${(utf8.encode(body).length / 1048576).toStringAsFixed(1)} MB';
+      final size =
+          '${(utf8.encode(body).length / 1048576).toStringAsFixed(1)} MB';
       throw SyncFailure(
-        probe == null
-            ? '${failure.message}\n(Library size: $size.)'
-            : '${failure.message}\n(The pairing code was accepted, but the '
+        accepted
+            ? '${failure.message}\n(The pairing code was accepted, but the '
                 'phone closed the connection while the library was sent. '
-                'Library size: $size.)',
+                'Library size: $size.)'
+            : '${failure.message}\n(Library size: $size.)',
       );
     }
-    final text = utf8.decode(response.bodyBytes, allowMalformed: true);
-    switch (response.statusCode) {
+    final text = answer.text;
+    switch (answer.status) {
       case 200:
         break;
       case 401:
@@ -199,10 +378,7 @@ class SyncClient {
         if (wrongProfile != null && wrongProfile.contains('profile')) {
           throw SyncFailure(wrongProfile);
         }
-        throw const SyncFailure(
-          'The pairing code is wrong. Check it on your phone under '
-          'Settings > Sync with a PC.',
-        );
+        throw _wrongCode;
       case 400:
         final message = _errorText(text);
         if (message != null && message.contains('newer')) throw _updatePhone;
@@ -217,87 +393,73 @@ class SyncClient {
         );
     }
     try {
-      return decodeSyncPayload(text);
+      return clampFutureDates(decodeSyncPayload(text));
     } on FormatException catch (error) {
       if (error.message.contains('newer')) throw _updateWindows;
       throw SyncFailure(error.message);
     }
   }
 
-  Map<String, String> _coverHeaders(String code, {bool json = false}) => {
-        'Authorization': 'Bearer $code',
-        if (json) 'Content-Type': 'application/json',
-      };
-
   /// Which of [hashes] the phone does not have a cover picture for.
   Future<List<String>> missingCovers(
-    Uri address,
-    String code,
+    SyncSession session,
     List<String> hashes,
   ) async {
     if (hashes.isEmpty) return const [];
-    final response = await _send(
-      () => _client.post(
-        address.replace(path: '/v1/covers/missing'),
-        headers: _coverHeaders(code, json: true),
-        body: jsonEncode({'hashes': hashes}),
-      ),
-      syncTimeout,
-      'covers',
+    final answer = await _sealed(
+      session,
+      'POST',
+      '/v2/covers/missing',
+      jsonEncode({'hashes': hashes}),
+      limit: maxOtherReplyBytes,
+      step: 'covers',
     );
-    _checkCovers(response);
-    return _hashesIn(utf8.decode(response.bodyBytes, allowMalformed: true));
+    _checkCovers(answer);
+    return _hashesIn(answer.text);
   }
 
   /// Gives the phone one cover picture.
   Future<void> putCover(
-    Uri address,
-    String code,
+    SyncSession session,
     String hash,
     String dataUrl,
   ) async {
-    final response = await _send(
-      () => _client.put(
-        address.replace(path: '/v1/covers/$hash'),
-        headers: _coverHeaders(code),
-        body: dataUrl,
-      ),
-      syncTimeout,
-      'covers',
+    final answer = await _sealed(
+      session,
+      'PUT',
+      '/v2/covers/$hash',
+      dataUrl,
+      limit: maxOtherReplyBytes,
+      step: 'covers',
     );
-    _checkCovers(response);
+    _checkCovers(answer);
   }
 
   /// Takes one cover picture from the phone, or null when it has none by
   /// that name.
-  Future<String?> getCover(Uri address, String code, String hash) async {
-    final response = await _send(
-      () => _client.get(
-        address.replace(path: '/v1/covers/$hash'),
-        headers: _coverHeaders(code),
-      ),
-      syncTimeout,
-      'covers',
+  Future<String?> getCover(SyncSession session, String hash) async {
+    final answer = await _sealed(
+      session,
+      'GET',
+      '/v2/covers/$hash',
+      '',
+      limit: maxCoverReplyBytes,
+      step: 'covers',
     );
-    if (response.statusCode == 404 &&
-        _errorText(utf8.decode(response.bodyBytes, allowMalformed: true)) ==
-            'No such cover.') {
+    if (answer.status == 404 && _errorText(answer.text) == 'No such cover.') {
       return null;
     }
-    _checkCovers(response);
-    return utf8.decode(response.bodyBytes, allowMalformed: true);
+    _checkCovers(answer);
+    return answer.text;
   }
 
-  void _checkCovers(http.Response response) {
-    switch (response.statusCode) {
+  void _checkCovers(_Answer answer) {
+    switch (answer.status) {
       case 200:
       case 204:
         return;
       case 401:
-        throw const SyncFailure(
-          'The pairing code is wrong. Check it on your phone under '
-          'Settings > Sync with a PC.',
-        );
+        throw _wrongCode;
       case 404:
         throw const SyncFailure(
           'Your phone does not know this way of syncing covers. Update '
@@ -305,7 +467,7 @@ class SyncClient {
         );
       default:
         throw SyncFailure(
-          _errorText(utf8.decode(response.bodyBytes, allowMalformed: true)) ??
+          _errorText(answer.text) ??
               'Your phone could not take the covers. Try again.',
         );
     }
@@ -454,14 +616,13 @@ class PcSync extends ChangeNotifier {
   /// Sends [body] (books with cover references) after giving the phone the
   /// pictures it lacks, and returns its reply with references too.
   Future<SyncPayload> _exchange(
-    Uri address,
-    String code,
+    SyncSession session,
     String body,
     List<String> covers,
     CoverPool pool,
   ) async {
     Future<SyncPayload> post() async {
-      final reply = await client.sync(address, code, body);
+      final reply = await client.sync(session, body);
       return SyncPayload(
         books: withCoverRefs(reply.books, pool),
         tombstones: reply.tombstones,
@@ -470,32 +631,31 @@ class PcSync extends ChangeNotifier {
       );
     }
 
-    await _giveCovers(address, code, covers, pool);
+    await _giveCovers(session, covers, pool);
     try {
       return await post();
     } on MissingCovers catch (lacking) {
       // The phone lost some pictures since it was asked: give them again.
-      await _giveCovers(address, code, lacking.hashes, pool, ask: false);
+      await _giveCovers(session, lacking.hashes, pool, ask: false);
       return await post();
     }
   }
 
   Future<void> _giveCovers(
-    Uri address,
-    String code,
+    SyncSession session,
     List<String> hashes,
     CoverPool pool, {
     bool ask = true,
   }) async {
     if (hashes.isEmpty) return;
     final lacking =
-        ask ? await client.missingCovers(address, code, hashes) : hashes;
+        ask ? await client.missingCovers(session, hashes) : hashes;
     await forEachLimited(lacking, (hash) async {
       final picture = pool[hash];
       if (picture == null) {
         throw const SyncFailure('A cover could not be read on this PC.');
       }
-      await client.putCover(address, code, hash, picture);
+      await client.putCover(session, hash, picture);
     });
   }
 
@@ -504,13 +664,12 @@ class PcSync extends ChangeNotifier {
   /// up the sync.
   /// Fetches the pictures [books] name that this PC does not have yet.
   Future<void> _fetchPictures(
-    Uri address,
-    String code,
+    SyncSession session,
     List<Book> books,
     CoverPool pool,
   ) async {
     await forEachLimited(missingCovers(books, pool), (hash) async {
-      final picture = await client.getCover(address, code, hash);
+      final picture = await client.getCover(session, hash);
       if (picture == null) return;
       try {
         pool.put(hash, picture);
@@ -549,13 +708,14 @@ class PcSync extends ChangeNotifier {
       // Books travel with cover references; the pictures are given to the
       // phone, or taken from it, only when one side lacks them.
       final pool = CoverPool();
+      // The key and the phone's challenge, for every request of this run.
+      final session = await client.connect(address, code);
       SyncPayload? phone;
       if (!base.isEmpty) {
         // Ask for the phone's library (sending none changes nothing there)
         // to merge books changed on both sides before sending.
         phone = await _exchange(
-          address,
-          code,
+          session,
           encodeSyncPayload(const [], const {}),
           const [],
           pool,
@@ -584,8 +744,7 @@ class PcSync extends ChangeNotifier {
         }
       }
       final reply = await _exchange(
-        address,
-        code,
+        session,
         encodeSyncPayload(
           sent.books,
           sent.tombstones,
@@ -597,7 +756,7 @@ class PcSync extends ChangeNotifier {
       // The pictures this PC does not have yet come from the phone. They
       // are fetched first: from the snapshot below until the library is
       // saved, nothing waits, so a change made meanwhile can't be lost.
-      await _fetchPictures(address, code, reply.books, pool);
+      await _fetchPictures(session, reply.books, pool);
       // Merge the reply with the library as it is now, so a change made on
       // this PC while the sync was running is not lost. The phone's copy wins
       // a tie, so both sides end up the same.
@@ -653,8 +812,7 @@ class PcSync extends ChangeNotifier {
     _setBusy(true);
     try {
       final phone = await client.sync(
-        address,
-        code,
+        await client.connect(address, code),
         encodeSyncPayload(const [], const {}),
       );
       final now = repository.snapshot();

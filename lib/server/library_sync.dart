@@ -83,11 +83,16 @@ class LibrarySync {
     final text = stored.library;
     final SyncPayload? server;
     try {
-      server = text == null ? null : decodeSyncPayload(text);
-    } on FormatException {
-      throw const ServerFailure(
-        'Your library on the server was saved by a newer Chapterly. Update '
-        'this app to keep syncing it.',
+      server = text == null ? null : clampFutureDates(decodeSyncPayload(text));
+    } on FormatException catch (error) {
+      if (error.message.contains('newer')) {
+        throw const ServerFailure(
+          'Your library on the server was saved by a newer Chapterly. Update '
+          'this app to keep syncing it.',
+        );
+      }
+      throw ServerFailure(
+        'Your library on the server could not be read: ${error.message}',
       );
     }
 

@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:chapterly/data/app_settings.dart';
 import 'package:chapterly/data/book_repository.dart';
 import 'package:chapterly/data/book_store.dart';
 import 'package:chapterly/data/pc_sync.dart';
 import 'package:chapterly/data/sync_covers.dart';
+import 'package:chapterly/data/sync_crypto.dart';
 import 'package:chapterly/data/sync_protocol.dart';
 import 'package:chapterly/data/sync_server.dart';
 import 'package:chapterly/models/book.dart';
@@ -104,6 +106,104 @@ Future<HttpServer> _replyWith(int status, String body) async {
     await request.response.close();
   });
   return server;
+}
+
+
+final _address = Uri.parse('http://192.168.1.170:8765');
+
+/// A phone answering over MockClient: the ping, the hello, and sealed
+/// answers, able to misbehave.
+class _FakePhone {
+  _FakePhone._(this.key, this.replyKey, this.pingSync);
+
+  static Future<_FakePhone> create({
+    String? replyCode,
+    int? pingSync = 2,
+  }) async {
+    final key = await SyncKey.fromCode(_code);
+    final reply = replyCode == null ? key : await SyncKey.fromCode(replyCode);
+    return _FakePhone._(key, reply, pingSync);
+  }
+
+  final SyncKey key;
+  final SyncKey replyKey;
+  final int? pingSync;
+  int hellos = 0;
+
+  /// How many sealed requests are answered "unknown challenge".
+  int expireNext = 0;
+
+  /// Answer sealed requests with plain JSON instead.
+  bool plainReply = false;
+
+  /// Refuse the code in plain, as a phone that can't open the request does.
+  bool plainCodeRefusal = false;
+  final sealed = <String>[];
+  final raw = <http.Request>[];
+  List<Book> phoneBooks = [_book('phone')];
+  Map<String, DateTime> phoneTombstones = const {};
+
+  /// The status and plain text of the answer to an opened request.
+  Future<(int, String)> Function(String method, String path, String plain)?
+      answer;
+
+  Future<(int, String)> _defaultAnswer(
+    String method,
+    String path,
+    String plain,
+  ) async {
+    if (path == '/v2/sync') {
+      return (200, encodeSyncPayload(phoneBooks, phoneTombstones));
+    }
+    if (path == '/v2/covers/missing') return (200, '{"missing":[]}');
+    return (404, '{"error":"No such cover."}');
+  }
+
+  http.Client get client => MockClient(_handle);
+
+  Future<http.Response> _handle(http.Request request) async {
+    raw.add(request);
+    final path = request.url.path;
+    if (path == '/v1/ping') {
+      return http.Response(
+        jsonEncode({
+          'app': 'chapterly',
+          'protocol': syncProtocolVersion,
+          'sync': ?pingSync,
+        }),
+        200,
+      );
+    }
+    if (path == '/v2/hello') {
+      hellos++;
+      return http.Response(jsonEncode({'challenge': 'c$hellos'}), 200);
+    }
+    final challenge = request.headers['x-chapterly-challenge']!;
+    if (expireNext > 0) {
+      expireNext--;
+      return http.Response('{"error":"challenge"}', 401);
+    }
+    final plain = utf8.decode(
+      await key.open(
+        request.bodyBytes,
+        requestContext(request.method, path, challenge),
+      ),
+    );
+    sealed.add('${request.method} $path');
+    final (status, text) =
+        await (answer ?? _defaultAnswer)(request.method, path, plain);
+    if (plainCodeRefusal && status == 401) {
+      return http.Response('{"error":"code"}', 401);
+    }
+    if (plainReply) return http.Response(text, status);
+    return http.Response.bytes(
+      await replyKey.seal(
+        utf8.encode(text),
+        responseContext(request.method, path, challenge),
+      ),
+      status,
+    );
+  }
 }
 
 void main() {
@@ -407,17 +507,15 @@ void main() {
     });
 
     test('a phone that needs updating', () async {
-      final server = await _replyWith(
-        400,
-        jsonEncode({'error': 'This sync needs a newer version of Chapterly.'}),
-      );
-      addTearDown(() => server.close(force: true));
+      final phone = await _FakePhone.create();
+      phone.answer = (method, path, plain) async => (
+            400,
+            jsonEncode({'error': 'This sync needs a newer version of Chapterly.'}),
+          );
+      final client = SyncClient(client: phone.client);
+      final session = await client.connect(_address, _code);
       await expectLater(
-        client.sync(
-          parsePhoneAddress('127.0.0.1:${server.port}')!,
-          _code,
-          encodeSyncPayload(const [], const {}),
-        ),
+        client.sync(session, encodeSyncPayload(const [], const {})),
         throwsA(
           isA<SyncFailure>().having(
             (f) => f.message,
@@ -430,20 +528,22 @@ void main() {
   });
 
   group('a phone that hangs up while the library is sent', () {
-    // A phone that refuses the pairing code answers and hangs up without
+    // A phone that refuses the request answers and hangs up without
     // reading the library, which Windows reports as a broken connection.
     Future<String> problemWith(int? probeStatus) async {
-      final client = SyncClient(
-        client: MockClient((request) async {
-          if (request.body == '{}') {
-            if (probeStatus == null) throw http.ClientException('gone');
-            return http.Response('{"error":"x"}', probeStatus);
-          }
-          throw http.ClientException('connection forcibly closed');
-        }),
-      );
+      final phone = await _FakePhone.create();
+      phone.answer = (method, path, plain) async {
+        if (plain == '{}') {
+          if (probeStatus == null) throw http.ClientException('gone');
+          return (probeStatus, '{"error":"x"}');
+        }
+        throw http.ClientException('connection forcibly closed');
+      };
+      phone.plainCodeRefusal = probeStatus == 401;
+      final client = SyncClient(client: phone.client);
       try {
-        await client.sync(Uri.parse('http://192.168.1.170:8765'), _code, '{"big":1}');
+        final session = await client.connect(_address, _code);
+        await client.sync(session, '{"big":1}');
         return '';
       } on SyncFailure catch (error) {
         return error.message;
@@ -466,6 +566,191 @@ void main() {
       expect(message, startsWith(unreachableMessage));
       expect(message, contains('Details (sync)'));
       expect(message, isNot(contains('code was accepted')));
+    });
+  });
+
+  group('sync version 2', () {
+    late BookRepository pc;
+    late AppSettings settings;
+    late MemoryCodeStore codes;
+
+    setUp(() async {
+      pc = BookRepository(InMemoryBookStore());
+      await pc.load();
+      await pc.replaceAll([_book('pc')]);
+      settings = AppSettings();
+      codes = MemoryCodeStore();
+    });
+
+    PcSync syncWith(_FakePhone phone) => PcSync(
+          repository: pc,
+          settings: settings,
+          codeStore: codes,
+          client: SyncClient(client: phone.client),
+        );
+
+    test('a sealed sync works and the code never travels', () async {
+      final phone = await _FakePhone.create();
+      final sync = syncWith(phone);
+
+      expect(
+        await sync.pair(address: formatPhoneAddress(_address), code: _code),
+        isNull,
+      );
+
+      expect(_ids(pc.allBooks), ['pc', 'phone']);
+      expect(phone.sealed, contains('POST /v2/sync'));
+      for (final request in phone.raw) {
+        expect(request.headers.keys.map((k) => k.toLowerCase()),
+            isNot(contains('authorization')));
+        expect(latin1.decode(request.bodyBytes, allowInvalid: true),
+            isNot(contains(_code)));
+        expect(request.headers.values.join(' '), isNot(contains(_code)));
+      }
+    });
+
+    test('an answer sealed with another code is refused and nothing applied',
+        () async {
+      final phone = await _FakePhone.create(replyCode: 'ZZZZZZZZZZZZZZZZ');
+      final sync = syncWith(phone);
+
+      final problem =
+          await sync.pair(address: formatPhoneAddress(_address), code: _code);
+
+      expect(
+        problem,
+        'The phone at ${_address.host} did not answer with your sync code. '
+        'Pair again if you changed the code.',
+      );
+      expect(_ids(pc.allBooks), ['pc']);
+      expect(sync.paired, isFalse);
+    });
+
+    test('a plain answer to a sealed request is refused', () async {
+      final phone = await _FakePhone.create();
+      phone.plainReply = true;
+      final client = SyncClient(client: phone.client);
+      final session = await client.connect(_address, _code);
+      await expectLater(
+        client.sync(session, encodeSyncPayload(const [], const {})),
+        throwsA(isA<SyncFailure>().having(
+            (f) => f.message, 'message', contains('did not answer with your'))),
+      );
+    });
+
+    test('a phone without sync 2 asks for the phone app to be updated',
+        () async {
+      final phone = await _FakePhone.create(pingSync: null);
+      final client = SyncClient(client: phone.client);
+      await expectLater(
+        client.ping(_address),
+        throwsA(isA<SyncFailure>().having(
+            (f) => f.message, 'message', updatePhoneForSyncMessage)),
+      );
+      final old = await _FakePhone.create(pingSync: 1);
+      expect(
+        await syncWith(old)
+            .pair(address: formatPhoneAddress(_address), code: _code),
+        updatePhoneForSyncMessage,
+      );
+      expect(old.sealed, isEmpty);
+    });
+
+    test('an old challenge is renewed once and the request sent again',
+        () async {
+      final phone = await _FakePhone.create();
+      phone.expireNext = 1;
+      final sync = syncWith(phone);
+
+      expect(
+        await sync.pair(address: formatPhoneAddress(_address), code: _code),
+        isNull,
+      );
+      expect(phone.hellos, 2);
+      expect(_ids(pc.allBooks), ['pc', 'phone']);
+    });
+
+    test('a challenge refused twice stops the sync', () async {
+      final phone = await _FakePhone.create();
+      phone.expireNext = 5;
+      final client = SyncClient(client: phone.client);
+      final session = await client.connect(_address, _code);
+      await expectLater(
+        client.sync(session, encodeSyncPayload(const [], const {})),
+        throwsA(isA<SyncFailure>()),
+      );
+      expect(phone.hellos, 2);
+    });
+
+    test('an answer larger than the cap is refused', () async {
+      final phone = await _FakePhone.create();
+      phone.answer = (method, path, plain) async =>
+          (200, 'x' * (maxCoverReplyBytes + 1));
+      final client = SyncClient(client: phone.client);
+      final session = await client.connect(_address, _code);
+      await expectLater(
+        client.getCover(session, coverHash('data:image/jpeg;base64,abcd')),
+        throwsA(isA<SyncFailure>()
+            .having((f) => f.message, 'message', tooLargeReplyMessage)),
+      );
+    });
+
+    test('a streamed answer larger than the cap is refused while reading',
+        () async {
+      final chunk = Uint8List(1024 * 1024);
+      final client = SyncClient(
+        client: MockClient.streaming((request, body) async {
+          await body.drain<void>();
+          if (request.url.path == '/v2/hello') {
+            return http.StreamedResponse(
+              Stream.value(utf8.encode('{"challenge":"c1"}')),
+              200,
+            );
+          }
+          return http.StreamedResponse(
+            Stream.fromIterable(List.filled(101, chunk)),
+            200,
+          );
+        }),
+      );
+      final session = await client.connect(_address, _code);
+      await expectLater(
+        client.sync(session, encodeSyncPayload(const [], const {})),
+        throwsA(isA<SyncFailure>()
+            .having((f) => f.message, 'message', tooLargeReplyMessage)),
+      );
+    });
+
+    test('dates far ahead in the phone\'s answer are dated now', () async {
+      final phone = await _FakePhone.create();
+      phone.phoneBooks = [_book('phone', updated: DateTime(2099))];
+      phone.phoneTombstones = {'gone': DateTime(2099)};
+      final sync = syncWith(phone);
+
+      expect(
+        await sync.pair(address: formatPhoneAddress(_address), code: _code),
+        isNull,
+      );
+      final soon = DateTime.now().add(const Duration(days: 1));
+      expect(pc.byId('phone')!.updatedAt.isBefore(soon), isTrue);
+      expect(pc.snapshot().tombstones['gone']!.isBefore(soon), isTrue);
+    });
+
+    test('clampFutureDates keeps dates up to a day ahead', () {
+      final now = DateTime(2026, 11, 4, 12);
+      final payload = clampFutureDates(
+        SyncPayload(
+          books: [
+            _book('near', updated: now.add(const Duration(hours: 20))),
+            _book('far', updated: DateTime(2030)),
+          ],
+          tombstones: {'a': DateTime(2030), 'b': DateTime(2026, 1, 1)},
+        ),
+        now: now,
+      );
+      expect(payload.books.first.updatedAt, now.add(const Duration(hours: 20)));
+      expect(payload.books.last.updatedAt, now);
+      expect(payload.tombstones, {'a': now, 'b': DateTime(2026, 1, 1)});
     });
   });
 
