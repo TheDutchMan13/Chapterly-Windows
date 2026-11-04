@@ -24,6 +24,7 @@ import 'package:chapterly/server/server_platform.dart';
 import 'package:chapterly/server/server_state.dart';
 import 'package:chapterly/server/server_sync.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'server_fake.dart';
@@ -1229,6 +1230,39 @@ void main() {
       ));
       await tester.pumpAndSettle();
     }
+
+    testWidgets('pasting a server code fills the address and token', (tester) async {
+      await tester.runAsync(() async {
+        phone = _Phone(server);
+        await phone.setUp();
+        await phone.state.disconnect();
+      });
+      var clipboard = 'chapterly-server:1|100.1.2.3:8780|abc_DEF-123';
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? <String, dynamic>{'text': clipboard}
+            : null,
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      await pump(tester);
+
+      await tester.tap(find.text('Paste server code'));
+      await tester.pumpAndSettle();
+      final address = tester.widget<TextField>(find.widgetWithText(TextField, 'Address'));
+      expect(address.controller?.text, '100.1.2.3:8780');
+      expect(find.text('Code read. Press Connect.'), findsOneWidget);
+      expect(phone.state.connected, isFalse);
+      final token = tester.widget<TextField>(find.widgetWithText(TextField, 'Token'));
+      expect(token.controller?.text, 'abc_DEF-123');
+      expect(token.obscureText, isTrue);
+
+      clipboard = 'nonsense';
+      await tester.tap(find.text('Paste server code'));
+      await tester.pumpAndSettle();
+      expect(find.text('That is not a Chapterly server code'), findsOneWidget);
+    });
 
     testWidgets('connects with an address and token', (tester) async {
       await tester.runAsync(() async {

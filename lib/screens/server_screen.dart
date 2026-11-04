@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
 import '../data/file_io.dart';
+import '../data/server_code.dart';
 import '../ebook/ebook_library.dart' show formatFileSize;
 import '../server/book_server.dart';
 import '../server/server_client.dart';
@@ -79,6 +80,7 @@ class _ConnectViewState extends State<_ConnectView> {
   bool _showToken = false;
   bool _busy = false;
   String? _problem;
+  String? _note;
 
   @override
   void dispose() {
@@ -102,6 +104,7 @@ class _ConnectViewState extends State<_ConnectView> {
     setState(() {
       _busy = true;
       _problem = null;
+      _note = null;
     });
     final client = widget.sync.clientFor(address, token);
     try {
@@ -123,6 +126,35 @@ class _ConnectViewState extends State<_ConnectView> {
     if (text != null && text.isNotEmpty) controller.text = text;
   }
 
+  /// Fills both fields from a server code. Does not connect.
+  bool _fillFromCode(String text) {
+    final code = parseServerCode(text);
+    if (code == null) return false;
+    _address.text = code.address;
+    _token.text = code.token;
+    setState(() {
+      _problem = null;
+      _note = 'Code read. Press Connect.';
+    });
+    return true;
+  }
+
+  Future<void> _pasteCode() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted) return;
+    if (!_fillFromCode(data?.text ?? '')) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('That is not a Chapterly server code')),
+      );
+    }
+  }
+
+  /// A whole server code pasted into the Address field fills both fields.
+  void _addressChanged(String text) {
+    if (text.trimLeft().startsWith('chapterly-server:')) _fillFromCode(text);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -136,10 +168,25 @@ class _ConnectViewState extends State<_ConnectView> {
             'place in sync with your other devices.',
           ),
           const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _busy ? null : _pasteCode,
+              icon: const Icon(Icons.content_paste),
+              label: const Text('Paste server code'),
+            ),
+          ),
+          if (_note case final note?)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(note),
+            ),
+          const SizedBox(height: 16),
           TextField(
             controller: _address,
             keyboardType: TextInputType.url,
             autocorrect: false,
+            onChanged: _addressChanged,
             decoration: InputDecoration(
               labelText: 'Address',
               hintText: '100.72.125.106:8780',

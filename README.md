@@ -90,7 +90,9 @@ Made for a PC:
 - Book server: connect to your own
   [Chapterly Server](https://github.com/TheDutchMan13/Chapterly-Server)
   (Library, the More menu > Book server) to browse and download your books and
-  sync your place and library from anywhere Tailscale reaches
+  sync your place and library from anywhere Tailscale reaches. Copy the
+  server code the server prints and press Paste server code to fill in the
+  address and token
 
 ## Syncing with your phone
 

@@ -13,6 +13,17 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.23.0',
+    date: '2026-11-04',
+    changes: [
+      'Book server: press Paste server code to fill in the address and token '
+          'in one go. Copy the server code that the server shows when you add '
+          'a user or make a new token, then press Paste server code and '
+          'Connect. Pasting the code into the Address box works too. Typing '
+          'the address and token still works',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.22.0',
     date: '2026-11-04',
     changes: [
