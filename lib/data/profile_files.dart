@@ -14,7 +14,7 @@ Directory? openProfileDir;
 /// Where a profile keeps everything on this PC: its database, sync state,
 /// reader and audiobook lists, book server state and its copies of book
 /// files. The first profile uses the app's data folder, as before
-/// profiles; the others use profiles\<id> in it.
+/// profiles; the others use `profiles\<id>` in it.
 Future<Directory> profileDataDir(String id) async {
   final base = await getApplicationSupportDirectory();
   final dir = id == mainProfileId
