@@ -12,6 +12,12 @@ and gets back the merged library. Both sides end up with the same books.
 2. On the PC: enter the address and the code once. Remove the dashes from the
    code (`ABCD-EFGH-...` becomes `ABCDEFGH...`).
 
+Pairing with a QR code: the PC makes a random 16-character code and shows
+it as a QR code whose text is exactly `chapterly-pair:1:<CODE>`. The phone
+scans it, starts answering sealed requests that use that code, and the PC
+(which scans the network about every 3 seconds for up to 5 minutes) pairs
+with whichever phone accepts it. Typing the address and code still works.
+
 Port: 8765. The code is sent in the `Authorization` header, so only use this
 on your own home network. Anyone on the same Wi-Fi with the code can read and
 change your library. Press "New code" on the phone to revoke access.

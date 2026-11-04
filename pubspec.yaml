@@ -3,7 +3,7 @@ description: "Chapterly for Windows: a private book tracker that syncs with the 
 publish_to: 'none'
 
 # Keep in step with appVersion in lib/data/app_info.dart.
-version: 1.21.0+23
+version: 1.22.0+24
 
 environment:
   sdk: ^3.13.5
@@ -46,6 +46,8 @@ dependencies:
   html: ^0.15.4
   flutter_widget_from_html_core: ^0.17.4
   pdfrx: ^2.11.0
+  # The QR code the phone scans to pair (pure Dart, so it works on Windows).
+  qr_flutter: ^4.1.0
   # The keyboard's media keys and Windows' media pop-up for audiobooks.
   flutter_media_session: ^3.0.9
   # Keep running in the system tray. 0.6 and newer changed the whole API.

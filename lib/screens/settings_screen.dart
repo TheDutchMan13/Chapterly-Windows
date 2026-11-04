@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../data/app_info.dart';
@@ -12,6 +13,7 @@ import '../data/date_format.dart';
 import '../data/file_io.dart';
 import '../data/kindle_clippings.dart';
 import '../data/library_scan.dart';
+import '../data/pairing_qr.dart';
 import '../data/pc_sync.dart';
 import '../data/profiles.dart';
 import '../data/theme_options.dart';
@@ -1225,6 +1227,21 @@ class _SyncSettingsState extends State<_SyncSettings> {
     }
   }
 
+  Future<void> _pairWithQr() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _problem = null);
+    final paired = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => _QrPairDialog(pcSync: widget.pcSync),
+    );
+    if (paired != true) return;
+    if (mounted) _code.clear();
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Connected and synced with your phone')),
+    );
+  }
+
   Future<void> _syncNow() => runManualSync(context, widget.pcSync);
 
   Future<void> _forget() async {
@@ -1233,8 +1250,8 @@ class _SyncSettingsState extends State<_SyncSettings> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Forget this phone?'),
         content: const Text(
-          'Your books stay on this PC. To sync again, enter the address and '
-          'pairing code from your phone.',
+          'Your books stay on this PC. To sync again, scan the QR code or enter '
+          'the address and pairing code from your phone.',
         ),
         actions: [
           TextButton(
@@ -1380,10 +1397,18 @@ class _SyncSettingsState extends State<_SyncSettings> {
         children: [
           const Text(
             'On your phone, open Chapterly and go to Settings > Sync with a '
-            'PC. Switch on "Allow sync from my PC", then type the address '
-            'and pairing code it shows.',
+            'PC. Switch on "Allow sync from my PC", then scan the code from '
+            'this PC. Or type the address and pairing code it shows.',
           ),
           const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: sync.busy ? null : _pairWithQr,
+            icon: const Icon(Icons.qr_code_2),
+            label: const Text('Pair with QR code'),
+          ),
+          const SizedBox(height: 16),
+          const Text('Or type it in'),
+          const SizedBox(height: 8),
           TextField(
             controller: _address,
             decoration: const InputDecoration(
@@ -1446,6 +1471,138 @@ class _SyncSettingsState extends State<_SyncSettings> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Shows a QR code for the phone to scan, and pairs with the phone that does.
+/// Closes with true when a phone paired.
+class _QrPairDialog extends StatefulWidget {
+  const _QrPairDialog({required this.pcSync});
+
+  final PcSync pcSync;
+
+  @override
+  State<_QrPairDialog> createState() => _QrPairDialogState();
+}
+
+class _QrPairDialogState extends State<_QrPairDialog> {
+  late String _code;
+  QrPairing? _pairing;
+  String? _problem;
+  bool _timedOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  @override
+  void dispose() {
+    _pairing?.cancel();
+    super.dispose();
+  }
+
+  void _start() {
+    _pairing?.cancel();
+    _code = newPairingCode();
+    _timedOut = false;
+    _problem = null;
+    final pairing = QrPairing(
+      find: widget.pcSync.findPhones,
+      tryPair: (address, pairCode) =>
+          widget.pcSync.pair(address: address, code: pairCode),
+    );
+    _pairing = pairing;
+    pairing.run(
+      _code,
+      onProblem: (problem) {
+        if (mounted && _pairing == pairing) setState(() => _problem = problem);
+      },
+    ).then((result) {
+      if (!mounted || _pairing != pairing) return;
+      switch (result.outcome) {
+        case QrPairingOutcome.paired:
+          Navigator.of(context).pop(true);
+        case QrPairingOutcome.timedOut:
+          setState(() => _timedOut = true);
+        case QrPairingOutcome.cancelled:
+          break;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('Scan with your phone'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (_timedOut)
+              const Icon(Icons.qr_code_2, size: 96)
+            else
+              QrImageView(
+                data: pairingQrPayload(_code),
+                size: 240,
+                padding: const EdgeInsets.all(16),
+                backgroundColor: Colors.white,
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: Colors.black,
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Colors.black,
+                ),
+                semanticsLabel: 'Pairing code for your phone',
+              ),
+            const SizedBox(height: 16),
+            const Text(
+              'On your phone open Chapterly > Settings > Sync with a PC > '
+              'Scan code from your PC. Keep Chapterly open on the phone, on '
+              'the same Wi-Fi.',
+            ),
+            const SizedBox(height: 16),
+            if (_timedOut)
+              Text(
+                qrPairingTimedOutMessage,
+                style: TextStyle(color: theme.colorScheme.error),
+              )
+            else if (_problem case final problem?)
+              Text(problem, style: TextStyle(color: theme.colorScheme.error))
+            else
+              const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Flexible(child: Text('Waiting for your phone to scan...')),
+                ],
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        if (_timedOut)
+          FilledButton(
+            onPressed: () => setState(_start),
+            child: const Text('Try again'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+      ],
     );
   }
 }

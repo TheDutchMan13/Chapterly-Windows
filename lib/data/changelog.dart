@@ -13,6 +13,17 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.22.0',
+    date: '2026-11-04',
+    changes: [
+      'Pair with your phone by scanning a QR code: in Settings > Sync with '
+          'your phone, press Pair with QR code, then scan the code with '
+          'Chapterly on your phone. Chapterly finds the phone by itself, so '
+          'you no longer need to type an address or a pairing code. Update '
+          'Chapterly on your phone too. Typing them still works',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.21.0',
     date: '2026-11-04',
     changes: [

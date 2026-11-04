@@ -96,9 +96,12 @@ Made for a PC:
 
 1. On the phone: Settings > Sync with a PC > switch on "Allow sync from my PC".
    It shows an address (such as `192.168.1.20:8765`) and a pairing code.
-2. On the PC: Settings > Sync with your phone. Type the address and code, then
-   press **Connect and sync**.
-   Or press **Find my phone** and Chapterly looks for it on your network.
+2. On the PC: Settings > Sync with your phone. Press **Pair with QR code**,
+   then on the phone choose Settings > Sync with a PC > Scan code from your PC
+   and scan the code. Chapterly finds the phone by itself (keep Chapterly open
+   on the phone, on the same Wi-Fi). It looks for up to 5 minutes.
+   Or type the address and code, then press **Connect and sync**, or press
+   **Find my phone** and Chapterly looks for it on your network.
 3. After that, Chapterly syncs when it opens and every 15 minutes while it is
    open (both can be changed in Settings), whenever the phone is there. The
    top of the library shows when it last synced. Press the sync button (or
