@@ -131,7 +131,12 @@ Future<void> linkBookFile(
     await files.release(picked);
     return;
   }
-  final bookId = await _bookFor(choice, repository, BookFormat.ebook);
+  final bookId = await _bookFor(
+    choice,
+    repository,
+    BookFormat.ebook,
+    fileName: picked.name,
+  );
   if (bookId == null) {
     await files.release(picked);
     say('The book could not be added.');
@@ -227,7 +232,12 @@ Future<void> linkAudiobook(
     say('That is not an audio file Chapterly can play.');
     return;
   }
-  final bookId = await _bookFor(choice, repository, BookFormat.audiobook);
+  final bookId = await _bookFor(
+    choice,
+    repository,
+    BookFormat.audiobook,
+    fileName: name,
+  );
   if (bookId == null) {
     say('The book could not be added.');
     return;
@@ -320,8 +330,9 @@ Future<FoundBookInfo> _bookFileInfo(
 Future<String?> _bookFor(
   LinkChoice choice,
   BookRepository repository,
-  BookFormat format,
-) async {
+  BookFormat format, {
+  String? fileName,
+}) async {
   final existing = choice.bookId;
   if (existing != null) return existing;
   await repository.add(
@@ -329,6 +340,8 @@ Future<String?> _bookFor(
     author: choice.author,
     shelf: choice.shelf,
     format: format,
+    originName: fileName,
+    originSource: 'A file you added',
   );
   // A new book goes first in the list.
   final added = repository.allBooks.firstOrNull;

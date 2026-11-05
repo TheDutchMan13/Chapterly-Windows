@@ -29,6 +29,8 @@ import '../widgets/book_cover.dart';
 import '../widgets/shelf_icon.dart';
 import 'author_books_screen.dart';
 import 'book_card_screen.dart';
+import 'book_edit_screen.dart';
+import 'book_info_sheet.dart';
 import 'book_file_card.dart';
 import 'book_insights.dart';
 import 'listen_card.dart';
@@ -936,6 +938,24 @@ class BookDetailScreen extends StatelessWidget {
                   ),
             title: const Text('Book'),
             actions: [
+              IconButton(
+                tooltip: 'Book info',
+                icon: const Icon(Icons.info_outline),
+                onPressed: () => showBookInfo(
+                  context,
+                  repository: repository,
+                  bookId: book.id,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Edit book',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () => openBookEditor(
+                  context,
+                  repository: repository,
+                  bookId: book.id,
+                ),
+              ),
               IconButton(
                 tooltip: 'Share a book card',
                 icon: const Icon(Icons.ios_share),

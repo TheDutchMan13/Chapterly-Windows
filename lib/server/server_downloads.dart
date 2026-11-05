@@ -352,6 +352,8 @@ class ServerDownloads extends ChangeNotifier {
       author: book.author,
       shelf: Shelf.forLater,
       format: book.isAudiobook ? BookFormat.audiobook : BookFormat.ebook,
+      originName: book.originalName,
+      originSource: 'Your book server',
     );
     if (book.series != null) {
       await repository.setSeries(id, book.series, book.seriesIndex?.round());

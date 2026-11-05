@@ -118,6 +118,8 @@ class _BulkAddScreenState extends State<BulkAddScreen> {
         coverUrl: match?.coverUrl,
         firstPublishYear: match?.firstPublishYear,
         pages: match?.pages,
+        originName: item.line.trim(),
+        originSource: 'A list of books you pasted',
       );
     }
     if (mounted) Navigator.of(context).pop(chosen.length);

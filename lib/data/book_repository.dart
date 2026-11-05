@@ -6,6 +6,7 @@ import '../models/audio_bookmark.dart';
 import '../models/audio_progress.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
+import '../models/book_origin.dart';
 import '../models/quote.dart';
 import '../models/rating_aspect.dart';
 import '../models/reading.dart';
@@ -281,9 +282,11 @@ class BookRepository extends ChangeNotifier {
     int? firstPublishYear,
     int? pages,
     BookFormat? format,
+    String? originName,
+    String? originSource,
   }) async {
     final now = DateTime.now();
-    final book = Book(
+    var book = Book(
       id: newBookId(),
       title: title,
       author: author,
@@ -296,11 +299,80 @@ class BookRepository extends ChangeNotifier {
       pages: pages,
       format: format,
     );
+    // The name of the file it came from, and the details as first found, so
+    // they can be shown and put back after a correction.
+    book = book.copyWith(
+      origin: () =>
+          BookOrigin.of(book, name: originName, source: originSource),
+    );
     _books.insert(0, book);
     notifyListeners();
     await _store.save(book);
     return book.id;
   }
+
+  /// Corrects a book's details: the ones you typed or picked from a match.
+  /// The details before the first correction are kept in the book's origin,
+  /// so [resetDetails] can put them back. An empty title is ignored.
+  Future<void> editDetails(String id, BookDetails details) {
+    final title = details.title.trim();
+    if (title.isEmpty) return Future.value();
+    String? clean(String? text) {
+      final value = text?.trim() ?? '';
+      return value.isEmpty ? null : value;
+    }
+
+    return _update(id, (book) {
+      final next = book.copyWith(
+        title: title,
+        author: details.author.trim(),
+        series: () => clean(details.series),
+        seriesNumber: () => clean(details.series) == null ? null : details.seriesNumber,
+        isbn: () => clean(details.isbn),
+        pages: () => details.pages != null && details.pages! > 0 ? details.pages : null,
+        firstPublishYear: () => details.year,
+        coverUrl: details.coverUrl == null ? null : () => details.coverUrl!.value,
+      );
+      if (_sameDetails(book, next) &&
+          (details.coverUrl == null || book.coverUrl == next.coverUrl)) {
+        return book;
+      }
+      final origin = book.origin ?? BookOrigin.of(book);
+      if (origin.sameDetailsAs(next)) {
+        // Typed back to what it was added with: no longer a correction.
+        return next.copyWith(origin: () => origin.withEditedAt(null));
+      }
+      return next.copyWith(
+        origin: () => origin.withEditedAt(DateTime.now()),
+      );
+    });
+  }
+
+  /// Puts back the details a book was added with (see [editDetails]).
+  /// The cover stays as it is.
+  Future<void> resetDetails(String id) => _update(id, (book) {
+        final origin = book.origin;
+        if (origin == null) return book;
+        return book.copyWith(
+          title: origin.title,
+          author: origin.author,
+          series: () => origin.series,
+          seriesNumber: () => origin.seriesNumber,
+          isbn: () => origin.isbn,
+          pages: () => origin.pages,
+          firstPublishYear: () => origin.year,
+          origin: () => origin.withEditedAt(null),
+        );
+      });
+
+  static bool _sameDetails(Book a, Book b) =>
+      a.title == b.title &&
+      a.author == b.author &&
+      a.series == b.series &&
+      a.seriesNumber == b.seriesNumber &&
+      a.isbn == b.isbn &&
+      a.pages == b.pages &&
+      a.firstPublishYear == b.firstPublishYear;
 
   Future<void> moveTo(String id, Shelf shelf) =>
       _update(id, (book) => _withShelf(book, shelf));
@@ -1117,4 +1189,39 @@ class BookRepository extends ChangeNotifier {
     notifyListeners();
     await _store.saveAll(changed);
   }
+}
+
+/// A book's details as typed in the book editor (see
+/// [BookRepository.editDetails]).
+class BookDetails {
+  const BookDetails({
+    required this.title,
+    required this.author,
+    this.series,
+    this.seriesNumber,
+    this.isbn,
+    this.pages,
+    this.year,
+    this.coverUrl,
+  });
+
+  final String title;
+  final String author;
+  final String? series;
+  final int? seriesNumber;
+  final String? isbn;
+  final int? pages;
+  final int? year;
+
+  /// A new cover (its value may be null to remove it), or null to leave
+  /// the cover as it is.
+  final CoverChange? coverUrl;
+}
+
+/// A cover to set: a web address, a picture as a data: address, or null to
+/// remove it.
+class CoverChange {
+  const CoverChange(this.value);
+
+  final String? value;
 }

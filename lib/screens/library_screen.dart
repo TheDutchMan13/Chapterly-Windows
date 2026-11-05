@@ -26,6 +26,8 @@ import '../server/book_server.dart';
 import '../widgets/book_cover.dart';
 import 'add_book_dialog.dart';
 import 'book_detail_screen.dart';
+import 'book_edit_screen.dart';
+import 'book_info_sheet.dart';
 import 'book_insights.dart';
 import 'continue_card.dart';
 import 'book_table.dart';
@@ -206,6 +208,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
         PopupMenuItem(
           value: () => _openBook(book),
           child: const Text('Open'),
+        ),
+        PopupMenuItem(
+          value: () => showBookInfo(
+            context,
+            repository: widget.repository,
+            bookId: book.id,
+          ),
+          child: const Text('Book info'),
+        ),
+        PopupMenuItem(
+          value: () => openBookEditor(
+            context,
+            repository: widget.repository,
+            bookId: book.id,
+          ),
+          child: const Text('Edit book...'),
         ),
         const PopupMenuDivider(),
         for (final shelf in Shelf.values)
@@ -1545,6 +1563,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
         onOpen: (book) =>
             _selected.isEmpty ? _openBook(book) : _toggleSelected(book),
         onSelect: _toggleSelected,
+        onInfo: (book) => showBookInfo(
+          context,
+          repository: widget.repository,
+          bookId: book.id,
+        ),
         onMove: widget.repository.moveTo,
         showFormat: widget.settings.showFormatOnCards,
         showTags: widget.settings.showTagsOnCards,
@@ -1981,6 +2004,7 @@ class _ShelfList extends StatelessWidget {
     required this.selected,
     required this.onOpen,
     required this.onSelect,
+    required this.onInfo,
     required this.onMove,
     required this.showFormat,
     required this.showTags,
@@ -1996,6 +2020,9 @@ class _ShelfList extends StatelessWidget {
   final Set<String> selected;
   final void Function(Book book) onOpen;
   final void Function(Book book) onSelect;
+
+  /// Shows where the book came from (its original name).
+  final void Function(Book book) onInfo;
   final void Function(String id, Shelf shelf) onMove;
   final bool showFormat;
   final bool showTags;
@@ -2172,6 +2199,11 @@ class _ShelfList extends StatelessWidget {
                         size: 18,
                         color: Colors.redAccent,
                       ),
+                    IconButton(
+                      tooltip: 'Book info',
+                      icon: const Icon(Icons.info_outline),
+                      onPressed: () => onInfo(book),
+                    ),
                     PopupMenuButton<Shelf>(
                       tooltip: 'Move to shelf',
                       onSelected: (shelf) => onMove(book.id, shelf),

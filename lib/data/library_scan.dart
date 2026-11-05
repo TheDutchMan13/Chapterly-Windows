@@ -707,6 +707,8 @@ class LibraryScanner extends ChangeNotifier {
         format: item.kind == ScanKind.book
             ? BookFormat.ebook
             : BookFormat.audiobook,
+        originName: item.name,
+        originSource: 'A folder on this PC',
       );
     } catch (_) {
       return (problem: 'The book could not be added.', bookId: null);

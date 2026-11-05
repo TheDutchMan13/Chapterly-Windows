@@ -144,6 +144,7 @@ class ServerBook {
     this.hasCover = false,
     this.progress,
     this.trackCount = 1,
+    this.originalName,
   });
 
   final String id;
@@ -166,6 +167,10 @@ class ServerBook {
 
   /// How many files: an audiobook can be one file per chapter.
   final int trackCount;
+
+  /// The name of the book's file (or audiobook folder) on the server, without
+  /// its folders. Null from a server older than 1.5.
+  final String? originalName;
 
   bool get isAudiobook => kind == 'audiobook';
 
@@ -191,7 +196,11 @@ class ServerBook {
     final size = value['size'];
     final duration = value['durationMs'];
     final tracks = value['trackCount'];
+    final original = value['fileName'];
     return ServerBook(
+      originalName: original is String && original.trim().isNotEmpty
+          ? original
+          : null,
       trackCount: tracks is int && tracks > 0 ? tracks : 1,
       id: id,
       title: title,
@@ -415,6 +424,44 @@ class ServerClient {
     ));
     if (data is Map && data['name'] is String) return data['name'] as String;
     throw const ServerFailure('The server sent something Chapterly cannot read.');
+  }
+
+  /// One book, with its corrections.
+  Future<ServerBook> book(String bookId) async {
+    final book = ServerBook.fromJson(_json(await _send(
+      () => _client.get(_uri('/v1/books/$bookId'), headers: authHeaders),
+    )));
+    if (book == null) {
+      throw const ServerFailure('The server sent something Chapterly cannot read.');
+    }
+    return book;
+  }
+
+  /// Corrects a book's title, author and series on the server, for every
+  /// device and person using it. The book's file is not changed.
+  Future<ServerBook> correctBook(
+    String bookId, {
+    required String title,
+    required String author,
+    String? series,
+    double? seriesIndex,
+  }) async {
+    final book = ServerBook.fromJson(_json(await _send(
+      () => _client.patch(
+        _uri('/v1/books/$bookId'),
+        headers: {...authHeaders, 'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'title': title,
+          'author': author,
+          'series': series,
+          'seriesIndex': series == null ? null : seriesIndex,
+        }),
+      ),
+    )));
+    if (book == null) {
+      throw const ServerFailure('The server sent something Chapterly cannot read.');
+    }
+    return book;
   }
 
   Future<ServerPage> books({
