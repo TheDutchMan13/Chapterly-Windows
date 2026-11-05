@@ -82,15 +82,22 @@ class BookCover extends StatelessWidget {
         alignment: Alignment.bottomLeft,
         padding: EdgeInsets.all(width >= 70 ? 10 : 4),
         color: placeholderColour(name),
-        child: Text(
-          name,
-          maxLines: width >= 70 ? 5 : 3,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: const Color(0xFFEAF0FF),
-            fontWeight: FontWeight.w800,
-            fontSize: (width / 7.5).clamp(6.0, 22.0),
-            height: 1.1,
+        // Painted like cover art: the title is already next to the cover,
+        // so screen readers skip this copy.
+        child: ExcludeSemantics(
+          child: RichText(
+            maxLines: width >= 70 ? 5 : 3,
+            overflow: TextOverflow.ellipsis,
+            text: TextSpan(
+              text: name,
+              style: DefaultTextStyle.of(context).style.copyWith(
+                    color: const Color(0xFFEAF0FF),
+                    fontWeight: FontWeight.w800,
+                    fontSize: (width / 7.5).clamp(6.0, 22.0),
+                    height: 1.1,
+                    decoration: TextDecoration.none,
+                  ),
+            ),
           ),
         ),
       );
