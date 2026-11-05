@@ -441,6 +441,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         borderRadius: BorderRadius.circular(12),
         child: BookCover(
           coverUrl: book.coverUrl,
+          title: book.title,
+          shadow: true,
           width: width,
           height: width * 1.5,
         ),

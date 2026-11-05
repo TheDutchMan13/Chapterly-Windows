@@ -27,6 +27,7 @@ import '../widgets/book_cover.dart';
 import 'add_book_dialog.dart';
 import 'book_detail_screen.dart';
 import 'book_insights.dart';
+import 'continue_card.dart';
 import 'book_table.dart';
 import 'bulk_add_screen.dart';
 import 'cover_size_dialog.dart';
@@ -1834,6 +1835,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ),
                         ],
                       ),
+                    ?(widget.settings.continueCard &&
+                            !_searching &&
+                            _selected.isEmpty
+                        ? ContinueReadingCard.forLibrary(
+                            widget.repository.books,
+                            onOpen: _openBook,
+                          )
+                        : null),
                     ?_goalStrip(),
                     ?_stalledBanner(),
                     ?_quoteCard(),
@@ -2044,22 +2053,32 @@ class _ShelfList extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
           maxCrossAxisExtent: coverWidth + 20,
-          mainAxisExtent: coverHeight + 60,
+          mainAxisExtent: coverHeight + 74,
           crossAxisSpacing: 8,
-          mainAxisSpacing: 8,
+          mainAxisSpacing: 10,
         ),
         itemCount: books.length,
         itemBuilder: (context, index) {
           final book = books[index];
+          final progress = book.shelf == Shelf.inProgress
+              ? (book.progress ?? book.audio?.fraction)
+              : null;
+          final textTheme = Theme.of(context).textTheme;
+          final muted = Theme.of(context).colorScheme.onSurfaceVariant;
           return InkWell(
             onTap: () => onOpen(book),
             onLongPress: () => onSelect(book),
             onSecondaryTapDown: (details) =>
                 onContextMenu(book, details.globalPosition),
-            child: Container(
-              color: selected.contains(book.id) || book.id == current
-                  ? highlight
-                  : null,
+            borderRadius: BorderRadius.circular(12),
+            child: Ink(
+              decoration: BoxDecoration(
+                color: selected.contains(book.id) || book.id == current
+                    ? highlight
+                    : null,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.all(4),
               child: Column(
                 children: [
                   Stack(
@@ -2067,8 +2086,10 @@ class _ShelfList extends StatelessWidget {
                     children: [
                       BookCover(
                         coverUrl: book.coverUrl,
+                        title: book.title,
                         width: coverWidth,
                         height: coverHeight,
+                        shadow: true,
                       ),
                       if (book.favorite)
                         const Padding(
@@ -2081,14 +2102,37 @@ class _ShelfList extends StatelessWidget {
                         ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    book.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall,
+                  if (progress != null) ...[
+                    const SizedBox(height: 6),
+                    SizedBox(
+                      width: coverWidth,
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 4,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: coverWidth,
+                    child: Text(
+                      book.title,
+                      maxLines: progress == null ? 2 : 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
                   ),
+                  if (book.author.isNotEmpty)
+                    SizedBox(
+                      width: coverWidth,
+                      child: Text(
+                        book.author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(color: muted),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -2110,6 +2154,7 @@ class _ShelfList extends StatelessWidget {
           selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
           leading: BookCover(
             coverUrl: book.coverUrl,
+            title: book.title,
           ),
           title: Text(book.title),
           subtitle: lines.isEmpty ? null : Text(lines.join('\n')),

@@ -45,6 +45,10 @@ extension SortFieldLabel on SortField {
 
 enum DisplayMode { list, grid, table }
 
+/// How the whole app looks. Midnight is navy and teal at night and cool
+/// off-white by day; classic is the older look made from an accent colour.
+enum AppLook { midnight, classic }
+
 DateTime? _fromMillis(int? value) =>
     value == null ? null : DateTime.fromMillisecondsSinceEpoch(value);
 
@@ -65,6 +69,8 @@ class AppSettings extends ChangeNotifier {
   String? _fontFamily;
   int? _monthlyGoal;
   ThemeMode _themeMode = ThemeMode.system;
+  AppLook _look = AppLook.midnight;
+  bool _continueCard = true;
   bool _pureBlack = false;
   bool _paperLight = false;
   bool _backupReminder = true;
@@ -139,6 +145,12 @@ class AppSettings extends ChangeNotifier {
 
   /// Follow the phone, or always light, or always dark.
   ThemeMode get themeMode => _themeMode;
+
+  /// Midnight (navy and teal) or the classic look with an accent colour.
+  AppLook get look => _look;
+
+  /// Show the book you are reading at the top of the library.
+  bool get continueCard => _continueCard;
 
   /// Use true black instead of dark grey in dark mode.
   bool get pureBlack => _pureBlack;
@@ -349,6 +361,9 @@ class AppSettings extends ChangeNotifier {
     settings._themeMode =
         ThemeMode.values.asNameMap()[prefs.getString('themeMode')] ??
             ThemeMode.system;
+    settings._look = AppLook.values.asNameMap()[prefs.getString('look')] ??
+        AppLook.midnight;
+    settings._continueCard = prefs.getBool('continueCard') ?? true;
     settings._pureBlack = prefs.getBool('pureBlack') ?? false;
     settings._paperLight = prefs.getBool('paperLight') ?? false;
     settings._backupReminder = prefs.getBool('backupReminder') ?? true;
@@ -633,6 +648,18 @@ class AppSettings extends ChangeNotifier {
   void setThemeMode(ThemeMode mode) {
     _themeMode = mode;
     prefs?.setString('themeMode', mode.name);
+    notifyListeners();
+  }
+
+  void setLook(AppLook value) {
+    _look = value;
+    prefs?.setString('look', value.name);
+    notifyListeners();
+  }
+
+  void setContinueCard(bool value) {
+    _continueCard = value;
+    prefs?.setBool('continueCard', value);
     notifyListeners();
   }
 

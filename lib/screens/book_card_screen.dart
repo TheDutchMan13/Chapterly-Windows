@@ -87,6 +87,7 @@ class _BookCardScreenState extends State<BookCardScreen> {
                   children: [
                     BookCover(
                       coverUrl: book.coverUrl,
+                      title: book.title,
                       width: 140,
                       height: 210,
                     ),

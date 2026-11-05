@@ -3,7 +3,7 @@ description: "Chapterly for Windows: a private book tracker that syncs with the 
 publish_to: 'none'
 
 # Keep in step with appVersion in lib/data/app_info.dart.
-version: 1.23.1+26
+version: 1.24.0+27
 
 environment:
   sdk: ^3.13.5
@@ -63,3 +63,18 @@ flutter:
   assets:
     # The system tray icon (a copy of the app icon).
     - assets/tray_icon.ico
+
+  # Manrope, the Midnight look's font, comes with the app so it works offline.
+  # SIL Open Font License, see assets/fonts/Manrope-OFL.txt.
+  fonts:
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope-Regular.ttf
+        - asset: assets/fonts/Manrope-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Manrope-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Manrope-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Manrope-ExtraBold.ttf
+          weight: 800

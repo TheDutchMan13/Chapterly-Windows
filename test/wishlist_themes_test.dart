@@ -168,7 +168,9 @@ void main() {
 
   group('themes', () {
     test('the paper look only changes light mode', () {
-      final settings = AppSettings()..setPaperLight(true);
+      final settings = AppSettings()
+        ..setLook(AppLook.classic)
+        ..setPaperLight(true);
       expect(
         buildTheme(settings, Brightness.light).scaffoldBackgroundColor,
         paperColor,
@@ -178,7 +180,10 @@ void main() {
         isNot(paperColor),
       );
       expect(
-        buildTheme(AppSettings(), Brightness.light).scaffoldBackgroundColor,
+        buildTheme(
+          AppSettings()..setLook(AppLook.classic),
+          Brightness.light,
+        ).scaffoldBackgroundColor,
         isNot(paperColor),
       );
     });

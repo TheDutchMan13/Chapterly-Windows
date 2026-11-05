@@ -13,6 +13,28 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.24.0',
+    date: '2026-11-05',
+    changes: [
+      'A new look, Midnight: deep navy and teal in dark mode, and cool '
+          'off-white with deeper teal in light mode. Light, Dark or follow '
+          'Windows is still under Settings, Appearance. The older look is '
+          'there too, as Classic, with its accent colours and paper option',
+      'A new font, Manrope, comes with the app for the Midnight look. You '
+          'can still pick another font in Settings',
+      'The book you are reading now sits at the top of the library in a '
+          '"Continue reading" card with how far along you are. Click it to '
+          'open the book, or turn it off in Settings, Appearance',
+      'Rounded covers with a soft shadow, a progress bar under books you '
+          'are reading in the grid, and the author under each title',
+      'Books without a cover picture show their title on a coloured card '
+          'instead of a plain icon',
+      'The side bar marks the open page with a teal pill, and shelves, '
+          'buttons, cards and dialogs are rounder and calmer',
+      'The book page has a bigger cover on a teal band',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.23.1',
     date: '2026-11-04',
     changes: [

@@ -121,7 +121,10 @@ class NextUpScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      BookCover(coverUrl: books[i].coverUrl),
+                      BookCover(
+                        coverUrl: books[i].coverUrl,
+                        title: books[i].title,
+                      ),
                     ],
                   ),
                   title: Text(books[i].title),

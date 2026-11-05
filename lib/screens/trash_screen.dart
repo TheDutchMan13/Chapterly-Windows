@@ -59,6 +59,7 @@ class TrashScreen extends StatelessWidget {
                     return ListTile(
                       leading: BookCover(
                         coverUrl: book.coverUrl,
+                        title: book.title,
                       ),
                       title: Text(book.title),
                       subtitle: Text(

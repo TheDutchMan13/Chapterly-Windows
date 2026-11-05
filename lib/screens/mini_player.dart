@@ -165,7 +165,12 @@ class _MiniPlayerView extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
                   child: Row(
                     children: [
-                      BookCover(coverUrl: book.coverUrl, width: 52, height: 76),
+                      BookCover(
+                        coverUrl: book.coverUrl,
+                        title: book.title,
+                        width: 52,
+                        height: 76,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
