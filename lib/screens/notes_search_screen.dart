@@ -161,7 +161,7 @@ class _NotesSearchScreenState extends State<NotesSearchScreen> {
   void _open(NoteDocument doc) {
     Navigator.of(context).pop();
     widget.onOpenBook(doc.book);
-  };
+  }
 }
 
 /// Which notes to show.
