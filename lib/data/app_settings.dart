@@ -71,6 +71,8 @@ class AppSettings extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   AppLook _look = AppLook.midnight;
   bool _continueCard = true;
+  bool _autoSeries = true;
+  final _autoSeriesApplied = <String>{};
   String? _serverSeenAt;
   bool _pureBlack = false;
   bool _paperLight = false;
@@ -152,6 +154,13 @@ class AppSettings extends ChangeNotifier {
 
   /// Show the book you are reading at the top of the library.
   bool get continueCard => _continueCard;
+
+  /// Whether books get their series from their title by themselves (see
+  /// auto_series.dart).
+  bool get autoSeries => _autoSeries;
+
+  /// Books that were given a series that way, so one you clear stays clear.
+  Set<String> get autoSeriesApplied => Set.unmodifiable(_autoSeriesApplied);
 
   /// When the newest book on your book server that you have seen was added
   /// there (see the New on your book server banner). Null before the first
@@ -371,6 +380,9 @@ class AppSettings extends ChangeNotifier {
     settings._look = AppLook.values.asNameMap()[prefs.getString('look')] ??
         AppLook.midnight;
     settings._continueCard = prefs.getBool('continueCard') ?? true;
+    settings._autoSeries = prefs.getBool('autoSeries') ?? true;
+    settings._autoSeriesApplied
+        .addAll(prefs.getStringList('autoSeriesApplied') ?? const []);
     settings._serverSeenAt = prefs.getString('serverSeenAt');
     settings._pureBlack = prefs.getBool('pureBlack') ?? false;
     settings._paperLight = prefs.getBool('paperLight') ?? false;
@@ -669,6 +681,17 @@ class AppSettings extends ChangeNotifier {
     _serverSeenAt = value.toUtc().toIso8601String();
     prefs?.setString('serverSeenAt', _serverSeenAt!);
     notifyListeners();
+  }
+
+  void setAutoSeries(bool value) {
+    _autoSeries = value;
+    prefs?.setBool('autoSeries', value);
+    notifyListeners();
+  }
+
+  void addAutoSeriesApplied(Iterable<String> ids) {
+    _autoSeriesApplied.addAll(ids);
+    prefs?.setStringList('autoSeriesApplied', _autoSeriesApplied.toList());
   }
 
   void setContinueCard(bool value) {

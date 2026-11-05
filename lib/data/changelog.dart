@@ -13,6 +13,16 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.27.0',
+    date: '2026-11-05',
+    changes: [
+      'Series are found for you: a book with its series in the title, like '
+          '"Mistborn, Book 2" or "(The Expanse, #3)", gets the series and '
+          'number by itself, now and as you add books. Series you set are '
+          'never changed, and you can turn it off in Settings',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.26.0',
     date: '2026-11-05',
     changes: [

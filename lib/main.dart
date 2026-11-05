@@ -14,6 +14,7 @@ import 'audio/windows_audio_files.dart';
 import 'data/sync_three_way.dart';
 import 'data/app_settings.dart';
 import 'data/auto_backup.dart';
+import 'data/auto_series.dart';
 import 'data/book_repository.dart';
 import 'data/file_io.dart';
 import 'data/library_scan.dart';
@@ -147,6 +148,8 @@ Future<void> main() async {
   );
   // Not awaited: the app opens while the backup is written.
   runAutoBackup(repository, settings);
+  // Fills in series found in titles, now and as books are added.
+  AutoSeries.start(repository, settings);
   // The daily reading reminder: on the PC it shows in the app.
   _remindNowAndThen(repository, settings);
   // Closing the window can keep Chapterly in the tray (a setting).

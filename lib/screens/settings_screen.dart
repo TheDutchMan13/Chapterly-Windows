@@ -703,6 +703,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onChanged: widget.settings.setDefaultFormat,
                       ),
                     ),
+                    SwitchListTile(
+                      title: const Text('Find series automatically'),
+                      subtitle: const Text(
+                        'Fills in the series and number of books that have them in the '
+                        'title, like "Mistborn, Book 2". Series you set are never changed.',
+                      ),
+                      value: widget.settings.autoSeries,
+                      onChanged: widget.settings.setAutoSeries,
+                    ),
                     ListTile(
                       title: const Text('Tags for new books'),
                       subtitle: Text(

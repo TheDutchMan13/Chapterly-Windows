@@ -680,6 +680,22 @@ class BookRepository extends ChangeNotifier {
     );
   }
 
+  /// Sets the series of several books at once: book id to the series name
+  /// and number.
+  Future<void> setSeriesFor(Map<String, (String, int?)> choices) {
+    if (choices.isEmpty) return Future.value();
+    return _updateMany(
+      choices.keys.toSet(),
+      (book) {
+        final choice = choices[book.id];
+        if (choice == null) return book;
+        final name = choice.$1.trim();
+        if (name.isEmpty) return book;
+        return book.copyWith(series: () => name, seriesNumber: () => choice.$2);
+      },
+    );
+  }
+
   /// Books (not in the trash) in the same series, ordered by number.
   List<Book> booksInSeries(String series) {
     final key = series.trim().toLowerCase();
