@@ -33,6 +33,23 @@ class ServerFailure implements Exception {
   String toString() => message;
 }
 
+/// What to tell the user about a "not found" answer. The server says which
+/// of three things it is, so the message can say what to look at.
+String notFoundMessage(String? detail) {
+  final text = (detail ?? '').toLowerCase();
+  if (text.contains('folder is no longer served')) {
+    return 'The server no longer serves the folder this book is in. Check '
+        'books_dir and books_dirs in config.toml on the server, then restart '
+        'it.';
+  }
+  if (text.contains('file is gone')) {
+    return 'The server cannot find this book\'s file. The file or its folder '
+        'may have been moved, or the drive is not connected. Ask the server '
+        'to scan again.';
+  }
+  return 'That book is no longer on the server.';
+}
+
 const _serverNeedsUpdate = ServerFailure(
   'Your book server is older than this app and cannot sync covers. Copy the '
   'new server files to the PC and restart the server.',
@@ -330,6 +347,17 @@ class ServerClient {
     return response;
   }
 
+  /// The server's own explanation in an error answer, if it sent one.
+  static String? _detailOf(String body) {
+    try {
+      final data = jsonDecode(body);
+      if (data is Map && data['detail'] is String) return data['detail'] as String;
+    } on FormatException {
+      // Not JSON.
+    }
+    return null;
+  }
+
   static void _check(int status, String body) {
     if (status >= 200 && status < 300) return;
     if (status == 401) {
@@ -345,10 +373,7 @@ class ServerClient {
       );
     }
     if (status == 404) {
-      throw const ServerFailure(
-        'That book is no longer on the server.',
-        notFound: true,
-      );
+      throw ServerFailure(notFoundMessage(_detailOf(body)), notFound: true);
     }
     String? detail;
     try {

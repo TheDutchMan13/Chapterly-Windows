@@ -13,6 +13,15 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.23.1',
+    date: '2026-11-04',
+    changes: [
+      'When the book server answers "not found", Chapterly now says why: the '
+          'file or its folder was moved, or the server no longer serves that '
+          'folder, instead of always saying the book is gone',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.23.0',
     date: '2026-11-04',
     changes: [
