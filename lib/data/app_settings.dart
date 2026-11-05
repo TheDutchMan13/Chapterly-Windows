@@ -71,6 +71,7 @@ class AppSettings extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   AppLook _look = AppLook.midnight;
   bool _continueCard = true;
+  String? _serverSeenAt;
   bool _pureBlack = false;
   bool _paperLight = false;
   bool _backupReminder = true;
@@ -151,6 +152,12 @@ class AppSettings extends ChangeNotifier {
 
   /// Show the book you are reading at the top of the library.
   bool get continueCard => _continueCard;
+
+  /// When the newest book on your book server that you have seen was added
+  /// there (see the New on your book server banner). Null before the first
+  /// look.
+  DateTime? get serverSeenAt =>
+      _serverSeenAt == null ? null : DateTime.tryParse(_serverSeenAt!);
 
   /// Use true black instead of dark grey in dark mode.
   bool get pureBlack => _pureBlack;
@@ -364,6 +371,7 @@ class AppSettings extends ChangeNotifier {
     settings._look = AppLook.values.asNameMap()[prefs.getString('look')] ??
         AppLook.midnight;
     settings._continueCard = prefs.getBool('continueCard') ?? true;
+    settings._serverSeenAt = prefs.getString('serverSeenAt');
     settings._pureBlack = prefs.getBool('pureBlack') ?? false;
     settings._paperLight = prefs.getBool('paperLight') ?? false;
     settings._backupReminder = prefs.getBool('backupReminder') ?? true;
@@ -654,6 +662,12 @@ class AppSettings extends ChangeNotifier {
   void setLook(AppLook value) {
     _look = value;
     prefs?.setString('look', value.name);
+    notifyListeners();
+  }
+
+  void setServerSeenAt(DateTime value) {
+    _serverSeenAt = value.toUtc().toIso8601String();
+    prefs?.setString('serverSeenAt', _serverSeenAt!);
     notifyListeners();
   }
 

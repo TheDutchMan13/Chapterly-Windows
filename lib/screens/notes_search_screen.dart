@@ -7,7 +7,8 @@ import '../models/book.dart';
 
 // Windows app only.
 
-/// Searches everything you wrote or marked: notes, quotes, highlights and
+/// Every quote and note, filtered by kind; type to search everything you
+/// wrote or marked: notes, quotes, highlights and
 /// their notes, and audiobook bookmark notes, best match first.
 class NotesSearchScreen extends StatefulWidget {
   const NotesSearchScreen({
@@ -25,6 +26,7 @@ class NotesSearchScreen extends StatefulWidget {
 
 class _NotesSearchScreenState extends State<NotesSearchScreen> {
   final _query = TextEditingController();
+  _Kind _kind = _Kind.all;
   late List<NoteDocument> _documents = _collect();
 
   List<NoteDocument> _collect() => collectNotes(
@@ -69,53 +71,173 @@ class _NotesSearchScreenState extends State<NotesSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final hits = searchNotes(_documents, _query.text);
+    final searching = _query.text.trim().isNotEmpty;
     final textTheme = Theme.of(context).textTheme;
+    // With no words typed, every note and quote is shown, newest book first.
+    final List<({NoteDocument doc, Set<String> terms})> rows = searching
+        ? [
+            for (final hit in searchNotes(_documents, _query.text))
+              if (_kind.includes(hit.document.source))
+                (doc: hit.document, terms: hit.terms),
+          ]
+        : [
+            for (final doc in _documents)
+              if (_kind.includes(doc.source)) (doc: doc, terms: const <String>{}),
+          ];
+    int count(_Kind kind) =>
+        _documents.where((d) => kind.includes(d.source)).length;
     return Scaffold(
-      appBar: AppBar(title: const Text('Search notes and quotes')),
+      appBar: AppBar(title: const Text('Quotes and notes')),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
             child: TextField(
               controller: _query,
-              autofocus: true,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: 'Words from a quote, highlight or note',
-                helperText: '${_documents.length} notes, quotes and '
-                    'highlights. Typos are forgiven.',
-                border: const OutlineInputBorder(),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Search words from a quote, highlight or note',
+                helperText: 'Typos are forgiven.',
+                border: OutlineInputBorder(),
               ),
               onChanged: (_) => setState(() {}),
             ),
           ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Row(
+              children: [
+                for (final kind in _Kind.values)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text('${kind.label} · ${count(kind)}'),
+                      selected: _kind == kind,
+                      onSelected: (_) => setState(() => _kind = kind),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           Expanded(
-            child: _query.text.trim().isEmpty
-                ? const SizedBox.shrink()
-                : hits.isEmpty
-                    ? const Center(child: Text('Nothing found.'))
-                    : ListView.separated(
-                        itemCount: hits.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final hit = hits[index];
-                          final doc = hit.document;
-                          return ListTile(
-                            title: _marked(doc.text, hit.terms, textTheme.bodyMedium),
-                            subtitle: Text(
-                              '${doc.source.label} · ${doc.book.title}'
-                              '${doc.book.author.isEmpty ? '' : ' · ${doc.book.author}'}',
-                            ),
-                            onTap: () {
-                              Navigator.of(context).pop();
-                              widget.onOpenBook(doc.book);
-                            },
-                          );
-                        },
+            child: rows.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        searching
+                            ? 'Nothing found.'
+                            : 'No quotes or notes yet. Add them on a book '
+                                'page, or highlight text while reading.',
+                        textAlign: TextAlign.center,
                       ),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+                    itemCount: rows.length,
+                    itemBuilder: (context, index) {
+                      final row = rows[index];
+                      return _NoteCard(
+                        doc: row.doc,
+                        text: _marked(
+                          row.doc.text,
+                          row.terms,
+                          row.doc.source.isQuote
+                              ? textTheme.titleMedium
+                              : textTheme.bodyMedium,
+                        ),
+                        onTap: () => _open(row.doc),
+                      );
+                    },
+                  ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _open(NoteDocument doc) {
+    Navigator.of(context).pop();
+    widget.onOpenBook(doc.book);
+  };
+}
+
+/// Which notes to show.
+enum _Kind {
+  all('All'),
+  quotes('Quotes'),
+  notes('Notes');
+
+  const _Kind(this.label);
+  final String label;
+
+  bool includes(NoteSource source) => switch (this) {
+        _Kind.all => true,
+        _Kind.quotes => source.isQuote,
+        _Kind.notes => !source.isQuote,
+      };
+}
+
+extension on NoteSource {
+  /// Quotes and highlights: text from the book, not your own words.
+  bool get isQuote => this == NoteSource.quote || this == NoteSource.highlight;
+}
+
+/// One quote or note: quotes larger with a line down the side, and the book
+/// it is from underneath.
+class _NoteCard extends StatelessWidget {
+  const _NoteCard({required this.doc, required this.text, required this.onTap});
+
+  final NoteDocument doc;
+  final Widget text;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colours = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final quote = doc.source.isQuote;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          decoration: quote
+              ? BoxDecoration(
+                  border: Border(
+                    left: BorderSide(color: colours.primary, width: 4),
+                  ),
+                )
+              : null,
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                doc.source.label.toUpperCase(),
+                style: textTheme.labelSmall?.copyWith(
+                  color: quote ? colours.primary : colours.tertiary,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 6),
+              text,
+              const SizedBox(height: 8),
+              Text(
+                [
+                  doc.book.title,
+                  if (doc.book.author.isNotEmpty) doc.book.author,
+                ].join(' · '),
+                style: textTheme.bodySmall
+                    ?.copyWith(color: colours.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

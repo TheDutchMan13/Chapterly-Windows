@@ -97,6 +97,31 @@ void main() {
     expect(find.textContaining('Stalled on In progress'), findsNothing);
   });
 
+  testWidgets('Quotes and notes lists everything, filtered by kind',
+      (tester) async {
+    final repository = await _repository([
+      _book('1', 'Lighthouse', quotes: [
+        Quote(text: 'The lighthouse kept burning', addedAt: DateTime(2026)),
+      ]),
+      _book('2', 'Harbour').copyWith(notes: () => 'Lend this to Becca'),
+    ]);
+    await tester.pumpWidget(MaterialApp(
+      home: NotesSearchScreen(repository: repository, onOpenBook: (_) {}),
+    ));
+    await tester.pump();
+    expect(find.text('All · 2'), findsOneWidget);
+    expect(find.textContaining('lighthouse kept', findRichText: true),
+        findsOneWidget);
+    expect(find.textContaining('Lend this', findRichText: true), findsOneWidget);
+    await tester.tap(find.text('Quotes · 1'));
+    await tester.pump();
+    expect(find.textContaining('Lend this', findRichText: true), findsNothing);
+    await tester.tap(find.text('Notes · 1'));
+    await tester.pump();
+    expect(find.textContaining('lighthouse kept', findRichText: true),
+        findsNothing);
+  });
+
   testWidgets('Search notes and quotes finds and marks words', (tester) async {
     final repository = await _repository([
       _book('1', 'Lighthouse', quotes: [
@@ -123,8 +148,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'lighthose');
     await tester.pump();
-    expect(find.textContaining('Quote · Lighthouse'), findsOneWidget);
-    await tester.tap(find.textContaining('Quote · Lighthouse'));
+    expect(find.text('QUOTE'), findsOneWidget);
+    await tester.tap(find.text('QUOTE'));
     await tester.pumpAndSettle();
     expect(opened?.id, '1');
   });

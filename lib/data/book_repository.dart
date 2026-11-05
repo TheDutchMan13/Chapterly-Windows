@@ -348,6 +348,13 @@ class BookRepository extends ChangeNotifier {
     });
   }
 
+  /// Marks a book's match as right, so Review matches no longer lists it.
+  Future<void> confirmMatch(String id) => _update(id, (book) {
+        final origin = book.origin ?? BookOrigin.of(book);
+        if (origin.matchConfirmed) return book;
+        return book.copyWith(origin: () => origin.withMatchConfirmed(true));
+      });
+
   /// Puts back the details a book was added with (see [editDetails]).
   /// The cover stays as it is.
   Future<void> resetDetails(String id) => _update(id, (book) {
@@ -1104,6 +1111,16 @@ class BookRepository extends ChangeNotifier {
 
   /// Adds [incoming] books, skipping any whose title and author match a book
   /// already in the library. Returns how many were added.
+  /// How many of [incoming] [importBooks] would add: the ones not already
+  /// in the library (or twice in [incoming]).
+  int newBookCount(List<Book> incoming) {
+    final known = {
+      for (final book in _books)
+        if (book.deletedAt == null) _duplicateKey(book),
+    };
+    return incoming.where((book) => known.add(_duplicateKey(book))).length;
+  }
+
   Future<int> importBooks(List<Book> incoming) async {
     final known = {
       for (final book in _books)

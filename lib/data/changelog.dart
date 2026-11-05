@@ -13,6 +13,30 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.26.0',
+    date: '2026-11-05',
+    changes: [
+      'Review matches (Library menu): lists the books whose title and '
+          'author look very different from their original file name, so a '
+          'wrong Open Library match is easy to spot. Click Find match to fix '
+          "one, or It's right to stop it being listed",
+      'New on your book server: a banner at the top of your library shows '
+          'the books the server found since you last looked, with a Download '
+          'button for each. The server checks its folders every hour',
+      'Quotes and notes (Library menu): every quote, highlight and note in '
+          'one place, with All, Quotes and Notes filters. Type to search them '
+          'as before',
+      'Series: the next book to read in a series now has its own Open button',
+      'Reading stats: Hours listened, the length of the audiobooks you '
+          'finished',
+      'Audiobooks remember their own speed: set 1.4x for one book and it '
+          'stays 1.4x for that book, while others keep theirs',
+      'Importing a Goodreads, StoryGraph or other CSV file now shows how '
+          'many books are new and how many you already have before anything '
+          'is added',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.25.0',
     date: '2026-11-05',
     changes: [

@@ -112,7 +112,8 @@ class ListenController extends ChangeNotifier {
     return (start: start, end: end > start ? end : length);
   }
 
-  double get speed => library.speed;
+  /// The speed of the open book (each book remembers its own).
+  double get speed => library.speedFor(_bookId);
 
   /// Time left on the sleep timer, or null when it is off.
   Duration? get sleepLeft {
@@ -146,7 +147,7 @@ class ListenController extends ChangeNotifier {
         index: start.track,
         position: Duration(milliseconds: start.trackMs),
       );
-      await engine.setSpeed(library.speed);
+      await engine.setSpeed(library.speedFor(bookId));
     } catch (_) {
       await engine.dispose();
       return "Chapterly can't open the audio. The file may have been moved "
@@ -289,7 +290,7 @@ class ListenController extends ChangeNotifier {
   }
 
   Future<void> setSpeed(double speed) async {
-    await library.setSpeed(speed);
+    await library.setSpeed(speed, bookId: _bookId);
     await _engine?.setSpeed(speed);
     notifyListeners();
   }

@@ -582,6 +582,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     color: statsBlue,
                     value: stats.loggedPages.toString(),
                   ),
+                if (stats.listenedMs > 0)
+                  StatTile(
+                    label: 'Hours listened',
+                    icon: Icons.headphones_outlined,
+                    color: statsViolet,
+                    value: formatMinutes(stats.listenedMs ~/ 60000),
+                  ),
                 if (stats.loggedMinutes > 0)
                   StatTile(
                     label: 'Time read',

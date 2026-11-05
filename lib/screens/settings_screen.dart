@@ -372,6 +372,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final text = await widget.fileIo.pickTextFile();
         if (text == null) return;
         final result = importBooksFromCsv(text);
+        if (result.books.isEmpty) {
+          throw const FormatException('No books found in that file.');
+        }
+        final fresh = widget.repository.newBookCount(result.books);
+        if (!mounted) return;
+        final go = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Import books?'),
+            content: Text(
+              [
+                '${result.books.length} ${result.books.length == 1 ? 'book' : 'books'} found: '
+                    '$fresh new, ${result.books.length - fresh} already in your library.',
+                if (result.skipped > 0)
+                  '${result.skipped} ${result.skipped == 1 ? 'row is' : 'rows are'} '
+                      'not a book and will be skipped.',
+                'Shelves become Finished, Reading and Want to read. Ratings, '
+                    'dates and tags are kept.',
+              ].join('\n\n'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: fresh == 0 ? null : () => Navigator.of(context).pop(true),
+                child: Text('Import $fresh ${fresh == 1 ? 'book' : 'books'}'),
+              ),
+            ],
+          ),
+        );
+        if (go != true) return;
         final added = await widget.repository.importBooks(result.books);
         final duplicates = result.books.length - added;
         if (!mounted) return;

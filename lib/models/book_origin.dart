@@ -16,6 +16,7 @@ class BookOrigin {
     this.pages,
     this.year,
     this.editedAt,
+    this.matchConfirmed = false,
   });
 
   /// The book's original name: the name of its file (or folder, for an
@@ -40,6 +41,10 @@ class BookOrigin {
   /// never did (or reset them).
   final DateTime? editedAt;
 
+  /// Whether you said the match is right in Review matches, so it is not
+  /// listed there again.
+  final bool matchConfirmed;
+
   /// The details [book] has now, with [name] and [source] when known.
   factory BookOrigin.of(Book book, {String? name, String? source}) =>
       BookOrigin(
@@ -56,7 +61,13 @@ class BookOrigin {
 
   bool get edited => editedAt != null;
 
-  BookOrigin withEditedAt(DateTime? time) => BookOrigin(
+  BookOrigin withEditedAt(DateTime? time) => _copy(editedAt: () => time);
+
+  BookOrigin withMatchConfirmed(bool confirmed) =>
+      _copy(matchConfirmed: confirmed);
+
+  BookOrigin _copy({DateTime? Function()? editedAt, bool? matchConfirmed}) =>
+      BookOrigin(
         name: name,
         source: source,
         title: title,
@@ -66,7 +77,8 @@ class BookOrigin {
         isbn: isbn,
         pages: pages,
         year: year,
-        editedAt: time,
+        editedAt: editedAt == null ? this.editedAt : editedAt(),
+        matchConfirmed: matchConfirmed ?? this.matchConfirmed,
       );
 
   /// Whether [book]'s details are still the ones it was added with.
@@ -90,6 +102,7 @@ class BookOrigin {
         'pages': ?pages,
         'year': ?year,
         if (editedAt case final time?) 'editedAt': time.toIso8601String(),
+        if (matchConfirmed) 'matchConfirmed': true,
       };
 
   /// Reads [toJson]. Null for anything that is not an origin.
@@ -111,6 +124,7 @@ class BookOrigin {
       pages: number(value['pages']),
       year: number(value['year']),
       editedAt: edited is String ? DateTime.tryParse(edited) : null,
+      matchConfirmed: value['matchConfirmed'] == true,
     );
   }
 

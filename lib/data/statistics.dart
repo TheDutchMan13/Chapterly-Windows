@@ -24,7 +24,12 @@ class BookStats {
     required this.ratingCounts,
     required this.topAuthors,
     required this.topTags,
+    this.listenedMs = 0,
   });
+
+  /// The length of the audiobooks finished in the chosen year (or ever): the
+  /// time you spent listening to finished books.
+  final int listenedMs;
 
   /// Finished readings in the chosen year (or ever, when no year is chosen).
   /// A book that was read twice counts twice.
@@ -98,7 +103,9 @@ BookStats computeStats(List<Book> books, {int? year}) {
   final tagNames = <String, String>{};
   final byMonth = List<int>.filled(12, 0);
   final pagesByMonth = List<int>.filled(12, 0);
+  var listenedMs = 0;
   for (final (book, reading) in finished) {
+    listenedMs += book.audio?.lengthMs ?? 0;
     final pages = book.pages;
     if (pages != null) {
       pagesRead += pages;
@@ -163,6 +170,7 @@ BookStats computeStats(List<Book> books, {int? year}) {
   }
 
   return BookStats(
+    listenedMs: listenedMs,
     finishedCount: finished.length,
     pagesRead: pagesRead,
     averageRating: ratings.isEmpty

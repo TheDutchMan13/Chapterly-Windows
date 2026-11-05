@@ -145,6 +145,7 @@ class ServerBook {
     this.progress,
     this.trackCount = 1,
     this.originalName,
+    this.addedAt,
   });
 
   final String id;
@@ -172,6 +173,9 @@ class ServerBook {
   /// its folders. Null from a server older than 1.5.
   final String? originalName;
 
+  /// When the server first found the book. Null from an old server.
+  final DateTime? addedAt;
+
   bool get isAudiobook => kind == 'audiobook';
 
   /// An audiobook of several files, downloaded one by one.
@@ -197,7 +201,9 @@ class ServerBook {
     final duration = value['durationMs'];
     final tracks = value['trackCount'];
     final original = value['fileName'];
+    final added = value['addedAt'];
     return ServerBook(
+      addedAt: added is String ? DateTime.tryParse(added) : null,
       originalName: original is String && original.trim().isNotEmpty
           ? original
           : null,
@@ -469,12 +475,14 @@ class ServerClient {
     String? kind,
     int offset = 0,
     int limit = 50,
+    String? sort,
   }) async {
     final data = _json(await _send(
       () => _client.get(
         _uri('/v1/books', {
           if (query.trim().isNotEmpty) 'q': query.trim(),
           'kind': ?kind,
+          'sort': ?sort,
           'offset': '$offset',
           'limit': '$limit',
         }),

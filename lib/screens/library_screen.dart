@@ -48,6 +48,8 @@ import 'tags_screen.dart';
 import 'trash_screen.dart';
 import 'wish_list_screen.dart';
 import 'update_dialog.dart';
+import 'review_matches_screen.dart';
+import 'new_books_banner.dart';
 
 enum _AddChoice { search, isbn, bulk, manual }
 
@@ -514,6 +516,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
           repository: widget.repository,
           settings: widget.settings,
         ),
+      ),
+    );
+  }
+
+  void _openReviewMatches() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ReviewMatchesScreen(repository: widget.repository),
       ),
     );
   }
@@ -1744,11 +1754,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
               PopupMenuItem(value: _openServer, child: const Text('Book server')),
             PopupMenuItem(
               value: _openNotesSearch,
-              child: const Text('Search notes and quotes'),
+              child: const Text('Quotes and notes'),
             ),
             PopupMenuItem(
               value: _openHealth,
               child: const Text('Library health'),
+            ),
+            PopupMenuItem(
+              value: _openReviewMatches,
+              child: const Text('Review matches'),
             ),
             PopupMenuItem(
               value: _openDuplicates,
@@ -1858,6 +1872,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ),
                         ],
                       ),
+                    if (!_searching && _selected.isEmpty)
+                      NewServerBooksBanner(settings: widget.settings),
                     ?(widget.settings.continueCard &&
                             !_searching &&
                             _selected.isEmpty
