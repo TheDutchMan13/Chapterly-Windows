@@ -218,12 +218,8 @@ ThemeData _midnightTheme(AppSettings settings, Brightness brightness) {
       ),
     ),
     tabBarTheme: TabBarThemeData(
-      indicator: ShapeDecoration(
-        shape: const StadiumBorder(),
-        color: scheme.primaryContainer,
-      ),
+      indicator: _PillIndicator(scheme.primaryContainer),
       indicatorSize: TabBarIndicatorSize.tab,
-      indicatorPadding: const EdgeInsets.symmetric(vertical: 6),
       labelPadding: const EdgeInsets.symmetric(horizontal: 16),
       dividerColor: Colors.transparent,
       labelColor: scheme.onPrimaryContainer,
@@ -382,4 +378,32 @@ ThemeData _classicTheme(AppSettings settings, Brightness brightness) {
     fontFamily: settings.fontFamily,
     useMaterial3: true,
   );
+}
+
+/// The tab marker in the Midnight look: a rounded pill a little shorter than
+/// the tab.
+class _PillIndicator extends Decoration {
+  const _PillIndicator(this.color);
+
+  final Color color;
+
+  @override
+  BoxPainter createBoxPainter([VoidCallback? onChanged]) => _PillPainter(color);
+}
+
+class _PillPainter extends BoxPainter {
+  _PillPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
+    final size = configuration.size;
+    if (size == null) return;
+    final rect = (offset & size).deflate(6);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)),
+      Paint()..color = color,
+    );
+  }
 }

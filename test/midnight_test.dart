@@ -24,7 +24,7 @@ void main() {
     final books = [
       _book('a', Shelf.inProgress, DateTime(2026, 3, 1)),
       _book('b', Shelf.inProgress, DateTime(2026, 4, 1)),
-      _book('c', Shelf.read, DateTime(2026, 5, 1)),
+      _book('c', Shelf.finished, DateTime(2026, 5, 1)),
     ];
     expect(ContinueReadingCard.pick(books)?.id, 'b');
     expect(ContinueReadingCard.pick([books[2]]), isNull);
