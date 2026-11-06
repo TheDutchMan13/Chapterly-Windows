@@ -13,6 +13,15 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.36.0',
+    date: '2026-11-05',
+    changes: [
+      'Library search: when you type in the search box at the top, buttons '
+          'under it search Open Library or Google Books for the same words, '
+          'in case the book is not in your library yet',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.35.0',
     date: '2026-11-05',
     changes: [

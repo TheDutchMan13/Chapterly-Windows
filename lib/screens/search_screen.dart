@@ -17,7 +17,13 @@ class SearchScreen extends StatefulWidget {
     required this.repository,
     required this.client,
     required this.settings,
+    this.initialQuery = '',
+    this.initialSource = LookupSource.openLibrary,
   });
+
+  /// Text to search for as soon as the screen opens.
+  final String initialQuery;
+  final LookupSource initialSource;
 
   final BookRepository repository;
   final OpenLibraryClient client;
@@ -30,7 +36,14 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final _controller = TextEditingController();
   List<OpenLibraryBook> _results = const [];
-  LookupSource _source = LookupSource.openLibrary;
+  late LookupSource _source = widget.initialSource;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.text = widget.initialQuery;
+    if (widget.initialQuery.trim().isNotEmpty) _search();
+  }
   bool _loading = false;
   bool _searched = false;
   String? _error;
