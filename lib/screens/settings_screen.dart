@@ -368,6 +368,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       });
 
+  Future<void> _editGoogleKey() async {
+    final controller =
+        TextEditingController(text: widget.settings.googleBooksKey ?? '');
+    final key = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Google Books key'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Paste a free API key from console.cloud.google.com (turn on '
+              'the Books API, then create an API key). Keep it private. '
+              'Leave it empty to ask without a key.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'API key',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (key != null) widget.settings.setGoogleBooksKey(key);
+  }
+
   Future<void> _importCsv() => _run(() async {
         final text = await widget.fileIo.pickTextFile();
         if (text == null) return;
@@ -711,6 +755,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       value: widget.settings.autoSeries,
                       onChanged: widget.settings.setAutoSeries,
+                    ),
+                    SwitchListTile(
+                      title: const Text('Use Google Books'),
+                      subtitle: const Text(
+                        'Fills in a missing cover, pages, ISBN, year and tags, in the '
+                        'background. It sends each title and author to Google. Without a '
+                        'key Google allows only a few books a day.',
+                      ),
+                      value: widget.settings.useGoogleBooks,
+                      onChanged: widget.settings.setUseGoogleBooks,
+                    ),
+                    ListTile(
+                      title: const Text('Google Books key (optional)'),
+                      subtitle: Text(
+                        widget.settings.googleBooksKey == null
+                            ? 'Not set. A free key from Google allows many more books a day.'
+                            : 'Set',
+                      ),
+                      onTap: _editGoogleKey,
                     ),
                     SwitchListTile(
                       title: const Text('Ask Wikidata for series'),

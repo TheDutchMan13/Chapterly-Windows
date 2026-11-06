@@ -72,6 +72,10 @@ class AppSettings extends ChangeNotifier {
   AppLook _look = AppLook.midnight;
   bool _continueCard = true;
   bool _autoSeries = true;
+  bool _useGoogleBooks = false;
+  String? _googleBooksKey;
+  String? _googleBooksPausedOn;
+  final _googleBooksAsked = <String>{};
   bool _wikidataSeries = false;
   final _wikidataSeriesAsked = <String>{};
   final _autoSeriesApplied = <String>{};
@@ -160,6 +164,20 @@ class AppSettings extends ChangeNotifier {
   /// Whether books get their series from their title by themselves (see
   /// auto_series.dart).
   bool get autoSeries => _autoSeries;
+
+  /// Whether Google Books is asked for what books are missing (cover, pages,
+  /// ISBN, year, tags). Off by default: it sends titles and authors out.
+  bool get useGoogleBooks => _useGoogleBooks;
+
+  /// A free Google Books API key, or null to ask without one (which allows
+  /// only a few requests a day).
+  String? get googleBooksKey => _googleBooksKey;
+
+  /// The day (year-month-day) Google said there were no more requests.
+  String? get googleBooksPausedOn => _googleBooksPausedOn;
+
+  /// Books Google Books was already asked about, so each is asked only once.
+  Set<String> get googleBooksAsked => Set.unmodifiable(_googleBooksAsked);
 
   /// Whether Wikidata is asked for the series of books that have none.
   bool get wikidataSeries => _wikidataSeries;
@@ -389,6 +407,11 @@ class AppSettings extends ChangeNotifier {
         AppLook.midnight;
     settings._continueCard = prefs.getBool('continueCard') ?? true;
     settings._autoSeries = prefs.getBool('autoSeries') ?? true;
+    settings._useGoogleBooks = prefs.getBool('useGoogleBooks') ?? false;
+    settings._googleBooksKey = prefs.getString('googleBooksKey');
+    settings._googleBooksPausedOn = prefs.getString('googleBooksPausedOn');
+    settings._googleBooksAsked
+        .addAll(prefs.getStringList('googleBooksAsked') ?? const []);
     settings._wikidataSeries = prefs.getBool('wikidataSeries') ?? false;
     settings._wikidataSeriesAsked
         .addAll(prefs.getStringList('wikidataSeriesAsked') ?? const []);
@@ -703,6 +726,36 @@ class AppSettings extends ChangeNotifier {
   void addWikidataSeriesAsked(Iterable<String> ids) {
     _wikidataSeriesAsked.addAll(ids);
     prefs?.setStringList('wikidataSeriesAsked', _wikidataSeriesAsked.toList());
+  }
+
+  void setUseGoogleBooks(bool value) {
+    _useGoogleBooks = value;
+    prefs?.setBool('useGoogleBooks', value);
+    notifyListeners();
+  }
+
+  void setGoogleBooksKey(String? value) {
+    final key = value?.trim();
+    _googleBooksKey = key == null || key.isEmpty ? null : key;
+    if (_googleBooksKey == null) {
+      prefs?.remove('googleBooksKey');
+    } else {
+      prefs?.setString('googleBooksKey', _googleBooksKey!);
+      // A new key has its own requests: try again now.
+      _googleBooksPausedOn = null;
+      prefs?.remove('googleBooksPausedOn');
+    }
+    notifyListeners();
+  }
+
+  void setGoogleBooksPausedOn(String day) {
+    _googleBooksPausedOn = day;
+    prefs?.setString('googleBooksPausedOn', day);
+  }
+
+  void addGoogleBooksAsked(Iterable<String> ids) {
+    _googleBooksAsked.addAll(ids);
+    prefs?.setStringList('googleBooksAsked', _googleBooksAsked.toList());
   }
 
   void setAutoSeries(bool value) {

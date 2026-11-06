@@ -13,6 +13,20 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.29.0',
+    date: '2026-11-05',
+    changes: [
+      'Use Google Books (Settings): fills in a missing cover, page count, '
+          'ISBN, first published year and tags, in the background, a few '
+          'books at a time and once per book. Nothing a book already has is '
+          'changed, and tags are only added to books that have none. It is '
+          'off by default because it sends each title and author to Google',
+      'It works without a key, but then Google allows only a few books a '
+          'day: Chapterly carries on the next day. A free "Google Books key" '
+          '(Settings) allows many more',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.28.0',
     date: '2026-11-05',
     changes: [

@@ -17,6 +17,7 @@ import 'data/auto_backup.dart';
 import 'data/auto_series.dart';
 import 'data/book_repository.dart';
 import 'data/file_io.dart';
+import 'data/google_books_fill.dart';
 import 'data/library_scan.dart';
 import 'data/open_library_client.dart';
 import 'data/pc_sync.dart';
@@ -151,6 +152,8 @@ Future<void> main() async {
   runAutoBackup(repository, settings);
   // Fills in series found in titles, now and as books are added.
   AutoSeries.start(repository, settings);
+  // Google Books fills in missing covers, pages and tags (off until switched on).
+  GoogleBooksFill.start(repository, settings);
   // Then Wikidata, for books whose title has no series (off until switched on).
   WikidataSeries.start(repository, settings);
   // The daily reading reminder: on the PC it shows in the app.
