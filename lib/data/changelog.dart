@@ -13,6 +13,21 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.38.0',
+    date: '2026-11-06',
+    changes: [
+      'Export for Goodreads or StoryGraph: Settings saves your books as a '
+          'CSV in Goodreads\' format, with shelves, ratings, dates, series '
+          'and ISBNs. Your notes go in Private Notes',
+      'Author pages: "About this author" on a book now shows what you have '
+          'read by them, all your books by them, and their books you do not '
+          'have yet',
+      'What should I read next? now also lists the next book in series you '
+          'started, books by authors you rated well, and the books that have '
+          'waited longest',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.37.0',
     date: '2026-11-05',
     changes: [

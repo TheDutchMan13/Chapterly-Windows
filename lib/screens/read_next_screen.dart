@@ -6,6 +6,7 @@ import '../data/app_settings.dart';
 import '../data/book_repository.dart';
 import '../data/file_io.dart';
 import '../data/rating_predict.dart';
+import '../data/read_next_picks.dart';
 import '../data/reading_time.dart';
 import '../data/recommend.dart';
 import '../models/book.dart';
@@ -152,6 +153,50 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
         ),
       ),
     );
+  }
+
+  /// More good places to start, from the books that match your filters,
+  /// leaving out the one shown above.
+  List<Widget> _picksSection(
+    BuildContext context,
+    List<Book> candidates,
+    Book? shown,
+  ) {
+    final picks = readNextPicks(widget.repository.books, [
+      for (final book in candidates)
+        if (book.id != shown?.id) book,
+    ]);
+    const titles = {
+      ReadNextReason.nextInSeries: 'Next in a series you started',
+      ReadNextReason.authorYouLike: 'By authors you like',
+      ReadNextReason.waitingLongest: 'Waiting the longest',
+    };
+    return [
+      for (final entry in picks.entries)
+        if (entry.value.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          Text(
+            titles[entry.key]!,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          for (final pick in entry.value)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: BookCover(
+                coverUrl: pick.book.coverUrl,
+                title: pick.book.title,
+              ),
+              title: Text(pick.book.title),
+              subtitle: Text(pick.why),
+              trailing: IconButton(
+                tooltip: 'Start reading',
+                icon: const Icon(Icons.play_arrow),
+                onPressed: () => _start(pick.book),
+              ),
+              onTap: () => _open(pick.book),
+            ),
+        ],
+    ];
   }
 
   @override
@@ -323,6 +368,7 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
                     ],
                   ),
                 ],
+                ..._picksSection(context, candidates, shown),
               ],
             ],
           );

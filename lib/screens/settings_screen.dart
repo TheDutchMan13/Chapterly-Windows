@@ -11,6 +11,7 @@ import '../data/book_repository.dart';
 import '../data/csv.dart';
 import '../data/date_format.dart';
 import '../data/file_io.dart';
+import '../data/goodreads_export.dart';
 import '../data/kindle_clippings.dart';
 import '../data/library_scan.dart';
 import '../data/pairing_qr.dart';
@@ -365,6 +366,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           content: encodeBooksCsv(widget.repository.books),
           mimeType: 'text/csv',
           subject: 'Chapterly books',
+        );
+      });
+
+  Future<void> _exportGoodreads() => _run(() async {
+        await widget.fileIo.shareText(
+          fileName: 'chapterly-goodreads-${formatDate(DateTime.now())}.csv',
+          content: encodeGoodreadsCsv(widget.repository.books),
+          mimeType: 'text/csv',
+          subject: 'Chapterly books for Goodreads or StoryGraph',
         );
       });
 
@@ -965,6 +975,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: const Text('Export as CSV'),
                 subtitle: const Text('Open your books in a spreadsheet app.'),
                 onTap: _exportCsv,
+              ),
+              ListTile(
+                leading: const Icon(Icons.ios_share_outlined),
+                title: const Text('Export for Goodreads or StoryGraph'),
+                subtitle: const Text(
+                  'A CSV in Goodreads\' format. Import it on Goodreads, or on '
+                  'StoryGraph under Import Goodreads library. Your notes go in '
+                  'Private Notes, not a public review.',
+                ),
+                onTap: _exportGoodreads,
               ),
               ListTile(
                 leading: const Icon(Icons.file_download_outlined),
