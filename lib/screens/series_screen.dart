@@ -64,8 +64,7 @@ class _SeriesScreenState extends State<SeriesScreen> {
     }
     if (!mounted) return;
     final have = {
-      for (final book in series.books)
-        if (book.seriesNumber case final number?) number,
+      for (final book in series.books) ?book.seriesNumber,
     };
     final missing = [
       for (final book in all)
