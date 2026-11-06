@@ -13,6 +13,18 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.30.0',
+    date: '2026-11-05',
+    changes: [
+      'Series: when one series is spelled two ways, such as "Dexter" and '
+          '"Dexter Series" or "The Expanse" and "Expanse", a note at the top '
+          'of the Series screen offers to join them. You pick which to join, '
+          'and the book numbers stay as they are',
+      'Series found in titles now use the spelling of a series you already '
+          'have, even when it differs by a word like "Series" or "Saga"',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.29.0',
     date: '2026-11-05',
     changes: [

@@ -68,6 +68,32 @@ class _SeriesScreenState extends State<SeriesScreen> {
     ));
   }
 
+  Future<void> _mergeSeries(List<SeriesMerge> merges) async {
+    final chosen = await showDialog<List<SeriesMerge>>(
+      context: context,
+      builder: (_) => _SeriesMergeDialog(merges: merges),
+    );
+    if (chosen == null || chosen.isEmpty) return;
+    final books = {
+      for (final book in widget.repository.allBooks) book.id: book,
+    };
+    final choices = <String, (String, int?)>{};
+    for (final merge in chosen) {
+      for (final id in merge.bookIds) {
+        final book = books[id];
+        if (book != null) choices[id] = (merge.target, book.seriesNumber);
+      }
+    }
+    await widget.repository.setSeriesFor(choices);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(
+        'Joined ${chosen.length} series: changed ${choices.length} '
+        '${choices.length == 1 ? 'book' : 'books'}.',
+      ),
+    ));
+  }
+
   Widget _bookChip(Book book) {
     final done = book.shelf == Shelf.finished;
     final reading = book.shelf == Shelf.inProgress;
@@ -122,6 +148,7 @@ class _SeriesScreenState extends State<SeriesScreen> {
         listenable: widget.repository,
         builder: (context, _) {
           final all = seriesOverview(widget.repository.allBooks);
+          final merges = findSeriesMerges(widget.repository.allBooks);
           final shown = [
             for (final series in all)
               if (!_hideComplete || !series.complete) series,
@@ -140,8 +167,17 @@ class _SeriesScreenState extends State<SeriesScreen> {
           }
           return ListView.builder(
             padding: const EdgeInsets.all(12),
-            itemCount: shown.length,
+            itemCount: shown.length + (merges.isEmpty ? 0 : 1),
             itemBuilder: (context, index) {
+              if (merges.isNotEmpty) {
+                if (index == 0) {
+                  return _MergeBanner(
+                    merges: merges,
+                    onReview: () => _mergeSeries(merges),
+                  );
+                }
+                index -= 1;
+              }
               final series = shown[index];
               final next = series.next;
               return Card(
@@ -293,6 +329,115 @@ class _SeriesGuessDialogState extends State<_SeriesGuessDialog> {
                       if (_chosen.contains(guess)) guess,
                   ]),
           child: Text('Set ${_chosen.length}'),
+        ),
+      ],
+    );
+  }
+}
+
+/// "These series are the same": shown above the list when a series is
+/// spelled two ways, such as "Dexter" and "Dexter Series".
+class _MergeBanner extends StatelessWidget {
+  const _MergeBanner({required this.merges, required this.onReview});
+
+  final List<SeriesMerge> merges;
+  final VoidCallback onReview;
+
+  @override
+  Widget build(BuildContext context) {
+    final colours = Theme.of(context).colorScheme;
+    final count = merges.length;
+    return Card(
+      color: colours.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              count == 1
+                  ? 'One series is listed twice'
+                  : '$count series are listed twice',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: colours.onPrimaryContainer,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              [
+                for (final merge in merges.take(3))
+                  '${merge.names.join(', ')} → ${merge.target}',
+                if (count > 3) 'and ${count - 3} more',
+              ].join('\n'),
+              style: TextStyle(color: colours.onPrimaryContainer),
+            ),
+            const SizedBox(height: 10),
+            FilledButton(onPressed: onReview, child: const Text('Join them')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Which spellings to join, each with a check box (all on to start with).
+class _SeriesMergeDialog extends StatefulWidget {
+  const _SeriesMergeDialog({required this.merges});
+
+  final List<SeriesMerge> merges;
+
+  @override
+  State<_SeriesMergeDialog> createState() => _SeriesMergeDialogState();
+}
+
+class _SeriesMergeDialogState extends State<_SeriesMergeDialog> {
+  late final Set<SeriesMerge> _chosen = {...widget.merges};
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Join series'),
+      content: SizedBox(
+        width: 420,
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                'The books in the other spellings get the name on the right. '
+                'Their numbers stay as they are.',
+              ),
+            ),
+            for (final merge in widget.merges)
+              CheckboxListTile(
+                value: _chosen.contains(merge),
+                onChanged: (on) => setState(
+                  () => on == true ? _chosen.add(merge) : _chosen.remove(merge),
+                ),
+                title: Text(merge.target),
+                subtitle: Text(
+                  '${merge.names.join(', ')} · '
+                  '${merge.count} ${merge.count == 1 ? 'book' : 'books'}',
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _chosen.isEmpty
+              ? null
+              : () => Navigator.of(context).pop([
+                    for (final merge in widget.merges)
+                      if (_chosen.contains(merge)) merge,
+                  ]),
+          child: Text('Join ${_chosen.length}'),
         ),
       ],
     );
