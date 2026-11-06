@@ -180,8 +180,8 @@ class WikidataClient {
         'languages': 'en',
       });
       final series = labels?['entities'];
-      if (series is Map &&
-          series[seriesId] case {'labels': {'en': {'value': final String v}}}) {
+      final entity = series is Map ? series[seriesId] : null;
+      if (entity case {'labels': {'en': {'value': final String v}}}) {
         final name = v.trim();
         if (name.isNotEmpty) {
           return (name: name, number: number != null && number > 0 ? number : null);
