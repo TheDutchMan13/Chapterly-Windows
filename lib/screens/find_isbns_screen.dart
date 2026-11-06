@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../data/book_repository.dart';
+import '../data/google_books_client.dart';
 import '../data/isbn_update.dart';
 import '../data/open_library_client.dart';
 import '../widgets/book_cover.dart';
 
 // The same file is in the Android app; keep the two copies alike.
 
-/// Finds books with no ISBN and looks up the ISBN Open Library has for them.
+/// Finds books with no ISBN and looks up the ISBN Open Library, then Google
+/// Books, has for them.
 /// You see what it found and choose which to keep.
 class FindIsbnsScreen extends StatefulWidget {
   const FindIsbnsScreen({
@@ -24,6 +26,7 @@ class FindIsbnsScreen extends StatefulWidget {
 }
 
 class _FindIsbnsScreenState extends State<FindIsbnsScreen> {
+  bool _useGoogle = true;
   bool _running = false;
   bool _cancel = false;
   int _done = 0;
@@ -52,6 +55,7 @@ class _FindIsbnsScreenState extends State<FindIsbnsScreen> {
     final result = await scanIsbns(
       books,
       widget.client,
+      google: _useGoogle ? googleBooksClient : null,
       cancelled: () => _cancel,
       onProgress: (done, total) {
         if (mounted) setState(() => _done = done);
@@ -102,8 +106,12 @@ class _FindIsbnsScreenState extends State<FindIsbnsScreen> {
         'Found ${result.fixes.length} '
             '${result.fixes.length == 1 ? 'ISBN' : 'ISBNs'}.',
       if (result.noMatch > 0)
-        '${result.noMatch} have no clear match on Open Library: scan the '
-            'barcode or type the ISBN in the book editor.',
+        '${result.noMatch} have no clear match: scan the barcode or type the '
+            'ISBN in the book editor.',
+      if (result.googleQuotaReached)
+        'Google Books ran out of searches for today, so the last books were '
+            'only looked up on Open Library. A free key in Settings raises the '
+            'limit.',
       if (result.unreachable)
         'Open Library could not be reached. Check your connection and try '
             'again.',
@@ -126,14 +134,26 @@ class _FindIsbnsScreenState extends State<FindIsbnsScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
             child: Text(
-              'Looks up books with no ISBN on Open Library and finds the ISBN '
-              'of the book that clearly matches. You choose which to keep. '
+              'Looks up books with no ISBN on Open Library (and Google Books, if '
+              'ticked) and finds the ISBN of the book that clearly matches. You choose which to keep. '
               'Books that already have an ISBN are left alone. An audiobook '
               'gets the ISBN of the printed book, which is what Open Library '
               'lists. $candidates '
               '${candidates == 1 ? 'book has' : 'books have'} no ISBN.',
               style: textTheme.bodyMedium
                   ?.copyWith(color: colours.onSurfaceVariant),
+            ),
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _useGoogle,
+            onChanged:
+                _running ? null : (v) => setState(() => _useGoogle = v ?? true),
+            title: const Text('Also look on Google Books'),
+            subtitle: const Text(
+              'For books Open Library has no ISBN for. Sends the title and '
+              'author to Google. Without a key Google allows only a few '
+              'searches a day.',
             ),
           ),
           if (_running) ...[
@@ -248,7 +268,7 @@ class _FixCard extends StatelessWidget {
                       ),
                     const SizedBox(height: 4),
                     Text(
-                      'ISBN ${fix.isbn}',
+                      'ISBN ${fix.isbn} · ${fix.source}',
                       style: textTheme.labelMedium
                           ?.copyWith(color: colours.primary),
                     ),

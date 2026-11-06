@@ -22,7 +22,8 @@ enum FixStep {
       'to your book server.'),
   hardcover('Series from Hardcover',
       'Looks up books with no series. Needs a Hardcover token in Settings.'),
-  isbns('ISBNs', 'Looks up books with no ISBN on Open Library.'),
+  isbns('ISBNs',
+      'Looks up books with no ISBN on Open Library, then Google Books.'),
   covers('Covers',
       'Books with no cover, or a broken Open Library one. Asks Google Books too '
       'when Open Library has none.'),
@@ -229,13 +230,14 @@ class _FixLibraryScreenState extends State<FixLibraryScreen> {
       final result = await scanIsbns(
         books,
         widget.client,
+        google: _google,
         cancelled: () => _cancel,
         onProgress: (done, total) => _show('Looking up ISBNs', done, total),
         onFix: (fix) => _found(LibraryFix(
           step: FixStep.isbns,
           book: fix.book,
           title: fix.book.title,
-          detail: 'ISBN ${fix.isbn}',
+          detail: 'ISBN ${fix.isbn} · ${fix.source}',
           apply: () => repository.fillBlanks(fix.book.id, isbn: fix.isbn),
         )),
       );
