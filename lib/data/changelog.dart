@@ -13,6 +13,15 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.41.0',
+    date: '2026-11-06',
+    changes: [
+      'Search settings: a search box at the top of Settings shows only the '
+          'sections that have the words you type, in their names or their '
+          'descriptions. On Windows it opens the groups that match',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.40.0',
     date: '2026-11-06',
     changes: [

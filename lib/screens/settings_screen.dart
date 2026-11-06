@@ -25,6 +25,7 @@ import 'pin_dialogs.dart';
 import 'profiles_screen.dart';
 import 'reminder_settings.dart';
 import 'scan_settings.dart';
+import 'settings_search.dart';
 import 'shelf_order_screen.dart';
 import 'sync_preview.dart';
 import 'update_dialog.dart';
@@ -50,6 +51,14 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final _search = SettingsSearch();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
   Future<void> _editDefaultTags() async {
     final controller = TextEditingController(
       text: widget.settings.defaultTags.join(', '),
@@ -629,8 +638,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final profiles = ProfileSwitching.store;
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
+      body: SettingsSearchScope(
+        search: _search,
+        child: ListView(
+        // Build every section, so the search can read the ones off screen.
+        cacheExtent: 100000,
         children: [
+          SettingsSearchField(search: _search),
+          const SettingsNoMatch(),
           if (_busy) const LinearProgressIndicator(),
           if (profiles != null) _profileTile(profiles),
           _SettingsGroup(
@@ -1197,6 +1212,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
         ],
+        ),
       ),
     );
   }
@@ -1885,20 +1901,26 @@ class _SettingsGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      clipBehavior: Clip.antiAlias,
-      child: ExpansionTile(
-        shape: const Border(),
-        collapsedShape: const Border(),
-        maintainState: true,
-        initiallyExpanded: initiallyExpanded,
-        leading: Icon(icon),
-        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
-        subtitle: Text(subtitle),
-        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-        childrenPadding: const EdgeInsets.only(bottom: 8),
-        children: children,
+    return SettingsSearchable(
+      title: title,
+      builder: (context, searching) => Card(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        clipBehavior: Clip.antiAlias,
+        child: ExpansionTile(
+          // A new key when a search starts or ends, so the group opens for a
+          // search and goes back to how it was after.
+          key: ValueKey(searching),
+          shape: const Border(),
+          collapsedShape: const Border(),
+          maintainState: true,
+          initiallyExpanded: searching || initiallyExpanded,
+          leading: Icon(icon),
+          title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+          subtitle: Text(subtitle),
+          expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+          childrenPadding: const EdgeInsets.only(bottom: 8),
+          children: children,
+        ),
       ),
     );
   }
