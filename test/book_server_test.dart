@@ -124,6 +124,23 @@ class _MemoryTokens implements TokenStore {
   Future<void> delete() async => value = null;
 }
 
+
+/// Lets the test server answer before settling: real time passes until no
+/// spinner is left (at most 5 seconds), so a slow machine doesn't fail.
+Future<void> _settleNetwork(WidgetTester tester) async {
+  for (var i = 0; i < 100; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+    if (find.byType(CircularProgressIndicator).evaluate().isEmpty &&
+        find.byType(LinearProgressIndicator).evaluate().isEmpty) {
+      break;
+    }
+  }
+  await tester.pumpAndSettle();
+}
+
 void main() {
   group('the server address you type', () {
     test('gets http and the default port', () {
@@ -1322,8 +1339,7 @@ void main() {
         await phone.setUp();
       });
       await pump(tester);
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-      await tester.pumpAndSettle();
+      await _settleNetwork(tester);
       await tester.drag(find.byType(ListView), const Offset(0, -20000));
       for (var i = 0; i < 5; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
@@ -1338,8 +1354,7 @@ void main() {
       expect(find.text('Load more'), findsOneWidget);
       server.failBooksFrom = null;
       await tester.tap(find.text('Load more'));
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-      await tester.pumpAndSettle();
+      await _settleNetwork(tester);
       await tester.drag(find.byType(ListView), const Offset(0, -20000));
       await tester.pumpAndSettle();
       expect(find.text('Book 59'), findsOneWidget);
@@ -1354,8 +1369,7 @@ void main() {
         await phone.download('dune');
       });
       await pump(tester);
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-      await tester.pumpAndSettle();
+      await _settleNetwork(tester);
       await tester.tap(find.byTooltip('More').first);
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
@@ -1406,25 +1420,21 @@ void main() {
         await phone.setUp();
       });
       await pump(tester);
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-      await tester.pumpAndSettle();
+      await _settleNetwork(tester);
       expect(find.text('Dune'), findsOneWidget);
       expect(find.text('Project Hail Mary'), findsOneWidget);
       expect(find.textContaining('Audiobook, 11 h 2 min'), findsOneWidget);
       expect(find.textContaining('2 books · signed in as hans'), findsOneWidget);
 
       await tester.tap(find.text('Audiobooks'));
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-      await tester.pumpAndSettle();
+      await _settleNetwork(tester);
       expect(find.text('Dune'), findsNothing);
       await tester.tap(find.text('All'));
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-      await tester.pumpAndSettle();
+      await _settleNetwork(tester);
 
       await tester.enterText(find.byType(TextField).first, 'herbert');
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-      await tester.pumpAndSettle();
+      await _settleNetwork(tester);
       expect(find.text('Project Hail Mary'), findsNothing);
       expect(find.text('Dune'), findsOneWidget);
 
