@@ -68,6 +68,202 @@ import 'dart:typed_data';
   }
 }
 
+/// The series, ISBN and cover picture written inside an EPUB.
+class EpubDetails {
+  const EpubDetails({this.series, this.seriesNumber, this.isbn, this.cover});
+
+  final String? series;
+
+  /// The book's number in the series; null when it is not a whole number.
+  final int? seriesNumber;
+
+  /// Digits only (and a final X for an ISBN-10).
+  final String? isbn;
+
+  /// The cover picture's bytes.
+  final Uint8List? cover;
+
+  bool get isEmpty => series == null && isbn == null && cover == null;
+}
+
+/// Reads the series (Calibre's or EPUB 3's "belongs-to-collection"), the
+/// ISBN and the cover picture of an EPUB. Null when it is not an EPUB.
+EpubDetails? epubDetails(Uint8List bytes) {
+  try {
+    final zip = _ZipFiles(bytes);
+    final container = zip.text('META-INF/container.xml');
+    if (container == null) return null;
+    final rootfile = RegExp(r'<(?:\w+:)?rootfile\b[^>]*>').firstMatch(container);
+    final opfPath = rootfile == null ? null : _attribute(rootfile[0]!, 'full-path');
+    final opf = opfPath == null ? null : zip.text(opfPath);
+    if (opf == null) return null;
+    final folder = opfPath!.contains('/')
+        ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1)
+        : '';
+
+    // ---- series
+    String? series;
+    String? position;
+    final metas = RegExp(r'<(?:\w+:)?meta\b([^>]*?)(?:/>|>([\s\S]*?)</(?:\w+:)?meta>)')
+        .allMatches(opf)
+        .toList();
+    for (final meta in metas) {
+      final attributes = meta[1]!;
+      final name = _attribute(attributes, 'name');
+      final content = _attribute(attributes, 'content');
+      if (name == 'calibre:series' && (content ?? '').trim().isNotEmpty) {
+        series = content!.trim();
+      } else if (name == 'calibre:series_index') {
+        position = content;
+      }
+    }
+    if (series == null) {
+      for (final meta in metas) {
+        final attributes = meta[1]!;
+        if (_attribute(attributes, 'property') != 'belongs-to-collection') {
+          continue;
+        }
+        final name = _text(meta[2] ?? '');
+        if (name.isEmpty) continue;
+        final id = _attribute(attributes, 'id');
+        var isSeries = true;
+        for (final other in metas) {
+          final refines = _attribute(other[1]!, 'refines')?.replaceFirst('#', '');
+          if (id == null || refines != id) continue;
+          final property = _attribute(other[1]!, 'property');
+          final value = _text(other[2] ?? '');
+          if (property == 'group-position') position = value;
+          if (property == 'collection-type' && value != 'series') isSeries = false;
+        }
+        if (isSeries) {
+          series = name;
+          break;
+        }
+        position = null;
+      }
+    }
+    int? number;
+    final value = double.tryParse((position ?? '').trim());
+    if (value != null && value > 0 && value == value.roundToDouble()) {
+      number = value.round();
+    }
+
+    // ---- ISBN
+    String? isbn;
+    for (final match in RegExp(
+      r'<(?:\w+:)?identifier\b([^>]*)>([\s\S]*?)</(?:\w+:)?identifier>',
+    ).allMatches(opf)) {
+      final scheme = (_attribute(match[1]!, 'scheme') ?? '').toLowerCase();
+      final text = _text(match[2]!);
+      final lower = text.toLowerCase();
+      if (scheme != 'isbn' && !lower.contains('isbn') &&
+          !RegExp(r'^[\d\s-]{10,17}[\dXx]?$').hasMatch(text)) {
+        continue;
+      }
+      final digits = text.replaceAll(RegExp(r'[^0-9Xx]'), '');
+      if (_validIsbn(digits)) {
+        isbn = digits.toUpperCase();
+        break;
+      }
+    }
+
+    // ---- cover
+    final items = <String, ({String href, String type, String properties})>{};
+    for (final match in RegExp(r'<(?:\w+:)?item\b([^>]*)>').allMatches(opf)) {
+      final attributes = match[1]!;
+      final id = _attribute(attributes, 'id');
+      final href = _attribute(attributes, 'href');
+      if (id == null || href == null) continue;
+      items[id] = (
+        href: href,
+        type: _attribute(attributes, 'media-type') ?? '',
+        properties: _attribute(attributes, 'properties') ?? '',
+      );
+    }
+    String? coverHref;
+    for (final item in items.values) {
+      if (item.properties.split(' ').contains('cover-image')) {
+        coverHref = item.href;
+        break;
+      }
+    }
+    if (coverHref == null) {
+      for (final meta in metas) {
+        if (_attribute(meta[1]!, 'name') == 'cover') {
+          final id = _attribute(meta[1]!, 'content');
+          final item = id == null ? null : items[id];
+          if (item != null && item.type.startsWith('image/')) {
+            coverHref = item.href;
+          }
+        }
+      }
+    }
+    if (coverHref == null) {
+      for (final entry in items.entries) {
+        if (entry.value.type.startsWith('image/') &&
+            '${entry.key} ${entry.value.href}'.toLowerCase().contains('cover')) {
+          coverHref = entry.value.href;
+          break;
+        }
+      }
+    }
+    Uint8List? cover;
+    if (coverHref != null) {
+      cover = zip.bytes(_resolve(folder, coverHref));
+    }
+    return EpubDetails(
+      series: series,
+      seriesNumber: series == null ? null : number,
+      isbn: isbn,
+      cover: cover,
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+/// [href] (relative to the package file's [folder]) as a path in the zip.
+String _resolve(String folder, String href) {
+  var path = href.split('#').first;
+  try {
+    path = Uri.decodeComponent(path);
+  } catch (_) {
+    // Keep it as it is.
+  }
+  final parts = <String>[];
+  for (final part in (path.startsWith('/') ? path.substring(1) : '$folder$path')
+      .split('/')) {
+    if (part.isEmpty || part == '.') continue;
+    if (part == '..') {
+      if (parts.isNotEmpty) parts.removeLast();
+    } else {
+      parts.add(part);
+    }
+  }
+  return parts.join('/');
+}
+
+/// Whether [digits] is an ISBN-10 or ISBN-13 with a right check digit.
+bool _validIsbn(String digits) {
+  final d = digits.toUpperCase();
+  if (RegExp(r'^\d{13}$').hasMatch(d)) {
+    var sum = 0;
+    for (var i = 0; i < 12; i++) {
+      sum += int.parse(d[i]) * (i.isEven ? 1 : 3);
+    }
+    return (10 - sum % 10) % 10 == int.parse(d[12]);
+  }
+  if (RegExp(r'^\d{9}[\dX]$').hasMatch(d)) {
+    var sum = 0;
+    for (var i = 0; i < 10; i++) {
+      final v = d[i] == 'X' ? 10 : int.parse(d[i]);
+      sum += v * (10 - i);
+    }
+    return sum % 11 == 0;
+  }
+  return false;
+}
+
 /// The value of an attribute in a tag's text, ignoring any prefix on its
 /// name (opf:role, xml:lang).
 String? _attribute(String tag, String name) {
@@ -155,9 +351,9 @@ class _ZipFiles {
     }
   }
 
-  /// The text of the file at [path] in the zip, or null when it is not
+  /// The bytes of the file at [path] in the zip, or null when it is not
   /// there or cannot be read.
-  String? text(String path) {
+  Uint8List? bytes(String path) {
     final entry = _entries[path];
     if (entry == null) return null;
     final header = entry.offset;
@@ -171,15 +367,20 @@ class _ZipFiles {
         _data.getUint16(header + 28, Endian.little);
     if (start + entry.size > _bytes.length) return null;
     final stored = _bytes.sublist(start, start + entry.size);
-    final List<int> content;
     switch (entry.method) {
       case 0:
-        content = stored;
+        return stored;
       case 8:
-        content = ZLibCodec(raw: true).decode(stored);
+        return Uint8List.fromList(ZLibCodec(raw: true).decode(stored));
       default:
         return null;
     }
-    return utf8.decode(content, allowMalformed: true);
+  }
+
+  /// The text of the file at [path] in the zip, or null when it is not
+  /// there or cannot be read.
+  String? text(String path) {
+    final content = bytes(path);
+    return content == null ? null : utf8.decode(content, allowMalformed: true);
   }
 }

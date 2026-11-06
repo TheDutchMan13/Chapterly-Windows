@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/cover_options.dart';
+import '../data/cover_size.dart';
 import '../data/google_books_client.dart';
 import '../data/open_library_client.dart';
 import '../widgets/book_cover.dart';
@@ -101,7 +102,7 @@ class _CoverPickerState extends State<CoverPicker> {
                 final option = options[index];
                 return InkWell(
                   borderRadius: BorderRadius.circular(8),
-                  onTap: () => Navigator.of(context).pop(option.url),
+                  onTap: () => Navigator.of(context).pop(largerCover(option.url)),
                   child: Column(
                     children: [
                       BookCover(coverUrl: option.url, width: 96, height: 144),

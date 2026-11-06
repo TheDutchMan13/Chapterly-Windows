@@ -13,6 +13,23 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.37.0',
+    date: '2026-11-05',
+    changes: [
+      'Fix library: runs the series spellings, your book files, Hardcover, '
+          'ISBNs, covers and larger covers one after the other and shows '
+          'everything found in one list. You tick what to apply',
+      'Your book files: the series, ISBN and cover written inside your EPUB '
+          'and M4B files, or known to your book server, fill in what a book '
+          'is missing',
+      'Hardcover: paste a free Hardcover token in Settings to find series '
+          'there, and to see which books of a series you are missing on the '
+          'Series screen, with their real titles',
+      'Larger covers: covers chosen from Open Library and Google Books now '
+          'use their bigger pictures, so they look sharper',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.36.0',
     date: '2026-11-05',
     changes: [

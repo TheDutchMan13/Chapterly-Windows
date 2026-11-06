@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/book_repository.dart';
+import '../data/cover_size.dart';
 import '../data/cover_update.dart';
 import '../data/google_books_client.dart';
 import '../data/open_library_client.dart';
@@ -79,7 +80,7 @@ class _UpdateCoversScreenState extends State<UpdateCoversScreen> {
   Future<void> _apply() async {
     final covers = {
       for (final fix in _fixes)
-        if (_chosen.contains(fix.book.id)) fix.book.id: fix.newUrl,
+        if (_chosen.contains(fix.book.id)) fix.book.id: largerCover(fix.newUrl),
     };
     await widget.repository.setCoversFor(covers);
     if (!mounted) return;

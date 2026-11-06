@@ -370,4 +370,68 @@ void main() {
       expect(tags.isEmpty, isTrue);
     });
   });
+
+  group('details inside files', () {
+    test('an EPUB gives its Calibre series, ISBN and cover', () {
+      final bytes = _zip({
+        'META-INF/container.xml': _text('<container><rootfiles>'
+            '<rootfile full-path="OEBPS/content.opf"/></rootfiles></container>'),
+        'OEBPS/content.opf': _text('<package><metadata>'
+            '<dc:title>Dexter in the Dark</dc:title>'
+            '<dc:identifier opf:scheme="ISBN">978-0-385-51834-5</dc:identifier>'
+            '<meta name="calibre:series" content="Dexter"/>'
+            '<meta name="calibre:series_index" content="3.0"/>'
+            '<meta name="cover" content="cov"/>'
+            '</metadata><manifest>'
+            '<item id="cov" href="images/front%20cover.jpg" media-type="image/jpeg"/>'
+            '</manifest></package>'),
+        'OEBPS/images/front cover.jpg': [1, 2, 3, 4],
+      }, deflate: true);
+      final details = epubDetails(bytes)!;
+      expect(details.series, 'Dexter');
+      expect(details.seriesNumber, 3);
+      expect(details.isbn, '9780385518345');
+      expect(details.cover, [1, 2, 3, 4]);
+    });
+
+    test('an EPUB 3 collection is a series, and a bad ISBN is left out', () {
+      final details = epubDetails(_epub(
+        '<dc:identifier>urn:isbn:9780385518340</dc:identifier>'
+        '<meta property="belongs-to-collection" id="c">Silo</meta>'
+        '<meta refines="#c" property="collection-type">series</meta>'
+        '<meta refines="#c" property="group-position">2</meta>',
+      ))!;
+      expect(details.series, 'Silo');
+      expect(details.seriesNumber, 2);
+      expect(details.isbn, isNull);
+      expect(details.cover, isNull);
+      expect(epubDetails(Uint8List.fromList([1, 2, 3])), isNull);
+    });
+
+    test('an M4B gives its cover and free-form series tags', () async {
+      List<int> freeForm(String name, String value) => _box('----', [
+            ..._box('mean', [0, 0, 0, 0, ...utf8.encode('com.apple.iTunes')]),
+            ..._box('name', [0, 0, 0, 0, ...utf8.encode(name)]),
+            ..._box('data', [0, 0, 0, 1, 0, 0, 0, 0, ...utf8.encode(value)]),
+          ]);
+      final bytes = Uint8List.fromList([
+        ..._box('ftyp', [...ascii.encode('M4B '), ..._u32(0)]),
+        ..._box('moov', _box('udta', _box('meta', [
+          0, 0, 0, 0,
+          ..._box('hdlr', List.filled(25, 0)),
+          ..._box('ilst', [
+            ..._ilstItem('©nam', 'Wool'),
+            ..._box('covr', _box('data', [0, 0, 0, 13, 0, 0, 0, 0, 9, 8, 7])),
+            ...freeForm('SERIES', 'Silo'),
+            ...freeForm('SERIES-PART', '1'),
+          ]),
+        ]))),
+      ]);
+      final tags = await readAudioTags(MemoryByteSource(bytes));
+      expect(tags.bookTitle, 'Wool');
+      expect(tags.series, 'Silo');
+      expect(tags.seriesPart, '1');
+      expect(tags.cover, [9, 8, 7]);
+    });
+  });
 }

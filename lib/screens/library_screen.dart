@@ -51,6 +51,7 @@ import 'wish_list_screen.dart';
 import 'update_dialog.dart';
 import 'review_matches_screen.dart';
 import 'find_isbns_screen.dart';
+import 'fix_library_screen.dart';
 import 'update_covers_screen.dart';
 import 'new_books_banner.dart';
 
@@ -542,6 +543,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ReviewMatchesScreen(repository: widget.repository),
+      ),
+    );
+  }
+
+  void _openFixLibrary() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FixLibraryScreen(
+          repository: widget.repository,
+          client: widget.client,
+        ),
       ),
     );
   }
@@ -1803,6 +1815,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
             PopupMenuItem(
               value: _openReviewMatches,
               child: const Text('Review matches'),
+            ),
+            PopupMenuItem(
+              value: _openFixLibrary,
+              child: const Text('Fix library'),
             ),
             PopupMenuItem(
               value: _openFindIsbns,

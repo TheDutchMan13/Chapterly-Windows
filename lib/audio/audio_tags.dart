@@ -11,6 +11,9 @@ class AudioTags {
     this.artist = '',
     this.albumArtist = '',
     this.composer = '',
+    this.series = '',
+    this.seriesPart = '',
+    this.cover,
   });
 
   final String title;
@@ -18,6 +21,14 @@ class AudioTags {
   final String artist;
   final String albumArtist;
   final String composer;
+
+  /// The series and the book's place in it, when the file says (tools such
+  /// as Audiobookshelf and Mp3tag write these into M4B files).
+  final String series;
+  final String seriesPart;
+
+  /// The cover picture inside the file.
+  final Uint8List? cover;
 
   /// For an audiobook the album is the book; the title is often only the
   /// chapter (one file per chapter).
@@ -124,8 +135,39 @@ Future<AudioTags> _mp4Tags(ByteSource source) async {
   final ilst = _child(moov, meta, 'ilst', skip: 4) ?? _child(moov, meta, 'ilst');
   if (ilst == null) return const AudioTags();
   final values = <String, String>{};
+  Uint8List? cover;
   for (final item in _boxes(moov, ilst.start, ilst.end)) {
     final data = _child(moov, item, 'data');
+    if (item.type == 'covr') {
+      if (data != null && data.end - data.start > 8) {
+        cover = moov.sublist(data.start + 8, data.end);
+      }
+      continue;
+    }
+    if (item.type == '----') {
+      // A free-form tag: "name" says which (after 4 bytes of flags).
+      final name = _child(moov, item, 'name');
+      if (name == null || data == null || name.end - name.start <= 4) continue;
+      final key = utf8
+          .decode(moov.sublist(name.start + 4, name.end), allowMalformed: true)
+          .trim()
+          .toLowerCase();
+      if (data.end - data.start <= 8) continue;
+      values['----$key'] = _clean(utf8.decode(
+        moov.sublist(data.start + 8, data.end),
+        allowMalformed: true,
+      ));
+      continue;
+    }
+    if (item.type == 'mvi ') {
+      // The movement number, which some tools use for the series part: a
+      // whole number, not text.
+      if (data != null && data.end - data.start >= 10) {
+        final at = data.start + 8;
+        values['mvi '] = '${(moov[at] << 8) | moov[at + 1]}';
+      }
+      continue;
+    }
     // 4 bytes of type, 4 of locale, then the text.
     if (data == null || data.end - data.start <= 8) continue;
     values[item.type] = _clean(utf8.decode(
@@ -139,6 +181,13 @@ Future<AudioTags> _mp4Tags(ByteSource source) async {
     artist: values['©ART'] ?? '',
     albumArtist: values['aART'] ?? '',
     composer: values['©wrt'] ?? '',
+    series: values['----series'] ?? values['©mvn'] ?? '',
+    seriesPart: values['----series-part'] ??
+        values['----series_part'] ??
+        values['----series part'] ??
+        values['mvi '] ??
+        '',
+    cover: cover,
   );
 }
 

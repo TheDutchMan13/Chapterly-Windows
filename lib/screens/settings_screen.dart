@@ -368,6 +368,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       });
 
+  Future<void> _editHardcoverToken() async {
+    final controller =
+        TextEditingController(text: widget.settings.hardcoverToken ?? '');
+    final token = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hardcover token'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Make a free account at hardcover.app, open Settings, then API, '
+              'and copy the token. Keep it private. Chapterly uses it only to '
+              'look up series. Leave it empty to stop using Hardcover.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Token',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (token != null) widget.settings.setHardcoverToken(token);
+  }
+
   Future<void> _editGoogleKey() async {
     final controller =
         TextEditingController(text: widget.settings.googleBooksKey ?? '');
@@ -813,6 +857,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             : 'Set',
                       ),
                       onTap: _editGoogleKey,
+                    ),
+                    ListTile(
+                      title: const Text('Hardcover token (optional)'),
+                      subtitle: Text(
+                        widget.settings.hardcoverToken == null
+                            ? 'Not set. A free Hardcover account finds series for '
+                                'Fix library and the Series screen.'
+                            : 'Set',
+                      ),
+                      onTap: _editHardcoverToken,
                     ),
                     SwitchListTile(
                       title: const Text('Ask Wikidata for series'),

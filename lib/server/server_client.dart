@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -441,6 +442,20 @@ class ServerClient {
       throw const ServerFailure('The server sent something Chapterly cannot read.');
     }
     return book;
+  }
+
+  /// The cover picture the server has for a book (from its file), or null
+  /// when it has none.
+  Future<Uint8List?> bookCover(String bookId) async {
+    try {
+      final response = await _send(
+        () => _client.get(coverUri(bookId), headers: authHeaders),
+      );
+      return response.bodyBytes.isEmpty ? null : response.bodyBytes;
+    } on ServerFailure catch (failure) {
+      if (failure.notFound) return null;
+      rethrow;
+    }
   }
 
   /// Corrects a book's title, author and series on the server, for every

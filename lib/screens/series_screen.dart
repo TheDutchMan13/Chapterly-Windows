@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/book_repository.dart';
+import '../data/hardcover_client.dart';
 import '../data/series.dart';
 import '../data/series_detect.dart';
 import '../models/book.dart';
@@ -40,6 +41,106 @@ class _SeriesScreenState extends State<SeriesScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('Added "$title" to For later. Change its title any time.'),
+    ));
+  }
+
+  /// Asks Hardcover which books the series has, and offers to add the ones
+  /// you do not have to For later, with their real titles.
+  Future<void> _checkHardcover(SeriesInfo series) async {
+    final messenger = ScaffoldMessenger.of(context);
+    List<HardcoverSeriesBook> all;
+    try {
+      all = await hardcoverClient.seriesBooks(series.name, author: series.author);
+    } on HardcoverUnauthorized {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Hardcover did not accept the token. Check it in Settings.'),
+      ));
+      return;
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Hardcover could not be reached. Try again later.'),
+      ));
+      return;
+    }
+    if (!mounted) return;
+    final have = {
+      for (final book in series.books)
+        if (book.seriesNumber case final number?) number,
+    };
+    final missing = [
+      for (final book in all)
+        if (!have.contains(book.number)) book,
+    ];
+    if (all.isEmpty || missing.isEmpty) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(all.isEmpty
+            ? 'Hardcover has no series called "${series.name}".'
+            : 'You have every book Hardcover lists in ${series.name}.'),
+      ));
+      return;
+    }
+    final chosen = {...missing};
+    final add = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Missing from ${series.name}'),
+          content: SizedBox(
+            width: 420,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                Text(
+                  'Hardcover lists ${all.length} books. Tick the ones to add '
+                  'to For later.',
+                ),
+                for (final book in missing)
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: chosen.contains(book),
+                    onChanged: (value) => setDialogState(() {
+                      if (value ?? false) {
+                        chosen.add(book);
+                      } else {
+                        chosen.remove(book);
+                      }
+                    }),
+                    title: Text('#${book.number} ${book.title}'),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: chosen.isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop(true),
+              child: Text('Add ${chosen.length}'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (add != true) return;
+    for (final book in missing) {
+      if (!chosen.contains(book)) continue;
+      final id = await widget.repository.add(
+        title: book.title,
+        author: series.author,
+        shelf: Shelf.forLater,
+      );
+      await widget.repository.setSeries(id, series.name, book.number);
+    }
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+      content: Text(
+        'Added ${chosen.length} ${chosen.length == 1 ? 'book' : 'books'} to '
+        'For later.',
+      ),
     ));
   }
 
@@ -225,6 +326,15 @@ class _SeriesScreenState extends State<SeriesScreen> {
                           for (final book in series.unnumbered) _bookChip(book),
                         ],
                       ),
+                      if (hardcoverClient.hasToken)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: () => _checkHardcover(series),
+                            icon: const Icon(Icons.travel_explore, size: 18),
+                            label: const Text('Check Hardcover for missing books'),
+                          ),
+                        ),
                       if (next != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 12),

@@ -74,6 +74,7 @@ class AppSettings extends ChangeNotifier {
   bool _autoSeries = true;
   bool _useGoogleBooks = false;
   String? _googleBooksKey;
+  String? _hardcoverToken;
   String? _googleBooksPausedOn;
   final _googleBooksAsked = <String>{};
   bool _wikidataSeries = false;
@@ -172,6 +173,10 @@ class AppSettings extends ChangeNotifier {
   /// A free Google Books API key, or null to ask without one (which allows
   /// only a few requests a day).
   String? get googleBooksKey => _googleBooksKey;
+
+  /// The token of a free Hardcover account (hardcover.app), for finding
+  /// series there. Null when not set.
+  String? get hardcoverToken => _hardcoverToken;
 
   /// The day (year-month-day) Google said there were no more requests.
   String? get googleBooksPausedOn => _googleBooksPausedOn;
@@ -409,6 +414,7 @@ class AppSettings extends ChangeNotifier {
     settings._autoSeries = prefs.getBool('autoSeries') ?? true;
     settings._useGoogleBooks = prefs.getBool('useGoogleBooks') ?? false;
     settings._googleBooksKey = prefs.getString('googleBooksKey');
+    settings._hardcoverToken = prefs.getString('hardcoverToken');
     settings._googleBooksPausedOn = prefs.getString('googleBooksPausedOn');
     settings._googleBooksAsked
         .addAll(prefs.getStringList('googleBooksAsked') ?? const []);
@@ -744,6 +750,17 @@ class AppSettings extends ChangeNotifier {
       // A new key has its own requests: try again now.
       _googleBooksPausedOn = null;
       prefs?.remove('googleBooksPausedOn');
+    }
+    notifyListeners();
+  }
+
+  void setHardcoverToken(String? value) {
+    final token = value?.trim();
+    _hardcoverToken = token == null || token.isEmpty ? null : token;
+    if (_hardcoverToken == null) {
+      prefs?.remove('hardcoverToken');
+    } else {
+      prefs?.setString('hardcoverToken', _hardcoverToken!);
     }
     notifyListeners();
   }

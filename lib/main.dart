@@ -19,6 +19,7 @@ import 'data/book_repository.dart';
 import 'data/file_io.dart';
 import 'data/google_books_client.dart';
 import 'data/google_books_fill.dart';
+import 'data/hardcover_client.dart';
 import 'data/library_scan.dart';
 import 'data/open_library_client.dart';
 import 'data/pc_sync.dart';
@@ -155,6 +156,7 @@ Future<void> main() async {
   AutoSeries.start(repository, settings);
   // Google Books fills in missing covers, pages and tags (off until switched on).
   sharedGoogleBooks = GoogleBooksClient(apiKey: () => settings.googleBooksKey);
+  sharedHardcover = HardcoverClient(token: () => settings.hardcoverToken);
   GoogleBooksFill.start(repository, settings);
   // Then Wikidata, for books whose title has no series (off until switched on).
   WikidataSeries.start(repository, settings);
