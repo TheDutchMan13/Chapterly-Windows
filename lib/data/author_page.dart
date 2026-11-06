@@ -72,8 +72,7 @@ class AuthorSummary {
 
 AuthorSummary summarizeAuthor(List<Book> books) {
   final ratings = [
-    for (final book in books)
-      if (book.rating case final rating?) rating,
+    for (final book in books) ?book.rating,
   ];
   final finished = [
     for (final book in books)
