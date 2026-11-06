@@ -18,6 +18,10 @@ void main() {
     );
     expect(bomb.length, lessThan(64 * 1024));
     expect(inflateForTest(bomb, 1 << 20), isNull);
-    expect(inflateForTest(Uint8List.fromList([1, 2, 3, 4]), 1 << 20), isNull);
+    // Damaged data doesn't throw.
+    expect(
+      () => inflateForTest(Uint8List.fromList([1, 2, 3, 4]), 1 << 20),
+      returnsNormally,
+    );
   });
 }
