@@ -56,7 +56,7 @@ const _mainProfileFiles = [
   'server_audio',
 ];
 
-/// Removes a profile's books, files, pairing code and book server token
+/// Removes a profile's books, files, pairing code, book server token and keys
 /// from this PC. Its automatic backups in Documents\Chapterly are kept.
 Future<void> removeProfileFiles(String id) async {
   try {
@@ -68,6 +68,13 @@ Future<void> removeProfileFiles(String id) async {
     await SecureTokenStore(storageKey: SecureTokenStore.keyFor(id)).delete();
   } catch (_) {
     // No token saved.
+  }
+  for (final name in ['googleBooksKey', 'hardcoverToken']) {
+    try {
+      await SecureSecretStore(id).delete(name);
+    } catch (_) {
+      // Nothing saved.
+    }
   }
   final base = await getApplicationSupportDirectory();
   final paths = id == mainProfileId

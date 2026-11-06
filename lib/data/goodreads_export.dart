@@ -34,10 +34,12 @@ const goodreadsColumns = [
   'Owned Copies',
 ];
 
-final _formulaStart = RegExp(r'^[=+\-@\t\r]');
+// Only = and @ start a formula in every spreadsheet; notes and titles often
+// start with - or +, and a quote there would show on Goodreads.
+final _formulaStart = RegExp(r'^[=@]');
 
 String _cell(String value) {
-  // A cell starting with = or + could run as a formula in a spreadsheet.
+  // A cell starting with = or @ could run as a formula in a spreadsheet.
   final safe = _formulaStart.hasMatch(value) ? "'$value" : value;
   if (safe.contains(RegExp(r'[",\n\r]'))) {
     return '"${safe.replaceAll('"', '""')}"';

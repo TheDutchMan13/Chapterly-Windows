@@ -1906,24 +1906,69 @@ class _SettingsGroup extends StatelessWidget {
   Widget build(BuildContext context) {
     return SettingsSearchable(
       title: title,
-      builder: (context, searching) => Card(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        clipBehavior: Clip.antiAlias,
-        child: ExpansionTile(
-          // A new key when a search starts or ends, so the group opens for a
-          // search and goes back to how it was after.
-          key: ValueKey(searching),
-          shape: const Border(),
-          collapsedShape: const Border(),
-          maintainState: true,
-          initiallyExpanded: searching || initiallyExpanded,
-          leading: Icon(icon),
-          title: Text(title, style: Theme.of(context).textTheme.titleMedium),
-          subtitle: Text(subtitle),
-          expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-          childrenPadding: const EdgeInsets.only(bottom: 8),
-          children: children,
-        ),
+      builder: (context, searching) =>
+          _GroupTile(group: this, searching: searching),
+    );
+  }
+}
+
+/// One group's card. A search opens it; when the search ends it goes back
+/// to how you left it.
+class _GroupTile extends StatefulWidget {
+  const _GroupTile({required this.group, required this.searching});
+
+  final _SettingsGroup group;
+  final bool searching;
+
+  @override
+  State<_GroupTile> createState() => _GroupTileState();
+}
+
+class _GroupTileState extends State<_GroupTile> {
+  final _controller = ExpansibleController();
+
+  /// Whether you opened it yourself, outside a search.
+  late bool _open = widget.group.initiallyExpanded;
+
+  @override
+  void didUpdateWidget(_GroupTile old) {
+    super.didUpdateWidget(old);
+    if (old.searching == widget.searching) return;
+    final want = widget.searching || _open;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (want && !_controller.isExpanded) _controller.expand();
+      if (!want && _controller.isExpanded) _controller.collapse();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final group = widget.group;
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        controller: _controller,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        maintainState: true,
+        initiallyExpanded: widget.searching || _open,
+        onExpansionChanged: (open) {
+          if (!widget.searching) _open = open;
+        },
+        leading: Icon(group.icon),
+        title: Text(group.title, style: Theme.of(context).textTheme.titleMedium),
+        subtitle: Text(group.subtitle),
+        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        children: group.children,
       ),
     );
   }

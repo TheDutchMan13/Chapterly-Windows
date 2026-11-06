@@ -74,4 +74,18 @@ void main() {
     expect(find.textContaining('No settings match'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a group you opened stays open after a search', (tester) async {
+    await open(tester);
+    await tester.tap(find.text('Backup and sync'));
+    await tester.pumpAndSettle();
+    expect(find.text('Export backup'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, 'font');
+    await tester.pumpAndSettle();
+    expect(find.text('Export backup'), findsNothing);
+    await tester.tap(find.byTooltip('Clear'));
+    await tester.pumpAndSettle();
+    expect(find.text('Export backup'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

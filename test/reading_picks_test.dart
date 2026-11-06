@@ -124,9 +124,17 @@ void main() {
         addedAt: DateTime(2026),
         deletedAt: DateTime(2026, 2),
       );
-      final csv = encodeGoodreadsCsv([deleted, _book('1', '=SUM(A1)')]);
+      final csv = encodeGoodreadsCsv([
+        deleted,
+        _book('1', '=SUM(A1)'),
+        _book('2', '-ism', notes: '- loved it'),
+      ]);
       expect(csv, isNot(contains('Gone')));
-      expect(parseCsv(csv)[1][1], "'=SUM(A1)");
+      final rows = parseCsv(csv);
+      expect(rows[1][1], "'=SUM(A1)");
+      // Notes and titles starting with - are left as they are.
+      expect(rows[2][1], '-ism');
+      expect(rows[2][rows.first.indexOf('Private Notes')], '- loved it');
     });
 
     test('counts re-reads', () {

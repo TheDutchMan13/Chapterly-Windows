@@ -83,6 +83,7 @@ Future<void> main() async {
   );
   await repository.load();
   final settings = await AppSettings.load(profiles.scope(profile.id));
+  await settings.loadSecrets(SecureSecretStore(profile.id));
   final pcSync = PcSync(
     repository: repository,
     settings: settings,

@@ -1,5 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'app_settings.dart';
 import 'pc_sync.dart';
 import 'profiles.dart';
 
@@ -34,4 +35,34 @@ class SecureCodeStore implements CodeStore {
 
   @override
   Future<void> delete() => _storage.delete(key: storageKey);
+}
+
+/// Keeps a profile's Google Books key and Hardcover token in Windows'
+/// protected storage.
+class SecureSecretStore implements SecretStore {
+  const SecureSecretStore(this.profileId);
+
+  final String profileId;
+
+  String _key(String name) => profileId == mainProfileId
+      ? 'chapterly_$name'
+      : 'chapterly_${name}_$profileId';
+
+  FlutterSecureStorage get _storage => const FlutterSecureStorage();
+
+  @override
+  Future<String?> read(String name) async {
+    try {
+      return await _storage.read(key: _key(name));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> write(String name, String value) =>
+      _storage.write(key: _key(name), value: value);
+
+  @override
+  Future<void> delete(String name) => _storage.delete(key: _key(name));
 }

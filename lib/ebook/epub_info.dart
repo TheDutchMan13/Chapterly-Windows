@@ -371,7 +371,7 @@ class _ZipFiles {
       case 0:
         return stored;
       case 8:
-        return Uint8List.fromList(ZLibCodec(raw: true).decode(stored));
+        return _inflate(stored);
       default:
         return null;
     }
@@ -384,3 +384,54 @@ class _ZipFiles {
     return content == null ? null : utf8.decode(content, allowMalformed: true);
   }
 }
+
+/// The most one file inside an EPUB may unpack to. A real cover or package
+/// file is far smaller; a damaged or hostile EPUB could otherwise unpack to
+/// gigabytes and crash the app.
+const maxUnpackedBytes = 64 * 1024 * 1024;
+
+class _TooBig implements Exception {
+  const _TooBig();
+}
+
+class _CappedSink implements Sink<List<int>> {
+  _CappedSink(this.limit);
+
+  final int limit;
+  final _out = BytesBuilder(copy: false);
+
+  @override
+  void add(List<int> chunk) {
+    if (_out.length + chunk.length > limit) throw const _TooBig();
+    _out.add(chunk);
+  }
+
+  @override
+  void close() {}
+
+  Uint8List take() => _out.takeBytes();
+}
+
+/// Unpacks a deflated zip entry, or null when it is damaged or would be
+/// bigger than [limit].
+Uint8List? _inflate(Uint8List stored, {int limit = maxUnpackedBytes}) {
+  final sink = _CappedSink(limit);
+  try {
+    final input = ZLibDecoder(raw: true).startChunkedConversion(sink);
+    // Small pieces, so no single step can unpack to much more than the limit.
+    const piece = 16 * 1024;
+    for (var start = 0; start < stored.length; start += piece) {
+      final end = start + piece < stored.length ? start + piece : stored.length;
+      input.add(Uint8List.sublistView(stored, start, end));
+    }
+    input.close();
+    return sink.take();
+  } catch (_) {
+    // Too big, or not valid deflate data.
+    return null;
+  }
+}
+
+/// For tests: [_inflate] with a small limit.
+Uint8List? inflateForTest(Uint8List stored, int limit) =>
+    _inflate(stored, limit: limit);

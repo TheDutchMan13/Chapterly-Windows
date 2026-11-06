@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -75,6 +76,10 @@ class AppSettings extends ChangeNotifier {
   bool _useGoogleBooks = false;
   String? _googleBooksKey;
   String? _hardcoverToken;
+
+  /// Where the Google Books key and the Hardcover token are kept. Null in
+  /// tests, which keep them with the other settings.
+  SecretStore? _secrets;
   String? _googleBooksPausedOn;
   final _googleBooksAsked = <String>{};
   bool _wikidataSeries = false;
@@ -740,13 +745,55 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Reads the key and token from [store], Windows' protected storage, and
+  /// moves them there from the plain settings file of older versions.
+  Future<void> loadSecrets(SecretStore store) async {
+    _secrets = store;
+    Future<String?> take(String name) async {
+      var value = await store.read(name);
+      final old = prefs?.getString(name);
+      if (old != null) {
+        try {
+          if (value == null) {
+            await store.write(name, old);
+            value = old;
+          }
+          await prefs?.remove(name);
+        } catch (_) {
+          // Protected storage failed: keep it where it was for now.
+          value ??= old;
+        }
+      }
+      return value;
+    }
+
+    _googleBooksKey = await take('googleBooksKey');
+    _hardcoverToken = await take('hardcoverToken');
+    notifyListeners();
+  }
+
+  void _keepSecret(String name, String? value) {
+    final store = _secrets;
+    if (store == null) {
+      if (value == null) {
+        prefs?.remove(name);
+      } else {
+        prefs?.setString(name, value);
+      }
+      return;
+    }
+    prefs?.remove(name);
+    unawaited(
+      (value == null ? store.delete(name) : store.write(name, value))
+          .catchError((_) {}),
+    );
+  }
+
   void setGoogleBooksKey(String? value) {
     final key = value?.trim();
     _googleBooksKey = key == null || key.isEmpty ? null : key;
-    if (_googleBooksKey == null) {
-      prefs?.remove('googleBooksKey');
-    } else {
-      prefs?.setString('googleBooksKey', _googleBooksKey!);
+    _keepSecret('googleBooksKey', _googleBooksKey);
+    if (_googleBooksKey != null) {
       // A new key has its own requests: try again now.
       _googleBooksPausedOn = null;
       prefs?.remove('googleBooksPausedOn');
@@ -757,11 +804,7 @@ class AppSettings extends ChangeNotifier {
   void setHardcoverToken(String? value) {
     final token = value?.trim();
     _hardcoverToken = token == null || token.isEmpty ? null : token;
-    if (_hardcoverToken == null) {
-      prefs?.remove('hardcoverToken');
-    } else {
-      prefs?.setString('hardcoverToken', _hardcoverToken!);
-    }
+    _keepSecret('hardcoverToken', _hardcoverToken);
     notifyListeners();
   }
 
@@ -1224,4 +1267,11 @@ class AppSettings extends ChangeNotifier {
       prefs?.setString('font', font);
     }
   }
+}
+
+/// Keeps keys and tokens out of the plain settings file.
+abstract interface class SecretStore {
+  Future<String?> read(String name);
+  Future<void> write(String name, String value);
+  Future<void> delete(String name);
 }

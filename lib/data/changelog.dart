@@ -13,6 +13,21 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.42.0',
+    date: '2026-11-06',
+    changes: [
+      'Your Google Books key and Hardcover token are now kept in Windows\' '
+          'protected storage, not in the plain settings file. They move there '
+          'by themselves the first time you open this version',
+      'Search settings: a group you opened stays open after you clear the '
+          'search',
+      'Export for Goodreads or StoryGraph no longer puts a quote mark in '
+          'front of notes and titles that start with - or +',
+      'Safer reading of book files: an EPUB that unpacks to something huge '
+          'is skipped instead of crashing the app',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.41.0',
     date: '2026-11-06',
     changes: [
