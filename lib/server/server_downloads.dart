@@ -463,6 +463,26 @@ class ServerDownloads extends ChangeNotifier {
     return found;
   }
 
+  /// The file of one book on this device, or null when it has none.
+  Future<DownloadedBook?> downloadedBook(String bookId) async {
+    for (final item in await downloaded()) {
+      if (item.bookId == bookId) return item;
+    }
+    return null;
+  }
+
+  /// Deletes every downloaded file except those still downloading. The books
+  /// stay in your library. Returns how many files were removed.
+  Future<int> removeAll() async {
+    var removed = 0;
+    for (final item in await downloaded()) {
+      if (isDownloading(item.bookId)) continue;
+      await removeFile(item);
+      removed++;
+    }
+    return removed;
+  }
+
   static String _pathOf(String location) =>
       location.startsWith('file:') ? Uri.parse(location).toFilePath() : location;
 

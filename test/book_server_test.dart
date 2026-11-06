@@ -816,6 +816,19 @@ void main() {
       await phone.download('dune');
       expect(phone.repository.books, hasLength(2));
     });
+
+    test('one download, or all of them, can be removed', () async {
+      final dune = await phone.download('dune');
+      await phone.download('parts');
+      expect((await phone.downloads.downloadedBook(dune))!.bytes,
+          'file of Dune'.length);
+      expect(await phone.downloads.downloadedBook('nobody'), isNull);
+      expect(await phone.downloads.removeAll(), 2);
+      expect(await phone.downloads.downloaded(), isEmpty);
+      expect(await phone.downloads.downloadedBook(dune), isNull);
+      expect(phone.repository.books, hasLength(2));
+      expect(await phone.downloads.removeAll(), 0);
+    });
   });
 
   group('syncing the whole library', () {

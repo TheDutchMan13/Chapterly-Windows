@@ -13,6 +13,15 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.40.0',
+    date: '2026-11-06',
+    changes: [
+      'Remove a download: on the book server list, the menu on a book you '
+          'downloaded has Remove download, which deletes its file but keeps '
+          'the book and your place. Downloads has a Remove all button too',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.39.0',
     date: '2026-11-06',
     changes: [

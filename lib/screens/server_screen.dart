@@ -423,6 +423,27 @@ class _BrowseViewState extends State<_BrowseView> {
     ));
   }
 
+  /// Deletes the book's file from this device after asking. The book, and
+  /// your place in it, stay in your library.
+  Future<void> _removeDownload(String bookId, String title) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final item = await widget.downloads.downloadedBook(bookId);
+    if (!mounted) return;
+    if (item == null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('"$title" has no file on this device.')),
+      );
+      return;
+    }
+    if (!await confirmRemoveDownload(context, item) || !mounted) return;
+    await widget.downloads.removeFile(item);
+    if (!mounted) return;
+    setState(() {});
+    messenger.showSnackBar(
+      SnackBar(content: Text('Removed the file of "$title".')),
+    );
+  }
+
   void _openDownloads() {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => DownloadsScreen(downloads: widget.downloads),
@@ -755,12 +776,20 @@ class _BrowseViewState extends State<_BrowseView> {
                               tooltip: 'More',
                               onSelected: (value) {
                                 if (value == 'send') _sendToOthers(book);
+                                if (value == 'remove' && local != null) {
+                                  _removeDownload(local, book.title);
+                                }
                               },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(
+                              itemBuilder: (_) => [
+                                const PopupMenuItem(
                                   value: 'send',
                                   child: Text('Send to my other devices'),
                                 ),
+                                if (local != null)
+                                  const PopupMenuItem(
+                                    value: 'remove',
+                                    child: Text('Remove download (keep the book)'),
+                                  ),
                               ],
                             ),
                           ],
@@ -786,6 +815,34 @@ class _BrowseViewState extends State<_BrowseView> {
 
 // ---- Downloads ----
 
+/// Asks before deleting a downloaded book's file. True to go ahead.
+Future<bool> confirmRemoveDownload(
+  BuildContext context,
+  DownloadedBook item,
+) async {
+  final sure = await showDialog<bool>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      title: Text('Remove the file of "${item.title}"?'),
+      content: Text(
+        'This frees ${formatFileSize(item.bytes)}. The book stays in your '
+        'library with your place in it, and you can download it again.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialog, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialog, true),
+          child: const Text('Remove'),
+        ),
+      ],
+    ),
+  );
+  return sure == true;
+}
+
 /// Books from the server on this device and the space they take. Removing
 /// a file keeps the book in your library; download it again any time.
 class DownloadsScreen extends StatefulWidget {
@@ -802,14 +859,16 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   void _refresh() => setState(() => _items = widget.downloads.downloaded());
 
-  Future<void> _remove(DownloadedBook item) async {
+  Future<void> _removeAll(List<DownloadedBook> items, int total) async {
     final sure = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
-        title: Text('Remove the file of "${item.title}"?'),
+        title: const Text('Remove all downloads?'),
         content: Text(
-          'This frees ${formatFileSize(item.bytes)}. The book stays in your '
-          'library with your place in it, and you can download it again.',
+          'This deletes the files of ${items.length} '
+          '${items.length == 1 ? 'book' : 'books'} and frees '
+          '${formatFileSize(total)}. The books stay in your library with '
+          'your places in them, and you can download them again.',
         ),
         actions: [
           TextButton(
@@ -818,12 +877,18 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialog, true),
-            child: const Text('Remove'),
+            child: const Text('Remove all'),
           ),
         ],
       ),
     );
     if (sure != true) return;
+    await widget.downloads.removeAll();
+    if (mounted) _refresh();
+  }
+
+  Future<void> _remove(DownloadedBook item) async {
+    if (!await confirmRemoveDownload(context, item)) return;
     await widget.downloads.removeFile(item);
     if (mounted) _refresh();
   }
@@ -846,11 +911,21 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           return ListView(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: Text(
-                  '${items.length} ${items.length == 1 ? 'book uses' : 'books use'} '
-                  '${formatFileSize(total)} on this device',
-                  style: Theme.of(context).textTheme.titleSmall,
+                padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${items.length} ${items.length == 1 ? 'book uses' : 'books use'} '
+                        '${formatFileSize(total)} on this device',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _removeAll(items, total),
+                      child: const Text('Remove all'),
+                    ),
+                  ],
                 ),
               ),
               for (final item in items)
