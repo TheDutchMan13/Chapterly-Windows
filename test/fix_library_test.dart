@@ -135,6 +135,10 @@ void main() {
 
   testWidgets('Fix library finds a series spelled two ways and applies it',
       (tester) async {
+    // Tall enough to show every step and the results without scrolling.
+    tester.view.physicalSize = const Size(1000, 3000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final repository = BookRepository(InMemoryBookStore());
     await repository.load();
     await repository.replaceAll([
