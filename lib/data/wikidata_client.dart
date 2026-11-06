@@ -115,6 +115,84 @@ class WikidataClient {
     }
   }
 
+  /// The series Wikidata lists for the book ("part of the series", P179)
+  /// and its number in it (the "series ordinal", P1545), or null when
+  /// Wikidata has nothing, is busy, or cannot be reached. Never throws.
+  Future<({String name, int? number})?> seriesFor({
+    required String title,
+    required String author,
+  }) async {
+    final cleanTitle = title.trim();
+    if (cleanTitle.isEmpty) return null;
+    try {
+      final search = await _get({
+        'action': 'wbsearchentities',
+        'search': cleanTitle,
+        'language': 'en',
+        'type': 'item',
+        'limit': '5',
+      });
+      final found = search?['search'];
+      if (found is! List) return null;
+      final surnames = authorSurnames(author);
+      final ids = <String>[];
+      for (final hit in found.whereType<Map<String, dynamic>>()) {
+        final label = (hit['label'] ?? '').toString().toLowerCase();
+        final description = (hit['description'] ?? '').toString();
+        if (label != cleanTitle.toLowerCase()) continue;
+        if (describesBookBy(description, surnames) && hit['id'] is String) {
+          ids.add(hit['id'] as String);
+        }
+      }
+      if (ids.isEmpty) return null;
+
+      final entities = await _get({
+        'action': 'wbgetentities',
+        'ids': ids.join('|'),
+        'props': 'claims',
+      });
+      final byId = entities?['entities'];
+      if (byId is! Map) return null;
+      String? seriesId;
+      int? number;
+      for (final id in ids) {
+        final entity = byId[id];
+        final claims = entity is Map ? entity['claims'] : null;
+        final parts = claims is Map ? claims['P179'] : null;
+        if (parts is! List) continue;
+        for (final claim in parts) {
+          if (claim case {'mainsnak': {'datavalue': {'value': {'id': final String sid}}}}) {
+            seriesId = sid;
+            if (claim case {'qualifiers': {'P1545': [{'datavalue': {'value': final String n}}, ...]}}) {
+              number = int.tryParse(n.trim());
+            }
+            break;
+          }
+        }
+        if (seriesId != null) break;
+      }
+      if (seriesId == null) return null;
+
+      final labels = await _get({
+        'action': 'wbgetentities',
+        'ids': seriesId,
+        'props': 'labels',
+        'languages': 'en',
+      });
+      final series = labels?['entities'];
+      if (series is Map &&
+          series[seriesId] case {'labels': {'en': {'value': final String v}}}) {
+        final name = v.trim();
+        if (name.isNotEmpty) {
+          return (name: name, number: number != null && number > 0 ? number : null);
+        }
+      }
+      return null;
+    } on Object {
+      return null;
+    }
+  }
+
   /// The genre (P136) item ids in an entity's claims.
   static List<String> _genreIds(Object? entity) {
     if (entity is! Map) return [];

@@ -72,6 +72,8 @@ class AppSettings extends ChangeNotifier {
   AppLook _look = AppLook.midnight;
   bool _continueCard = true;
   bool _autoSeries = true;
+  bool _wikidataSeries = false;
+  final _wikidataSeriesAsked = <String>{};
   final _autoSeriesApplied = <String>{};
   String? _serverSeenAt;
   bool _pureBlack = false;
@@ -158,6 +160,12 @@ class AppSettings extends ChangeNotifier {
   /// Whether books get their series from their title by themselves (see
   /// auto_series.dart).
   bool get autoSeries => _autoSeries;
+
+  /// Whether Wikidata is asked for the series of books that have none.
+  bool get wikidataSeries => _wikidataSeries;
+
+  /// Books Wikidata was already asked about, so each is asked only once.
+  Set<String> get wikidataSeriesAsked => Set.unmodifiable(_wikidataSeriesAsked);
 
   /// Books that were given a series that way, so one you clear stays clear.
   Set<String> get autoSeriesApplied => Set.unmodifiable(_autoSeriesApplied);
@@ -381,6 +389,9 @@ class AppSettings extends ChangeNotifier {
         AppLook.midnight;
     settings._continueCard = prefs.getBool('continueCard') ?? true;
     settings._autoSeries = prefs.getBool('autoSeries') ?? true;
+    settings._wikidataSeries = prefs.getBool('wikidataSeries') ?? false;
+    settings._wikidataSeriesAsked
+        .addAll(prefs.getStringList('wikidataSeriesAsked') ?? const []);
     settings._autoSeriesApplied
         .addAll(prefs.getStringList('autoSeriesApplied') ?? const []);
     settings._serverSeenAt = prefs.getString('serverSeenAt');
@@ -681,6 +692,17 @@ class AppSettings extends ChangeNotifier {
     _serverSeenAt = value.toUtc().toIso8601String();
     prefs?.setString('serverSeenAt', _serverSeenAt!);
     notifyListeners();
+  }
+
+  void setWikidataSeries(bool value) {
+    _wikidataSeries = value;
+    prefs?.setBool('wikidataSeries', value);
+    notifyListeners();
+  }
+
+  void addWikidataSeriesAsked(Iterable<String> ids) {
+    _wikidataSeriesAsked.addAll(ids);
+    prefs?.setStringList('wikidataSeriesAsked', _wikidataSeriesAsked.toList());
   }
 
   void setAutoSeries(bool value) {

@@ -13,6 +13,18 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.28.0',
+    date: '2026-11-05',
+    changes: [
+      'Ask Wikidata for series (Settings): for books whose title has no '
+          'series, Chapterly asks Wikidata which series a book is part of and '
+          'its number, in the background and a few books at a time. It works '
+          'for well-known books only. It is off by default because it sends '
+          'each title and author to wikidata.org. Series you set are never '
+          'changed',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.27.0',
     date: '2026-11-05',
     changes: [

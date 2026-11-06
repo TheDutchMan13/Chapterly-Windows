@@ -712,6 +712,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: widget.settings.autoSeries,
                       onChanged: widget.settings.setAutoSeries,
                     ),
+                    SwitchListTile(
+                      title: const Text('Ask Wikidata for series'),
+                      subtitle: const Text(
+                        'For books with no series in the title, asks Wikidata (for well-known '
+                        'books only). Slow, in the background, and it sends each title and '
+                        'author to wikidata.org.',
+                      ),
+                      value: widget.settings.wikidataSeries,
+                      onChanged: widget.settings.setWikidataSeries,
+                    ),
                     ListTile(
                       title: const Text('Tags for new books'),
                       subtitle: Text(

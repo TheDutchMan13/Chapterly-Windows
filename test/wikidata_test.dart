@@ -56,6 +56,7 @@ MockClient _wikidata(List<http.Request> seen) => MockClient((request) async {
     });
 
 void main() {
+  _seriesTests();
   test('finds the genres of the matching book and identifies itself', () async {
     final seen = <http.Request>[];
     final client = WikidataClient(client: _wikidata(seen), pause: Duration.zero);
@@ -160,5 +161,74 @@ void main() {
       mergeSubjects(['Space opera', 'Fantasy'], ['fantasy', 'Novel']),
       ['Space opera', 'Fantasy', 'Novel'],
     );
+  });
+}
+
+void _seriesTests() {
+  MockClient series(List<http.Request> seen) => MockClient((request) async {
+        seen.add(request);
+        final q = request.url.queryParameters;
+        if (q['action'] == 'wbsearchentities') {
+          return _json({
+            'search': [
+              {
+                'id': 'Q5',
+                'label': 'The Final Empire',
+                'description': '2006 novel by Brandon Sanderson',
+              },
+            ],
+          });
+        }
+        if (q['props'] == 'claims') {
+          return _json({
+            'entities': {
+              'Q5': {
+                'claims': {
+                  'P179': [
+                    {
+                      'mainsnak': {
+                        'datavalue': {
+                          'value': {'id': 'Q9'},
+                        },
+                      },
+                      'qualifiers': {
+                        'P1545': [
+                          {
+                            'datavalue': {'value': '1'},
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        }
+        return _json({
+          'entities': {
+            'Q9': {
+              'labels': {
+                'en': {'value': 'Mistborn'},
+              },
+            },
+          },
+        });
+      });
+
+  test('finds the series and the number in it', () async {
+    final seen = <http.Request>[];
+    final client = WikidataClient(client: series(seen), pause: Duration.zero);
+    final found = await client.seriesFor(
+        title: 'The Final Empire', author: 'Brandon Sanderson');
+    expect(found?.name, 'Mistborn');
+    expect(found?.number, 1);
+    expect(seen, hasLength(3));
+  });
+
+  test('a book with no series, or by someone else, gives null', () async {
+    final client = WikidataClient(client: series([]), pause: Duration.zero);
+    expect(await client.seriesFor(title: 'The Final Empire', author: 'Other Person'),
+        isNull);
   });
 }

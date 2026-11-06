@@ -27,6 +27,7 @@ import 'data/secure_code_store.dart';
 import 'data/sqlite_book_store.dart';
 import 'data/theme_options.dart';
 import 'data/tray_control.dart';
+import 'data/wikidata_series.dart';
 import 'data/window_control.dart';
 import 'ebook/ebook_library.dart';
 import 'ebook/ebook_reading.dart';
@@ -150,6 +151,8 @@ Future<void> main() async {
   runAutoBackup(repository, settings);
   // Fills in series found in titles, now and as books are added.
   AutoSeries.start(repository, settings);
+  // Then Wikidata, for books whose title has no series (off until switched on).
+  WikidataSeries.start(repository, settings);
   // The daily reading reminder: on the PC it shows in the app.
   _remindNowAndThen(repository, settings);
   // Closing the window can keep Chapterly in the tray (a setting).
