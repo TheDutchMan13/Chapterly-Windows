@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 import '../models/book.dart';
 import 'app_info.dart';
 import 'file_match.dart';
-import 'open_library_client.dart' show cleanSubjects;
+import 'open_library_client.dart' show OpenLibraryBook, cleanSubjects;
 
 // The same file is in the Android app; keep the two copies alike.
 
@@ -32,6 +32,17 @@ class GoogleBook {
   /// Google's categories, such as "Fiction / Science Fiction", split into
   /// single words or phrases and cleaned like Open Library's subjects.
   final List<String> categories;
+
+  /// This book in the shape the search and editor screens use for results
+  /// from either source. Google has no work key, so there are no editions.
+  OpenLibraryBook toLookup() => OpenLibraryBook(
+        title: title,
+        author: author.isEmpty ? 'Unknown author' : author,
+        firstPublishYear: year,
+        isbn: isbn,
+        coverUrl: coverUrl,
+        pages: pages,
+      );
 
   static GoogleBook? fromJson(Object? item) {
     if (item is! Map) return null;
@@ -113,7 +124,7 @@ class GoogleBooksClient {
   /// The books for [query] (Google's search words). Throws
   /// [GoogleQuotaReached] when the day's requests are used up; returns an
   /// empty list for anything else that goes wrong.
-  Future<List<GoogleBook>> search(String query) async {
+  Future<List<GoogleBook>> search(String query, {int max = 5}) async {
     final wait = pause - DateTime.now().difference(_last);
     if (!wait.isNegative) await Future<void>.delayed(wait);
     _last = DateTime.now();
@@ -122,7 +133,7 @@ class GoogleBooksClient {
       final response = await _client.get(
         Uri.https('www.googleapis.com', '/books/v1/volumes', {
           'q': query,
-          'maxResults': '5',
+          'maxResults': '$max',
           'printType': 'books',
           'fields': 'items(volumeInfo(title,authors,publishedDate,pageCount,'
               'categories,imageLinks/thumbnail,industryIdentifiers))',
@@ -145,6 +156,18 @@ class GoogleBooksClient {
     }
   }
 
+  /// Results for something typed in a search box, in the shape the screens
+  /// use for Open Library results. An ISBN is looked up as an ISBN. Throws
+  /// [GoogleQuotaReached] when the day's requests are used up.
+  Future<List<OpenLibraryBook>> searchLookup(String text, {int max = 15}) async {
+    final query = text.trim();
+    if (query.isEmpty) return [];
+    final digits = query.replaceAll(RegExp(r'[\s-]'), '');
+    final isIsbn = RegExp(r'^(\d{9}[\dXx]|\d{13})$').hasMatch(digits);
+    final found = await search(isIsbn ? 'isbn:$digits' : query, max: max);
+    return [for (final book in found) book.toLookup()];
+  }
+
   /// The Google Books entry that is clearly [book]: by ISBN when it has
   /// one, otherwise by title and author. Null when there is none.
   Future<GoogleBook?> find(Book book) async {
@@ -164,6 +187,13 @@ class GoogleBooksClient {
 
   void close() => _client.close();
 }
+
+/// The client the search boxes use. Set once at start so it uses the key
+/// from Settings; a plain one (no key) is made if it was not set.
+GoogleBooksClient? sharedGoogleBooks;
+
+GoogleBooksClient get googleBooksClient =>
+    sharedGoogleBooks ??= GoogleBooksClient();
 
 /// The result that is clearly [book]: the same title (or main title) and,
 /// when both have one, an author sharing a name.

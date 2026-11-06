@@ -1,4 +1,5 @@
 import 'details_refresh.dart';
+import 'google_books_client.dart';
 import 'open_library_client.dart';
 
 // The same file is in the Android app; keep the two copies alike.
@@ -41,6 +42,43 @@ Future<List<CoverOption>> findCoverOptions(
     for (final cover in await client.editionCovers(work)) {
       add(cover.url, cover.label);
     }
+  }
+  return options.take(max).toList();
+}
+
+/// The covers Google Books has for this book: by ISBN when known, and by
+/// title and author. Throws [GoogleQuotaReached] when the day's requests are
+/// used up.
+Future<List<CoverOption>> findGoogleCoverOptions(
+  GoogleBooksClient client, {
+  required String title,
+  required String author,
+  String? isbn,
+  int max = 12,
+}) async {
+  final found = <GoogleBook>[];
+  final digits = (isbn ?? '').replaceAll(RegExp(r'[^0-9Xx]'), '');
+  if (digits.length >= 10) found.addAll(await client.search('isbn:$digits'));
+  final name = title.replaceAll('"', ' ').trim();
+  if (name.isNotEmpty) {
+    final by = author.replaceAll('"', ' ').trim();
+    found.addAll(await client.search(
+      'intitle:"$name"${by.isEmpty ? '' : ' inauthor:"$by"'}',
+      max: 10,
+    ));
+  }
+  final seen = <String>{};
+  final options = <CoverOption>[];
+  for (final book in found) {
+    final url = book.coverUrl;
+    if (url == null || !seen.add(url)) continue;
+    options.add(CoverOption(
+      url: url,
+      label: [
+        if (book.author.isNotEmpty) book.author,
+        if (book.year != null) '${book.year}',
+      ].join(' · '),
+    ));
   }
   return options.take(max).toList();
 }

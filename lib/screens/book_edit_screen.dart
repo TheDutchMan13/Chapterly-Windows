@@ -9,6 +9,8 @@ import '../data/file_match.dart';
 import '../data/open_library_client.dart';
 import '../models/book.dart';
 import '../widgets/book_cover.dart';
+import '../data/google_books_client.dart';
+import '../widgets/lookup_source_toggle.dart';
 import 'cover_picker.dart';
 
 // The same file is in the Android app; keep the two copies alike.
@@ -557,6 +559,7 @@ class MatchPicker extends StatefulWidget {
 class _MatchPickerState extends State<MatchPicker> {
   late final _query = TextEditingController(text: widget.initialQuery);
   Future<List<OpenLibraryBook>>? _results;
+  LookupSource _source = LookupSource.openLibrary;
 
   @override
   void initState() {
@@ -571,7 +574,10 @@ class _MatchPickerState extends State<MatchPicker> {
   }
 
   void _search() {
-    setState(() => _results = widget.client.search(_query.text));
+    final text = _query.text;
+    setState(() => _results = _source == LookupSource.openLibrary
+        ? widget.client.search(text)
+        : googleBooksClient.searchLookup(text));
   }
 
   @override
@@ -582,9 +588,17 @@ class _MatchPickerState extends State<MatchPicker> {
       contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
       content: SizedBox(
         width: 520,
-        height: 460,
+        height: 500,
         child: Column(
           children: [
+            LookupSourceToggle(
+              value: _source,
+              onChanged: (source) {
+                setState(() => _source = source);
+                if (_query.text.trim().isNotEmpty) _search();
+              },
+            ),
+            const SizedBox(height: 8),
             TextField(
               controller: _query,
               autofocus: widget.initialQuery.isEmpty,
@@ -612,10 +626,9 @@ class _MatchPickerState extends State<MatchPicker> {
                           );
                         }
                         if (snapshot.hasError) {
-                          return const Center(
+                          return Center(
                             child: Text(
-                              'Could not reach Open Library. Check your '
-                              'connection and try again.',
+                              lookupFailureText(_source, snapshot.error),
                               textAlign: TextAlign.center,
                             ),
                           );

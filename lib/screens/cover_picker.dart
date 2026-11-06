@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../data/cover_options.dart';
+import '../data/google_books_client.dart';
 import '../data/open_library_client.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/lookup_source_toggle.dart';
 
 // The same file is in the Android app; keep the two copies alike.
 
@@ -27,12 +29,22 @@ class CoverPicker extends StatefulWidget {
 }
 
 class _CoverPickerState extends State<CoverPicker> {
-  late final Future<List<CoverOption>> _options = findCoverOptions(
-    widget.client,
-    title: widget.title,
-    author: widget.author,
-    isbn: widget.isbn,
-  );
+  LookupSource _source = LookupSource.openLibrary;
+  late Future<List<CoverOption>> _options = _load();
+
+  Future<List<CoverOption>> _load() => _source == LookupSource.openLibrary
+      ? findCoverOptions(
+          widget.client,
+          title: widget.title,
+          author: widget.author,
+          isbn: widget.isbn,
+        )
+      : findGoogleCoverOptions(
+          googleBooksClient,
+          title: widget.title,
+          author: widget.author,
+          isbn: widget.isbn,
+        );
 
   @override
   Widget build(BuildContext context) {
@@ -41,28 +53,38 @@ class _CoverPickerState extends State<CoverPicker> {
       title: const Text('Find a cover'),
       content: SizedBox(
         width: 460,
-        height: 420,
-        child: FutureBuilder<List<CoverOption>>(
+        height: 470,
+        child: Column(
+          children: [
+            LookupSourceToggle(
+              value: _source,
+              onChanged: (source) => setState(() {
+                _source = source;
+                _options = _load();
+              }),
+            ),
+            const SizedBox(height: 8),
+            Expanded(child: FutureBuilder<List<CoverOption>>(
           future: _options,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return const Center(
+              return Center(
                 child: Text(
-                  'Could not reach Open Library. '
-                  'Check your connection and try again.',
+                  lookupFailureText(_source, snapshot.error),
                   textAlign: TextAlign.center,
                 ),
               );
             }
             final options = snapshot.data ?? const <CoverOption>[];
             if (options.isEmpty) {
-              return const Center(
+              return Center(
                 child: Text(
-                  'Open Library has no cover for this book. Check the title '
-                  'and author, or choose a picture of your own.',
+                  '${_source.label} has no cover for this book. Check the '
+                  'title and author, try the other source, or choose a '
+                  'picture of your own.',
                   textAlign: TextAlign.center,
                 ),
               );
@@ -97,6 +119,8 @@ class _CoverPickerState extends State<CoverPicker> {
               },
             );
           },
+        )),
+          ],
         ),
       ),
       actions: [

@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
+import '../data/google_books_client.dart';
 import '../data/open_library_client.dart';
 import '../models/shelf.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/lookup_source_toggle.dart';
 import 'edition_picker_screen.dart';
 import 'shelf_picker.dart';
 
-/// Search Open Library and add results to a shelf.
+/// Search Open Library or Google Books and add results to a shelf.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
     super.key,
@@ -28,6 +30,7 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final _controller = TextEditingController();
   List<OpenLibraryBook> _results = const [];
+  LookupSource _source = LookupSource.openLibrary;
   bool _loading = false;
   bool _searched = false;
   String? _error;
@@ -46,17 +49,18 @@ class _SearchScreenState extends State<SearchScreen> {
       _error = null;
     });
     try {
-      final results = await widget.client.search(query);
+      final results = _source == LookupSource.openLibrary
+          ? await widget.client.search(query)
+          : await googleBooksClient.searchLookup(query);
       if (!mounted) return;
       setState(() {
         _results = results;
         _searched = true;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'Could not reach Open Library. '
-            'Check your connection and try again.';
+        _error = lookupFailureText(_source, e);
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -107,8 +111,12 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
     if (!_searched) {
-      return const Center(
-        child: Text('Search by title, author, ISBN or Open Library ID.'),
+      return Center(
+        child: Text(
+          _source == LookupSource.openLibrary
+              ? 'Search by title, author, ISBN or Open Library ID.'
+              : 'Search by title, author or ISBN.',
+        ),
       );
     }
     if (_results.isEmpty) {
@@ -143,9 +151,24 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Search Open Library')),
+      appBar: AppBar(title: const Text('Search books')),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: LookupSourceToggle(
+              value: _source,
+              onChanged: (source) {
+                setState(() {
+                  _source = source;
+                  _searched = false;
+                  _error = null;
+                  _results = const [];
+                });
+                if (_controller.text.trim().isNotEmpty) _search();
+              },
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.all(12),
             child: TextField(
@@ -154,7 +177,9 @@ class _SearchScreenState extends State<SearchScreen> {
               textInputAction: TextInputAction.search,
               onSubmitted: (_) => _search(),
               decoration: InputDecoration(
-                hintText: 'Title, author, ISBN or Open Library ID',
+                hintText: _source == LookupSource.openLibrary
+                    ? 'Title, author, ISBN or Open Library ID'
+                    : 'Title, author or ISBN',
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.search),
