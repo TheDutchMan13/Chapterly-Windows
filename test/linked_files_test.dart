@@ -46,8 +46,9 @@ void main() {
 
   testWidgets('link a file, open it, and see when it is missing',
       (tester) async {
-    final dir = await Directory.systemTemp.createTemp('linked');
-    addTearDown(() => dir.delete(recursive: true));
+    // Synchronous calls only: real async file work hangs in a widget test.
+    final dir = Directory.systemTemp.createTempSync('linked');
+    addTearDown(() => dir.deleteSync(recursive: true));
     final real = File('${dir.path}/Dune.mobi')..writeAsStringSync('x');
     final links = LinkedFiles.inMemory();
     final opened = <String>[];
