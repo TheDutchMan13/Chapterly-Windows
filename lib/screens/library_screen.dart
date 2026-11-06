@@ -49,6 +49,7 @@ import 'trash_screen.dart';
 import 'wish_list_screen.dart';
 import 'update_dialog.dart';
 import 'review_matches_screen.dart';
+import 'find_isbns_screen.dart';
 import 'update_covers_screen.dart';
 import 'new_books_banner.dart';
 
@@ -525,6 +526,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ReviewMatchesScreen(repository: widget.repository),
+      ),
+    );
+  }
+
+  void _openFindIsbns() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FindIsbnsScreen(
+          repository: widget.repository,
+          client: widget.client,
+        ),
       ),
     );
   }
@@ -1775,6 +1787,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
             PopupMenuItem(
               value: _openReviewMatches,
               child: const Text('Review matches'),
+            ),
+            PopupMenuItem(
+              value: _openFindIsbns,
+              child: const Text('Find ISBNs'),
             ),
             PopupMenuItem(
               value: _openUpdateCovers,

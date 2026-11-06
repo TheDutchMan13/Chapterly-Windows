@@ -13,6 +13,15 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.33.0',
+    date: '2026-11-05',
+    changes: [
+      'Find ISBNs: looks up books that have no ISBN on Open Library and '
+          'shows the ISBN of the book that clearly matches. You choose which '
+          'to add. Books that already have one are left alone',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.32.0',
     date: '2026-11-05',
     changes: [
