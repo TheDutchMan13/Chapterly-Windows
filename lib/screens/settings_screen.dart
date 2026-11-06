@@ -640,10 +640,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(title: const Text('Settings')),
       body: SettingsSearchScope(
         search: _search,
-        child: ListView(
-        // Build every section, so the search can read the ones off screen.
-        cacheExtent: 100000,
-        children: [
+        // Every section is built, not only those on screen, so the search
+        // can read them all.
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
           SettingsSearchField(search: _search),
           const SettingsNoMatch(),
           if (_busy) const LinearProgressIndicator(),
@@ -1211,7 +1213,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ),
-        ],
+            ],
+          ),
         ),
       ),
     );
