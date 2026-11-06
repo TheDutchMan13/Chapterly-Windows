@@ -13,6 +13,15 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.35.0',
+    date: '2026-11-05',
+    changes: [
+      'Update covers can also look on Google Books for books Open Library '
+          'has no cover for. A tick box turns it off. It stops for the day '
+          'when Google has no more searches',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.34.0',
     date: '2026-11-05',
     changes: [

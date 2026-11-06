@@ -4,6 +4,7 @@ import 'package:chapterly/data/book_repository.dart';
 import 'package:chapterly/data/book_store.dart';
 import 'package:chapterly/data/cover_options.dart';
 import 'package:chapterly/data/cover_update.dart';
+import 'package:chapterly/data/google_books_client.dart';
 import 'package:chapterly/data/open_library_client.dart';
 import 'package:chapterly/models/shelf.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -151,5 +152,76 @@ void main() {
       'https://covers.openlibrary.org/b/id/444-M.jpg',
     ]);
     expect(options.last.label, 'Orion · 2005');
+  });
+
+  test('Google Books fills in what Open Library has no cover for', () async {
+    final repository = BookRepository(InMemoryBookStore());
+    await repository.load();
+    final obscure = await repository.add(
+      title: 'Obscure Local History',
+      author: 'Jane Writer',
+      shelf: Shelf.forLater,
+    );
+    final google = GoogleBooksClient(
+      pause: Duration.zero,
+      client: MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'items': [
+              {
+                'volumeInfo': {
+                  'title': 'Obscure Local History',
+                  'authors': ['Jane Writer'],
+                  'imageLinks': {'thumbnail': 'http://books.google.com/z.jpg'},
+                },
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+    final books = coverCandidates(repository.allBooks);
+    final without = await scanCovers(books, _fake(), pause: Duration.zero);
+    expect(without.fixes, isEmpty);
+    expect(without.noMatch, 1);
+    final withGoogle = await scanCovers(
+      books,
+      _fake(),
+      pause: Duration.zero,
+      google: google,
+    );
+    expect(withGoogle.fixes.single.book.id, obscure);
+    expect(withGoogle.fixes.single.source, 'Google Books');
+    expect(withGoogle.fixes.single.newUrl, 'https://books.google.com/z.jpg');
+  });
+
+  test('the scan stops asking Google once it has no more searches', () async {
+    final repository = BookRepository(InMemoryBookStore());
+    await repository.load();
+    for (var i = 0; i < 3; i++) {
+      await repository.add(
+        title: 'Nothing Like It $i',
+        author: 'Jane Writer',
+        shelf: Shelf.forLater,
+      );
+    }
+    var asked = 0;
+    final google = GoogleBooksClient(
+      pause: Duration.zero,
+      client: MockClient((_) async {
+        asked++;
+        return http.Response('{}', 429);
+      }),
+    );
+    final result = await scanCovers(
+      coverCandidates(repository.allBooks),
+      _fake(),
+      pause: Duration.zero,
+      google: google,
+    );
+    expect(asked, 1);
+    expect(result.googleQuotaReached, isTrue);
+    expect(result.noMatch, 3);
   });
 }

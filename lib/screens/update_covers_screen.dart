@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/book_repository.dart';
 import '../data/cover_update.dart';
+import '../data/google_books_client.dart';
 import '../data/open_library_client.dart';
 import '../widgets/book_cover.dart';
 
@@ -26,6 +27,7 @@ class UpdateCoversScreen extends StatefulWidget {
 }
 
 class _UpdateCoversScreenState extends State<UpdateCoversScreen> {
+  bool _useGoogle = true;
   bool _running = false;
   bool _cancel = false;
   int _done = 0;
@@ -55,6 +57,7 @@ class _UpdateCoversScreenState extends State<UpdateCoversScreen> {
       books,
       widget.client,
       cancelled: () => _cancel,
+      google: _useGoogle ? googleBooksClient : null,
       onProgress: (done, total) {
         if (mounted) setState(() => _done = done);
       },
@@ -107,6 +110,9 @@ class _UpdateCoversScreenState extends State<UpdateCoversScreen> {
       if (result.unreachable)
         'Open Library could not be reached. Check your connection and try '
             'again.',
+      if (result.googleQuotaReached)
+        'Google Books ran out of searches for today. Add a free key in '
+            'Settings to search more, or check again tomorrow.',
       if (result.stopped) 'Stopped before every book was looked at.',
     ];
     return parts.join(' ');
@@ -134,6 +140,18 @@ class _UpdateCoversScreenState extends State<UpdateCoversScreen> {
               'Open Library cover.',
               style: textTheme.bodyMedium
                   ?.copyWith(color: colours.onSurfaceVariant),
+            ),
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _useGoogle,
+            onChanged:
+                _running ? null : (v) => setState(() => _useGoogle = v ?? true),
+            title: const Text('Also look on Google Books'),
+            subtitle: const Text(
+              'For books Open Library has no cover for. Sends the title and '
+              'author to Google. Without a key Google allows only a few '
+              'searches a day.',
             ),
           ),
           if (_running) ...[
@@ -253,9 +271,7 @@ class _FixCard extends StatelessWidget {
                       ),
                     const SizedBox(height: 4),
                     Text(
-                      fix.problem == CoverProblem.missing
-                          ? 'No cover yet'
-                          : 'The current cover no longer exists',
+                      '${fix.problem == CoverProblem.missing ? 'No cover yet' : 'The current cover no longer exists'} · ${fix.source}',
                       style: textTheme.labelMedium
                           ?.copyWith(color: colours.primary),
                     ),

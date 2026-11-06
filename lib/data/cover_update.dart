@@ -1,5 +1,6 @@
 import '../models/book.dart';
 import 'details_refresh.dart';
+import 'google_books_client.dart';
 import 'open_library_client.dart';
 
 // The same file is in the Android app; keep the two copies alike.
@@ -17,11 +18,15 @@ class CoverFix {
     required this.book,
     required this.problem,
     required this.newUrl,
+    this.source = 'Open Library',
   });
 
   final Book book;
   final CoverProblem problem;
   final String newUrl;
+
+  /// Where the new cover is from: "Open Library" or "Google Books".
+  final String source;
 }
 
 /// What a scan for covers to update found.
@@ -32,7 +37,11 @@ class CoverScanResult {
     required this.noMatch,
     required this.stopped,
     required this.unreachable,
+    this.googleQuotaReached = false,
   });
+
+  /// Whether Google Books ran out of searches for today during the scan.
+  final bool googleQuotaReached;
 
   /// How many books were looked at.
   final int checked;
@@ -66,6 +75,10 @@ List<Book> coverCandidates(List<Book> books) => [
 /// Open Library cover that no longer exists, finds the cover Open Library
 /// has for the book. A cover that still loads is never touched.
 ///
+/// When [google] is given, a book Open Library has no cover for is looked up
+/// on Google Books too. Google stops being asked once it has no more
+/// searches for the day.
+///
 /// [onFix] is called for each cover found, [onProgress] after each book, and
 /// the scan stops once [cancelled] returns true. After three failures in a
 /// row it gives up, as Open Library cannot be reached.
@@ -76,6 +89,7 @@ Future<CoverScanResult> scanCovers(
   void Function(int done, int total)? onProgress,
   void Function(CoverFix fix)? onFix,
   Duration pause = const Duration(milliseconds: 250),
+  GoogleBooksClient? google,
 }) async {
   final fixes = <CoverFix>[];
   var noMatch = 0;
@@ -83,6 +97,7 @@ Future<CoverScanResult> scanCovers(
   var done = 0;
   var stopped = false;
   var unreachable = false;
+  var googleQuota = false;
   for (final book in books) {
     if (cancelled?.call() ?? false) {
       stopped = true;
@@ -102,21 +117,45 @@ Future<CoverScanResult> scanCovers(
       }
     }
     if (problem != null) {
+      String? found;
+      var source = 'Open Library';
+      var reached = true;
       try {
         final match = await lookupOpenLibraryMatch(client, book);
         failures = 0;
-        final found = match?.coverUrl;
-        if (found == null || found == current) {
-          noMatch++;
-        } else if (await client.coverLoads(found) == false) {
-          noMatch++;
-        } else {
-          final fix = CoverFix(book: book, problem: problem, newUrl: found);
-          fixes.add(fix);
-          onFix?.call(fix);
+        found = match?.coverUrl;
+        if (found != null &&
+            (found == current || await client.coverLoads(found) == false)) {
+          found = null;
         }
       } catch (_) {
         failures++;
+        reached = false;
+      }
+      if (found == null && reached && google != null && !googleQuota) {
+        try {
+          final other = (await google.find(book))?.coverUrl;
+          if (other != null && other != current) {
+            found = other;
+            source = 'Google Books';
+          }
+        } on GoogleQuotaReached {
+          googleQuota = true;
+        } catch (_) {
+          // Google could not be asked; the book stays without a cover.
+        }
+      }
+      if (found != null) {
+        final fix = CoverFix(
+          book: book,
+          problem: problem,
+          newUrl: found,
+          source: source,
+        );
+        fixes.add(fix);
+        onFix?.call(fix);
+      } else if (reached) {
+        noMatch++;
       }
       await Future<void>.delayed(pause);
     }
@@ -133,5 +172,6 @@ Future<CoverScanResult> scanCovers(
     noMatch: noMatch,
     stopped: stopped,
     unreachable: unreachable,
+    googleQuotaReached: googleQuota,
   );
 }
