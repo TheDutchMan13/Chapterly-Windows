@@ -13,6 +13,18 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.39.0',
+    date: '2026-11-06',
+    changes: [
+      'Find ISBNs and Fix library also look on Google Books when Open '
+          'Library has no ISBN for a book. Find ISBNs has a tick box for it, '
+          'like Update covers, and each ISBN says where it came from',
+      'On your drive: link a book to a file or folder where it already is '
+          'on this PC, of any kind (EPUB, MOBI, PDF, audio folder). Nothing '
+          'is copied. Open launches it with the program Windows uses for it',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.38.0',
     date: '2026-11-06',
     changes: [

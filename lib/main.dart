@@ -21,6 +21,7 @@ import 'data/google_books_client.dart';
 import 'data/google_books_fill.dart';
 import 'data/hardcover_client.dart';
 import 'data/library_scan.dart';
+import 'data/linked_files.dart';
 import 'data/open_library_client.dart';
 import 'data/pc_sync.dart';
 import 'data/profile_files.dart';
@@ -129,6 +130,9 @@ Future<void> main() async {
   EbookReading.files = const WindowsEbookFiles();
   EbookReading.repository = repository;
   EbookReading.booksDir = Directory(p.join(dataDir.path, 'books'));
+  // Files and folders linked to books where they already are on the drives.
+  LinkedFiles.shared =
+      await LinkedFiles.load(File(p.join(dataDir.path, 'linked_files.json')));
   // The book server: browsing it, downloads, and keeping your place in its
   // books the same on every device.
   await _setUpBookServer(dataDir, repository, listenController, settings);

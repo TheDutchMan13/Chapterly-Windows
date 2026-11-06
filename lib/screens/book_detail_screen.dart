@@ -32,6 +32,7 @@ import 'book_card_screen.dart';
 import 'book_edit_screen.dart';
 import 'book_info_sheet.dart';
 import 'book_file_card.dart';
+import 'linked_file_card.dart';
 import 'book_insights.dart';
 import 'listen_card.dart';
 import 'cover_actions.dart';
@@ -1283,6 +1284,7 @@ class BookDetailScreen extends StatelessWidget {
                       ]),
                       _section([
                       BookFileCard(book: book, repository: repository),
+                      LinkedFileCard(book: book),
                       ListenCard(book: book, repository: repository),
                       FormatSyncCard(book: book, repository: repository),
                       PredictedRatingTile(book: book, repository: repository),
