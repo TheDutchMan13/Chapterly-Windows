@@ -420,40 +420,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
           throw const FormatException('No books found in that file.');
         }
         final fresh = widget.repository.newBookCount(result.books);
+        final updates = widget.repository.seriesUpdates(result.books);
+        var updateSeries = updates.isNotEmpty;
         if (!mounted) return;
         final go = await showDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Import books?'),
-            content: Text(
-              [
-                '${result.books.length} ${result.books.length == 1 ? 'book' : 'books'} found: '
-                    '$fresh new, ${result.books.length - fresh} already in your library.',
-                if (result.skipped > 0)
-                  '${result.skipped} ${result.skipped == 1 ? 'row is' : 'rows are'} '
-                      'not a book and will be skipped.',
-                'Shelves become Finished, Reading and Want to read. Ratings, '
-                    'dates and tags are kept.',
-              ].join('\n\n'),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: fresh == 0 ? null : () => Navigator.of(context).pop(true),
-                child: Text('Import $fresh ${fresh == 1 ? 'book' : 'books'}'),
-              ),
-            ],
+          builder: (context) => StatefulBuilder(
+            builder: (context, setDialogState) {
+              final canGo = fresh > 0 || (updateSeries && updates.isNotEmpty);
+              return AlertDialog(
+                title: const Text('Import books?'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      [
+                        '${result.books.length} ${result.books.length == 1 ? 'book' : 'books'} found: '
+                            '$fresh new, ${result.books.length - fresh} already in your library.',
+                        if (result.skipped > 0)
+                          '${result.skipped} ${result.skipped == 1 ? 'row is' : 'rows are'} '
+                              'not a book and will be skipped.',
+                        'Shelves become Finished, Reading and Want to read. Ratings, '
+                            'dates and tags are kept.',
+                      ].join('\n\n'),
+                    ),
+                    if (updates.isNotEmpty)
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: updateSeries,
+                        onChanged: (value) =>
+                            setDialogState(() => updateSeries = value ?? false),
+                        title: Text(
+                          'Update the series of ${updates.length} '
+                          '${updates.length == 1 ? 'book' : 'books'} '
+                          'already in your library',
+                        ),
+                        subtitle: const Text(
+                          'Uses the series name and number from this file. '
+                          'Nothing else about those books changes.',
+                        ),
+                      ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: canGo ? () => Navigator.of(context).pop(true) : null,
+                    child: Text(fresh > 0
+                        ? 'Import $fresh ${fresh == 1 ? 'book' : 'books'}'
+                        : 'Update series'),
+                  ),
+                ],
+              );
+            },
           ),
         );
         if (go != true) return;
-        final added = await widget.repository.importBooks(result.books);
+        final added =
+            fresh > 0 ? await widget.repository.importBooks(result.books) : 0;
+        final changed = updateSeries ? updates.length : 0;
+        if (changed > 0) await widget.repository.setSeriesFor(updates);
         final duplicates = result.books.length - added;
         if (!mounted) return;
         final parts = ['Imported $added book${added == 1 ? '' : 's'}'];
-        if (duplicates > 0) parts.add('$duplicates already in your library');
+        if (changed > 0) {
+          parts.add('updated the series of $changed '
+              'book${changed == 1 ? '' : 's'}');
+        } else if (duplicates > 0) {
+          parts.add('$duplicates already in your library');
+        }
         if (result.skipped > 0) parts.add('${result.skipped} skipped');
         _say('${parts.join(', ')}.');
       });

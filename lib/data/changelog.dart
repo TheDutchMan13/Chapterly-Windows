@@ -13,6 +13,15 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.31.0',
+    date: '2026-11-05',
+    changes: [
+      'Import a CSV file: books already in your library can now take the '
+          'series name and number from the file. The import window asks '
+          'first and shows how many books will change',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.30.0',
     date: '2026-11-05',
     changes: [

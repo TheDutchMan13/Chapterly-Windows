@@ -1137,6 +1137,29 @@ class BookRepository extends ChangeNotifier {
     return incoming.where((book) => known.add(_duplicateKey(book))).length;
   }
 
+  /// Books already in the library that [incoming] gives a different series,
+  /// matched by title and author like [importBooks]: book id to the new
+  /// series name and number. A row with no series changes nothing.
+  Map<String, (String, int?)> seriesUpdates(List<Book> incoming) {
+    final byKey = <String, Book>{
+      for (final book in _books)
+        if (book.deletedAt == null) _duplicateKey(book): book,
+    };
+    final updates = <String, (String, int?)>{};
+    for (final row in incoming) {
+      final name = row.series?.trim() ?? '';
+      if (name.isEmpty) continue;
+      final book = byKey[_duplicateKey(row)];
+      if (book == null) continue;
+      if (book.series?.trim() == name &&
+          book.seriesNumber == row.seriesNumber) {
+        continue;
+      }
+      updates[book.id] = (name, row.seriesNumber);
+    }
+    return updates;
+  }
+
   Future<int> importBooks(List<Book> incoming) async {
     final known = {
       for (final book in _books)
