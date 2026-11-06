@@ -37,14 +37,14 @@ void main() {
     // The groups are folded until a search opens them.
     expect(find.text('Export backup'), findsNothing);
 
-    await tester.enterText(find.byType(TextField), 'goodreads');
+    await tester.enterText(find.byType(TextField).first, 'goodreads');
     await tester.pumpAndSettle();
     // Found by a word in a description, so the whole section shows.
     expect(find.text('Export as CSV'), findsOneWidget);
     expect(find.text('Export backup'), findsNothing);
     expect(find.text('No settings match "goodreads".'), findsNothing);
 
-    await tester.enterText(find.byType(TextField), 'export backup');
+    await tester.enterText(find.byType(TextField).first, 'export backup');
     await tester.pumpAndSettle();
     expect(find.text('Export backup'), findsOneWidget);
     expect(find.text('Export as CSV'), findsNothing);
@@ -53,11 +53,11 @@ void main() {
   testWidgets('words can be in any order and case, and nothing found says so',
       (tester) async {
     await open(tester);
-    await tester.enterText(find.byType(TextField), 'BACKUP export');
+    await tester.enterText(find.byType(TextField).first, 'BACKUP export');
     await tester.pumpAndSettle();
     expect(find.text('Export backup'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField), 'zzzzqx');
+    await tester.enterText(find.byType(TextField).first, 'zzzzqx');
     await tester.pumpAndSettle();
     expect(find.text('No settings match "zzzzqx".'), findsOneWidget);
     expect(find.text('Export backup'), findsNothing);
@@ -65,7 +65,7 @@ void main() {
 
   testWidgets('clearing the search brings everything back', (tester) async {
     await open(tester);
-    await tester.enterText(find.byType(TextField), 'zzzzqx');
+    await tester.enterText(find.byType(TextField).first, 'zzzzqx');
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Clear'));
     await tester.pumpAndSettle();
