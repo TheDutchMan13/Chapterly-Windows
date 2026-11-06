@@ -696,6 +696,16 @@ class BookRepository extends ChangeNotifier {
     );
   }
 
+  /// Sets the cover of each book: book id to the cover address.
+  Future<void> setCoversFor(Map<String, String> covers) {
+    if (covers.isEmpty) return Future.value();
+    return _updateMany(covers.keys.toSet(), (book) {
+      final url = covers[book.id]?.trim() ?? '';
+      if (url.isEmpty) return book;
+      return book.copyWith(coverUrl: () => url);
+    });
+  }
+
   /// Books (not in the trash) in the same series, ordered by number.
   List<Book> booksInSeries(String series) {
     final key = series.trim().toLowerCase();

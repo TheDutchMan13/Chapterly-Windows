@@ -9,6 +9,7 @@ import '../data/file_match.dart';
 import '../data/open_library_client.dart';
 import '../models/book.dart';
 import '../widgets/book_cover.dart';
+import 'cover_picker.dart';
 
 // The same file is in the Android app; keep the two copies alike.
 
@@ -197,6 +198,20 @@ class _BookEditorState extends State<BookEditor> {
     });
   }
 
+  Future<void> _findCover() async {
+    final url = await showDialog<String>(
+      context: context,
+      builder: (_) => CoverPicker(
+        client: widget.client,
+        title: _title.text,
+        author: _author.text,
+        isbn: _isbn.text,
+      ),
+    );
+    if (url == null || !mounted) return;
+    setState(() => _cover = CoverChange(url));
+  }
+
   Future<void> _choosePicture() async {
     final messenger = ScaffoldMessenger.maybeOf(context);
     final file = await openFile(
@@ -372,6 +387,11 @@ class _BookEditorState extends State<BookEditor> {
       runSpacing: 8,
       direction: widget.wide ? Axis.vertical : Axis.horizontal,
       children: [
+        OutlinedButton.icon(
+          icon: const Icon(Icons.image_search_outlined),
+          label: const Text('Find cover'),
+          onPressed: _saving ? null : _findCover,
+        ),
         OutlinedButton.icon(
           icon: const Icon(Icons.image_outlined),
           label: const Text('Choose picture'),

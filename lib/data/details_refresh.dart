@@ -20,24 +20,52 @@ enum RefreshOutcome {
   failed,
 }
 
+Set<String> _words(String text) => {
+      for (final word in text.toLowerCase().split(RegExp(r'[^\p{L}\p{N}]+',
+          unicode: true)))
+        if (word.length > 2) word,
+    };
+
+/// Whether [result] is clearly the book with this [title] and [author]: the
+/// same title (or the same main title) and, when both have one, an author
+/// sharing a name.
+bool isOpenLibraryMatch(String title, String author, OpenLibraryBook result) {
+  if (titleScore(title, result.title) < 85) return false;
+  final authorWords = _words(author);
+  if (authorWords.isNotEmpty && result.author.trim().isNotEmpty) {
+    if (_words(result.author).intersection(authorWords).isEmpty) return false;
+  }
+  return true;
+}
+
 /// The result that is clearly [book]: the same title (or the same main
 /// title) and, when both have one, an author sharing a name. Null when none
 /// is.
 OpenLibraryBook? bestOpenLibraryMatch(Book book, List<OpenLibraryBook> found) {
-  Set<String> words(String text) => {
-        for (final word in text.toLowerCase().split(RegExp(r'[^\p{L}\p{N}]+',
-            unicode: true)))
-          if (word.length > 2) word,
-      };
-  final authorWords = words(book.author);
   for (final result in found) {
-    if (titleScore(book.title, result.title) < 85) continue;
-    if (authorWords.isNotEmpty && result.author.trim().isNotEmpty) {
-      if (words(result.author).intersection(authorWords).isEmpty) continue;
-    }
-    return result;
+    if (isOpenLibraryMatch(book.title, book.author, result)) return result;
   }
   return null;
+}
+
+/// Looks the book up on Open Library (by ISBN first, then title and author)
+/// and returns the result that is clearly this book, or null. Throws when
+/// Open Library cannot be reached.
+Future<OpenLibraryBook?> lookupOpenLibraryMatch(
+  OpenLibraryClient client,
+  Book book,
+) async {
+  OpenLibraryBook? match;
+  final isbn = (book.isbn ?? '').replaceAll(RegExp(r'[^0-9Xx]'), '');
+  if (isbn.length >= 10) {
+    final byIsbn = await client.lookupIsbn(isbn);
+    if (byIsbn != null) match = bestOpenLibraryMatch(book, [byIsbn]) ?? byIsbn;
+  }
+  return match ??
+      bestOpenLibraryMatch(
+        book,
+        await client.search('${book.title} ${book.author}'.trim()),
+      );
 }
 
 /// Looks the book up on Open Library (by ISBN first, then title and author)
@@ -48,17 +76,9 @@ Future<RefreshOutcome> refreshBookDetails(
   OpenLibraryClient client,
   Book book,
 ) async {
-  OpenLibraryBook? match;
+  final OpenLibraryBook? match;
   try {
-    final isbn = (book.isbn ?? '').replaceAll(RegExp(r'[^0-9Xx]'), '');
-    if (isbn.length >= 10) {
-      final byIsbn = await client.lookupIsbn(isbn);
-      if (byIsbn != null) match = bestOpenLibraryMatch(book, [byIsbn]) ?? byIsbn;
-    }
-    match ??= bestOpenLibraryMatch(
-      book,
-      await client.search('${book.title} ${book.author}'.trim()),
-    );
+    match = await lookupOpenLibraryMatch(client, book);
   } catch (_) {
     return RefreshOutcome.failed;
   }

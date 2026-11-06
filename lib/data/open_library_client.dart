@@ -78,6 +78,15 @@ class OpenLibraryBook {
   }
 }
 
+/// One cover picture Open Library has for a book, with a few words saying
+/// which printing it is from.
+class CoverOption {
+  const CoverOption({required this.url, required this.label});
+
+  final String url;
+  final String label;
+}
+
 /// One edition (a specific printing) of a book.
 class OpenLibraryEdition {
   const OpenLibraryEdition({
@@ -237,6 +246,62 @@ class OpenLibraryClient {
         .whereType<Map<String, dynamic>>()
         .map(OpenLibraryEdition.fromJson)
         .toList();
+  }
+
+  /// Every cover Open Library has for the editions of a work, for choosing
+  /// the right one. [workKey] is the key from a search result.
+  Future<List<CoverOption>> editionCovers(String workKey) async {
+    final key = workKey.trim();
+    if (key.isEmpty) return [];
+    final path = key.startsWith('/works/') ? key : '/works/$key';
+    final data = await _getJson(
+      Uri.https('openlibrary.org', '$path/editions.json', {'limit': '50'}),
+    );
+    final entries = data is Map<String, dynamic> ? data['entries'] : null;
+    if (entries is! List) return [];
+    final options = <CoverOption>[];
+    for (final entry in entries.whereType<Map<String, dynamic>>()) {
+      final covers = entry['covers'];
+      if (covers is! List) continue;
+      final edition = OpenLibraryEdition.fromJson(entry);
+      final label = [?edition.publisher, ?edition.publishDate].join(' · ');
+      for (final id in covers) {
+        if (id is int && id > 0) {
+          options.add(CoverOption(
+            url: 'https://covers.openlibrary.org/b/id/$id-M.jpg',
+            label: label,
+          ));
+        }
+      }
+    }
+    return options;
+  }
+
+  /// Whether the picture at [url] exists: true if it does, false if Open
+  /// Library says it does not (a 404), and null when that could not be found
+  /// out (no connection, a timeout, a busy server).
+  Future<bool?> coverLoads(String url) async {
+    var uri = Uri.tryParse(url.trim());
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) return null;
+    // Without this, Open Library answers a missing cover with a 1 pixel
+    // picture instead of a 404.
+    if (uri.host == 'covers.openlibrary.org' &&
+        !uri.queryParameters.containsKey('default')) {
+      uri = uri.replace(
+        queryParameters: {...uri.queryParameters, 'default': 'false'},
+      );
+    }
+    try {
+      final response = await _client.head(uri, headers: {
+        'User-Agent':
+            'Chapterly/1.8 (https://github.com/TheDutchMan13/Chapterly-Android)',
+      }).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) return true;
+      if (response.statusCode == 404 || response.statusCode == 410) return false;
+    } catch (_) {
+      // Fall through: unknown.
+    }
+    return null;
   }
 
   /// The subjects Open Library lists for a book (such as "Space opera"),

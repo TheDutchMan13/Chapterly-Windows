@@ -13,6 +13,17 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.32.0',
+    date: '2026-11-05',
+    changes: [
+      'Book editor: Find cover shows the covers Open Library has for the '
+          'book, from every printing it lists, and you tap the one you want',
+      'Update covers: finds books with no cover, or whose Open Library cover '
+          'no longer exists, and fetches the cover Open Library has now. You '
+          'choose which to use. Covers that still show are never replaced',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.31.0',
     date: '2026-11-05',
     changes: [

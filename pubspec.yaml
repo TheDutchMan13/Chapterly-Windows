@@ -3,7 +3,7 @@ description: "Chapterly for Windows: a private book tracker that syncs with the 
 publish_to: 'none'
 
 # Keep in step with appVersion in lib/data/app_info.dart.
-version: 1.31.0+34
+version: 1.32.0+35
 
 environment:
   sdk: ^3.13.5
