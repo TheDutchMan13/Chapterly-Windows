@@ -107,7 +107,7 @@ List<ReadingChallenge> decodeChallenges(String? text) {
     if (data is! List) return [];
     return [
       for (final item in data)
-        if (ReadingChallenge.fromJson(item) case final challenge?) challenge,
+        ?ReadingChallenge.fromJson(item),
     ];
   } on FormatException {
     return [];

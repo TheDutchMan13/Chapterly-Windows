@@ -46,7 +46,7 @@ void main() {
     _read('b', finished: DateTime(2027, 3, 1), pages: 200, tags: ['Horror']),
     _read('c', finished: DateTime(2027, 5, 31, 23), pages: 300, author: 'Other'),
     _read('d', finished: DateTime(2027, 6, 1), pages: 400),
-    _read('e', finished: DateTime(2027, 4, 2), shelf: Shelf.reading),
+    _read('e', finished: DateTime(2027, 4, 2), shelf: Shelf.inProgress),
   ];
 
   group('challenges', () {
