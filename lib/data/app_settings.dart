@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/book_format.dart';
 import '../models/shelf.dart';
+import 'challenges.dart';
 import 'pin_lock.dart';
 import 'profiles.dart';
 import 'quote_of_day.dart';
@@ -134,6 +135,7 @@ class AppSettings extends ChangeNotifier {
   final Map<int, int> _goals = {};
   final Map<int, int> _pageGoals = {};
   final Map<int, Map<String, int>> _tagGoals = {};
+  final List<ReadingChallenge> _challenges = [];
   bool _autoBackup = false;
   int _autoBackupDays = 7;
   DateTime? _lastAutoBackupAt;
@@ -496,6 +498,7 @@ class AppSettings extends ChangeNotifier {
         ?Shelf.values.asNameMap()[name],
     ]);
     settings._tagGoals.addAll(_decodeTagGoals(prefs.getString('tagGoals')));
+    settings._challenges.addAll(decodeChallenges(prefs.getString('challenges')));
     settings._autoBackup = prefs.getBool('autoBackup') ?? false;
     settings._autoBackupDays = prefs.getInt('autoBackupDays') ?? 7;
     settings._lastAutoBackupAt = _fromMillis(prefs.getInt('lastAutoBackup'));
@@ -580,6 +583,34 @@ class AppSettings extends ChangeNotifier {
   }
 
   /// Goals for books with a tag in [year], for example {"sci-fi": 10}.
+  /// Your own reading challenges, between dates you choose.
+  List<ReadingChallenge> get challenges => List.unmodifiable(_challenges);
+
+  /// Adds [challenge], or replaces the one with the same id.
+  void saveChallenge(ReadingChallenge challenge) {
+    final index = _challenges.indexWhere((c) => c.id == challenge.id);
+    if (index < 0) {
+      _challenges.add(challenge);
+    } else {
+      _challenges[index] = challenge;
+    }
+    _saveChallenges();
+  }
+
+  void removeChallenge(String id) {
+    _challenges.removeWhere((c) => c.id == id);
+    _saveChallenges();
+  }
+
+  void _saveChallenges() {
+    if (_challenges.isEmpty) {
+      prefs?.remove('challenges');
+    } else {
+      prefs?.setString('challenges', encodeChallenges(_challenges));
+    }
+    notifyListeners();
+  }
+
   Map<String, int> tagGoalsFor(int year) =>
       Map.unmodifiable(_tagGoals[year] ?? const <String, int>{});
 

@@ -12,6 +12,7 @@ import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
 import 'book_insights.dart';
+import 'challenges_card.dart';
 import 'reader_stats_card.dart';
 import 'stats_widgets.dart';
 import 'year_review_screen.dart';
@@ -633,6 +634,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           // Each section is one block. A wide window shows them in two
           // columns; a narrow one shows them one under another.
           final sections = <Widget>[
+            _plainSection([
+              ChallengesCard(
+                settings: widget.settings,
+                books: widget.repository.books,
+                tags: widget.repository.allTags,
+              ),
+            ]),
             if (year != null)
               _plainSection([
                 _goalCard(year, stats),

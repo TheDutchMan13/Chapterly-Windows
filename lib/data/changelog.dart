@@ -13,6 +13,21 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.44.0',
+    date: '2026-11-07',
+    changes: [
+      'Reading challenges: set your own challenge between any two dates, '
+          'such as 12 books by March, 2,000 pages this summer, 5 books '
+          'tagged Horror in October or 10 different authors. Each one '
+          'shows a progress bar, days left and whether you are on pace. '
+          'Find them on Statistics',
+      'Check every series: with a Hardcover token, the Series screen can '
+          'ask Hardcover about all your series at once and list the books '
+          'you do not have. Ones after the last book you have are ticked, '
+          'ready to add to For later',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.43.0',
     date: '2026-11-07',
     changes: [

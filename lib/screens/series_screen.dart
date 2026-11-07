@@ -6,6 +6,7 @@ import '../data/series.dart';
 import '../data/series_detect.dart';
 import '../models/book.dart';
 import '../models/shelf.dart';
+import 'series_check_screen.dart';
 
 // Windows app only.
 
@@ -27,6 +28,23 @@ class SeriesScreen extends StatefulWidget {
 
 class _SeriesScreenState extends State<SeriesScreen> {
   bool _hideComplete = false;
+
+  /// Asks Hardcover about every series, newest gaps first.
+  void _checkAll() {
+    final all = seriesOverview(widget.repository.allBooks);
+    if (all.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('You have no series yet.'),
+      ));
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => SeriesCheckScreen(
+        repository: widget.repository,
+        series: all,
+      ),
+    ));
+  }
 
   Future<void> _addMissing(SeriesInfo series, int number) async {
     final title = '${series.name} #$number';
@@ -226,6 +244,12 @@ class _SeriesScreenState extends State<SeriesScreen> {
       appBar: AppBar(
         title: const Text('Series'),
         actions: [
+          if (hardcoverClient.hasToken)
+            TextButton.icon(
+              onPressed: _checkAll,
+              icon: const Icon(Icons.travel_explore),
+              label: const Text('Check every series'),
+            ),
           TextButton.icon(
             onPressed: _findInTitles,
             icon: const Icon(Icons.auto_awesome_outlined),
