@@ -1,7 +1,10 @@
 import '../models/book.dart';
+import 'cover_store.dart';
 
 /// Where books are saved. The app uses SQLite; tests use the in-memory one.
-abstract interface class BookStore {
+/// Cover pictures are kept apart from the books (see cover_store.dart): a
+/// book saved with a picture inside it is saved with a reference instead.
+abstract interface class BookStore implements CoverStore {
   Future<List<Book>> loadAll();
   Future<void> save(Book book);
   Future<void> saveAll(List<Book> books);
@@ -14,7 +17,7 @@ abstract interface class BookStore {
   Future<void> saveTombstones(Map<String, DateTime> tombstones);
 }
 
-class InMemoryBookStore implements BookStore {
+class InMemoryBookStore extends MemoryCoverStore implements BookStore {
   final Map<String, Book> _books = {};
   Map<String, DateTime> _tombstones = {};
 
@@ -31,20 +34,22 @@ class InMemoryBookStore implements BookStore {
 
   @override
   Future<void> save(Book book) async {
-    _books[book.id] = book;
+    final kept = await keepCoverApart(book, this);
+    _books[kept.id] = kept;
   }
 
   @override
   Future<void> saveAll(List<Book> books) async {
-    for (final book in books) {
+    for (final book in await keepCoversApart(books, this)) {
       _books[book.id] = book;
     }
   }
 
   @override
   Future<void> replaceAll(List<Book> books) async {
+    final kept = await keepCoversApart(books, this);
     _books.clear();
-    for (final book in books) {
+    for (final book in kept) {
       _books[book.id] = book;
     }
   }

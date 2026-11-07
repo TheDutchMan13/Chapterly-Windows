@@ -3,6 +3,7 @@
 import 'package:chapterly/models/book.dart';
 import 'package:chapterly/data/app_settings.dart';
 import 'package:chapterly/data/book_repository.dart';
+import 'package:chapterly/data/cover_store.dart';
 import 'package:chapterly/data/sync_covers.dart';
 import 'package:chapterly/data/sync_merge.dart';
 import 'package:chapterly/data/sync_protocol.dart';
@@ -25,21 +26,12 @@ class PhoneSyncCore implements SyncEndpoint {
   /// the sync is done.
   final CoverPool _received = CoverPool();
 
-  /// The covers of the books on this phone.
-  CoverPool _own() {
-    final pool = CoverPool();
-    for (final book in repository.snapshot().books) {
-      if (isDataCoverUrl(book.coverUrl)) pool.add(book.coverUrl!);
-    }
-    return pool;
-  }
-
   @override
   Future<List<String>> missing(List<String> hashes) async {
-    final own = _own();
+    final own = await repository.coverHashes();
     return [
       for (final hash in hashes)
-        if (!own.has(hash) && !_received.has(hash)) hash,
+        if (!own.contains(hash) && !_received.has(hash)) hash,
     ];
   }
 
@@ -52,7 +44,8 @@ class PhoneSyncCore implements SyncEndpoint {
   }
 
   @override
-  Future<String?> get(String hash) async => _own()[hash] ?? _received[hash];
+  Future<String?> get(String hash) async =>
+      await repository.readCover(hash) ?? _received[hash];
 
   @override
   Future<String> handleSync(String body) async {
@@ -62,10 +55,16 @@ class PhoneSyncCore implements SyncEndpoint {
       // The merge works on cover references. The pictures are this phone's
       // own and the ones the PC sent ahead; a message that still has them
       // inside a book (an old library on a server) is read the same way.
+      // The pictures on this phone are kept apart from the books already
+      // (see cover_store.dart): books hold references.
       final pool = CoverPool()..addAll(_received.pictures);
       final localBooks = withCoverRefs(local.books, pool);
       final remoteBooks = withCoverRefs(remote.books, pool);
-      final lacking = missingCovers(remoteBooks, pool);
+      final own = await repository.coverHashes();
+      final lacking = [
+        for (final hash in missingCovers(remoteBooks, pool))
+          if (!own.contains(hash)) hash,
+      ];
       if (lacking.isNotEmpty) throw MissingCovers(lacking);
       final merged = mergeLibraries(
         local: localBooks,
@@ -73,7 +72,12 @@ class PhoneSyncCore implements SyncEndpoint {
         remote: remoteBooks,
         remoteTombstones: remote.tombstones,
       );
-      final books = withCoverPictures(merged.books, pool);
+      // The pictures that came in are kept; the books keep references.
+      final kept = await keepPoolCovers(merged.books, pool, repository);
+      final books = withoutLostCovers(merged.books, {
+        ...kept,
+        ...coverHashesOf(repository.snapshot().books),
+      });
       final changed = _countChanges(local.books, books);
       await repository.applySynced(books, merged.tombstones);
       _received.clear();

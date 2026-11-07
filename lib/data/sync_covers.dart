@@ -19,17 +19,18 @@ final _hexHash = RegExp(r'^[0-9a-f]{32}$');
 /// Whether [url] is a cover picture kept inside a book.
 bool isDataCoverUrl(String? url) => url != null && url.startsWith('data:image/');
 
-/// The pictures a data: address holds are hashed once each: a sync hashes
-/// every cover in the library.
+/// The last few pictures hashed. Covers are kept apart from the books with
+/// their short name (see cover_store.dart), so only new ones are hashed;
+/// holding more would keep every picture in memory.
 final _hashes = <String, String>{};
-const _maxHashes = 20000;
+const _maxHashes = 32;
 
 /// A short name for a cover picture: the start of the SHA-256 of its data:
 /// address. The same picture always has the same name, on any device.
 String coverHash(String dataUrl) {
   final known = _hashes[dataUrl];
   if (known != null) return known;
-  if (_hashes.length >= _maxHashes) _hashes.clear();
+  if (_hashes.length >= _maxHashes) _hashes.remove(_hashes.keys.first);
   return _hashes[dataUrl] =
       sha256.convert(utf8.encode(dataUrl)).toString().substring(0, _hashLength);
 }

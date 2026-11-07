@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 
 import '../models/book.dart';
-import 'cover_image.dart';
+import 'cover_store.dart';
 
 // Windows app only.
 
@@ -166,7 +166,7 @@ class CoverPrints {
 /// Gets the picture behind a cover address: a data: cover from the book, or
 /// a download.
 Future<Uint8List?> coverBytes(String url, http.Client client) async {
-  if (isDataCover(url)) return bytesFromDataCover(url);
+  if (isOwnCover(url)) return ownCoverBytes(url);
   final uri = Uri.tryParse(url);
   if (uri == null || !(uri.scheme == 'http' || uri.scheme == 'https')) {
     return null;

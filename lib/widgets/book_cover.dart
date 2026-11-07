@@ -2,11 +2,14 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../data/cover_store.dart';
+import '../data/sync_covers.dart';
+
 /// Decoded data: covers, kept so a long list does not decode the same
 /// picture again on every frame. Reusing the same bytes also lets Flutter's
 /// image cache find the picture.
 final _dataCovers = <String, Uint8List>{};
-const _maxDataCovers = 300;
+const _maxDataCovers = 30;
 
 Uint8List? _dataCoverBytes(String url) {
   final cached = _dataCovers[url];
@@ -114,25 +117,43 @@ class BookCover extends StatelessWidget {
     Widget errorBuilder(BuildContext context, Object error, StackTrace? stack) =>
         placeholder;
     final url = coverUrl;
-    Widget picture = placeholder;
-    if (url != null && url.startsWith('data:')) {
-      final bytes = _dataCoverBytes(url);
-      if (bytes != null) {
-        picture = Image.memory(
+    // Pictures are decoded at the size they are shown, not at full size: a
+    // long list of covers then takes far less memory.
+    final ratio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 2;
+    final decodeWidth = (width * ratio).round().clamp(1, 2000);
+    Widget fromBytes(Uint8List bytes) => Image.memory(
           bytes,
           width: width,
           height: height,
           fit: BoxFit.cover,
           gaplessPlayback: true,
+          cacheWidth: decodeWidth,
           errorBuilder: errorBuilder,
         );
-      }
+    Widget picture = placeholder;
+    final hash = hashOfCoverRef(url);
+    if (hash != null) {
+      // A picture kept apart from the book: read when it is shown.
+      final known = CoverImages.cached(hash);
+      picture = known != null
+          ? fromBytes(known)
+          : FutureBuilder<Uint8List?>(
+              future: CoverImages.load(hash),
+              builder: (context, snapshot) {
+                final bytes = snapshot.data;
+                return bytes == null ? placeholder : fromBytes(bytes);
+              },
+            );
+    } else if (url != null && url.startsWith('data:')) {
+      final bytes = _dataCoverBytes(url);
+      if (bytes != null) picture = fromBytes(bytes);
     } else if (url != null) {
       picture = Image.network(
         url,
         width: width,
         height: height,
         fit: BoxFit.cover,
+        cacheWidth: decodeWidth,
         errorBuilder: errorBuilder,
       );
     }

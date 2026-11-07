@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
-import '../data/duplicates.dart';
 import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
@@ -70,8 +69,7 @@ class DuplicatesScreen extends StatelessWidget {
         listenable: Listenable.merge([repository, ?settings]),
         builder: (context, _) {
           final groups = repository.findDuplicates();
-          final possible = findPossibleDuplicates(
-            repository.books,
+          final possible = repository.possibleDuplicates(
             dismissed: settings?.notDuplicates ?? const {},
           );
           if (groups.isEmpty && possible.isEmpty) {

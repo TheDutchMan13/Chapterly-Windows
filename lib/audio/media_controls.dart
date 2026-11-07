@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_media_session/flutter_media_session.dart';
 
-import '../data/cover_image.dart';
+import '../data/cover_store.dart';
 import 'audio_library.dart';
 import 'listen_controller.dart';
 
@@ -156,8 +156,8 @@ class SystemMediaControls {
   /// Windows reads the picture from a file or a web address. A cover kept
   /// inside the book (a data: address) is written to a small file first.
   Future<File?> _coverFor(String bookId, String? coverUrl) async {
-    if (coverUrl == null || !isDataCover(coverUrl)) return null;
-    final bytes = bytesFromDataCover(coverUrl);
+    if (!isOwnCover(coverUrl)) return null;
+    final bytes = await ownCoverBytes(coverUrl);
     if (bytes == null) return null;
     try {
       final file = File(

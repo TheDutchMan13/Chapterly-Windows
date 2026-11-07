@@ -2,6 +2,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../models/book.dart';
 import 'book_store.dart';
+import 'cover_store.dart';
+import 'sync_covers.dart';
 
 /// Saves books in a SQLite database file on this PC.
 class SqliteBookStore implements BookStore {
@@ -48,6 +50,14 @@ class SqliteBookStore implements BookStore {
     )
   ''';
 
+  /// Cover pictures, kept apart from the books (see cover_store.dart).
+  static const _createCoversTable = '''
+    CREATE TABLE IF NOT EXISTS covers (
+      hash TEXT PRIMARY KEY,
+      data TEXT NOT NULL
+    )
+  ''';
+
   static const _createTombstonesTable = '''
     CREATE TABLE tombstones (
       id TEXT PRIMARY KEY,
@@ -63,10 +73,11 @@ class SqliteBookStore implements BookStore {
     final db = await databaseFactoryFfi.openDatabase(
       path,
       options: OpenDatabaseOptions(
-      version: 12,
+      version: 13,
       onCreate: (db, version) async {
         await db.execute(_createBooksTable);
         await db.execute(_createTombstonesTable);
+        await db.execute(_createCoversTable);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         // Version 2 added pages, rating and reading dates.
@@ -147,6 +158,11 @@ class SqliteBookStore implements BookStore {
         if (oldVersion < 12) {
           await db.execute('ALTER TABLE books ADD COLUMN origin TEXT');
         }
+        if (oldVersion < 13) {
+          // Cover pictures move out of the books into their own table, the
+          // first time the library is read (see loadAll).
+          await db.execute(_createCoversTable);
+        }
       },
       ),
     );
@@ -156,14 +172,15 @@ class SqliteBookStore implements BookStore {
   @override
   Future<List<Book>> loadAll() async {
     final rows = await _db.query('books', orderBy: 'added_at DESC');
-    return rows.map(Book.fromMap).toList();
+    return _moveCoversOut(rows.map(Book.fromMap).toList());
   }
 
   @override
   Future<void> save(Book book) async {
+    final kept = await keepCoverApart(book, this);
     await _db.insert(
       'books',
-      book.toMap(),
+      kept.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -171,7 +188,7 @@ class SqliteBookStore implements BookStore {
   @override
   Future<void> saveAll(List<Book> books) async {
     final batch = _db.batch();
-    for (final book in books) {
+    for (final book in await keepCoversApart(books, this)) {
       batch.insert(
         'books',
         book.toMap(),
@@ -183,10 +200,11 @@ class SqliteBookStore implements BookStore {
 
   @override
   Future<void> replaceAll(List<Book> books) async {
+    final kept = await keepCoversApart(books, this);
     await _db.transaction((txn) async {
       await txn.delete('books');
       final batch = txn.batch();
-      for (final book in books) {
+      for (final book in kept) {
         // A second copy of a book replaces the first instead of failing the
         // whole restore.
         batch.insert(
@@ -228,5 +246,81 @@ class SqliteBookStore implements BookStore {
       }
       await batch.commit(noResult: true);
     });
+  }
+
+  // ---- cover pictures, kept apart from the books
+
+  /// Moves the pictures still inside [books] (a library saved before 1.45.0)
+  /// into the covers table, and saves those books with a reference.
+  Future<List<Book>> _moveCoversOut(List<Book> books) async {
+    final old = [
+      for (final book in books)
+        if (isDataCoverUrl(book.coverUrl)) book,
+    ];
+    if (old.isEmpty) return books;
+    final moved = {
+      for (final book in await keepCoversApart(old, this)) book.id: book,
+    };
+    final batch = _db.batch();
+    for (final book in moved.values) {
+      batch.update(
+        'books',
+        {'cover_url': book.coverUrl},
+        where: 'id = ?',
+        whereArgs: [book.id],
+      );
+    }
+    await batch.commit(noResult: true);
+    return [for (final book in books) moved[book.id] ?? book];
+  }
+
+  /// The short names kept, read once and then kept up to date.
+  Set<String>? _hashes;
+
+  @override
+  Future<Set<String>> coverHashes() async {
+    final known = _hashes ??= {
+      for (final row in await _db.rawQuery('SELECT hash FROM covers'))
+        row['hash']! as String,
+    };
+    return {...known};
+  }
+
+  @override
+  Future<String?> readCover(String hash) async {
+    final rows = await _db.query(
+      'covers',
+      columns: ['data'],
+      where: 'hash = ?',
+      whereArgs: [hash],
+    );
+    return rows.isEmpty ? null : rows.first['data'] as String?;
+  }
+
+  @override
+  Future<void> writeCover(String hash, String dataUrl) async {
+    await _db.insert(
+      'covers',
+      {'hash': hash, 'data': dataUrl},
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+    _hashes?.add(hash);
+  }
+
+  @override
+  Future<void> removeCoversExcept(Set<String> keep) async {
+    final gone = [
+      for (final hash in await coverHashes())
+        if (!keep.contains(hash)) hash,
+    ];
+    for (var i = 0; i < gone.length; i += 200) {
+      final part = gone.skip(i).take(200).toList();
+      await _db.delete(
+        'covers',
+        where: 'hash IN (${List.filled(part.length, '?').join(', ')})',
+        whereArgs: part,
+      );
+    }
+    _hashes?.removeAll(gone);
   }
 }

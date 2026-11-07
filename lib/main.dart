@@ -51,6 +51,7 @@ import 'server/server_downloads.dart';
 import 'server/server_platform.dart';
 import 'server/server_state.dart';
 import 'server/server_sync.dart';
+import 'data/cover_store.dart';
 
 /// Lets code outside the screens (such as Ctrl+V for a cover) show messages.
 final _messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -83,6 +84,8 @@ Future<void> main() async {
     await SqliteBookStore.open(p.join(dataDir.path, 'chapterly.db')),
   );
   await repository.load();
+  // Cover pictures are read from this library when they are shown.
+  CoverImages.source = repository.readCover;
   final settings = await AppSettings.load(profiles.scope(profile.id));
   await settings.loadSecrets(SecureSecretStore(profile.id));
   // One pairing for every profile: the first profile's pairing code is the

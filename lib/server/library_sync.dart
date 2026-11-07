@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
+import '../data/cover_store.dart';
 import '../data/sync_covers.dart';
 import '../data/sync_merge.dart';
 import '../data/sync_protocol.dart';
@@ -140,7 +141,7 @@ class LibrarySync {
     // a library it holds never names a cover it does not have.
     final lacking = await client.missingCovers(coverHashesOf(merged.books));
     await forEachLimited(lacking, (hash) async {
-      final picture = pool[hash];
+      final picture = pool[hash] ?? await repository.readCover(hash);
       if (picture != null) await client.putCover(hash, picture);
     });
 
@@ -158,7 +159,12 @@ class LibrarySync {
     // fetched before the library is looked at again: from that snapshot
     // until the library is saved nothing waits, so a change made here
     // meanwhile can't be overwritten.
-    await forEachLimited(missingCovers(merged.books, pool), (hash) async {
+    final own = await repository.coverHashes();
+    final fetch = [
+      for (final hash in missingCovers(merged.books, pool))
+        if (!own.contains(hash)) hash,
+    ];
+    await forEachLimited(fetch, (hash) async {
       final picture = await client.getCover(hash);
       if (picture == null) return;
       try {
@@ -172,6 +178,9 @@ class LibrarySync {
     // next sync sends it. A book changed here meanwhile that the merge
     // changed too is merged field by field (the copy from before the sync
     // is what both started from), so neither change is lost.
+    // The pictures that came in are kept apart from the books (see
+    // cover_store.dart); the books keep references.
+    final kept = await keepPoolCovers(merged.books, pool, repository);
     final now = repository.snapshot();
     final nowBooks = withCoverRefs(now.books, pool);
     final before = {for (final book in start.books) book.id: book};
@@ -205,14 +214,10 @@ class LibrarySync {
     );
     // A picture still missing (a book whose picture was lost) is left
     // without a cover rather than holding up the sync.
-    final lost = missingCovers(applied.books, pool).toSet();
-    final books = withCoverPictures([
-      for (final book in applied.books)
-        if (lost.contains(hashOfCoverRef(book.coverUrl)))
-          book.copyWith(coverUrl: () => null)
-        else
-          book,
-    ], pool);
+    final books = withoutLostCovers(applied.books, {
+      ...kept,
+      ...coverHashesOf(nowBooks),
+    });
     final changed = countLibraryChanges(now.books, books);
     await repository.applySynced(books, applied.tombstones);
     settings.mergeWishesFrom(wishes);

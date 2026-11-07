@@ -7,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 import '../data/app_settings.dart';
 import '../data/book_repository.dart';
 import '../data/cover_hash.dart';
-import '../data/duplicates.dart';
 import '../data/library_health.dart';
 import '../data/profile_files.dart';
 import '../data/stalled.dart';
@@ -270,8 +269,7 @@ class _LibraryHealthScreenState extends State<LibraryHealthScreen> {
         builder: (context, _) {
           final issues = checkLibrary(widget.repository.books);
           final exact = widget.repository.findDuplicates().length;
-          final possible = findPossibleDuplicates(
-            widget.repository.books,
+          final possible = widget.repository.possibleDuplicates(
             dismissed: widget.settings.notDuplicates,
           ).length;
           return ListView(

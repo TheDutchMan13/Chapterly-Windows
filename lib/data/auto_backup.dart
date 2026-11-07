@@ -112,7 +112,10 @@ Future<void> runAutoBackup(
   _running = true;
   try {
     final path = await writeAutoBackup(
-      content: encodeBackup(repository.allBooks, now: time),
+      content: encodeBackup(
+        await repository.withPictures(repository.allBooks),
+        now: time,
+      ),
       folders: await autoBackupFolders(),
       now: time,
     );

@@ -11,6 +11,7 @@ import 'app_settings.dart';
 import 'book_repository.dart';
 import 'phone_finder.dart';
 import 'sync_three_way.dart';
+import 'cover_store.dart';
 import 'sync_covers.dart';
 import 'sync_crypto.dart';
 import 'sync_merge.dart';
@@ -729,6 +730,7 @@ class PcSync extends ChangeNotifier {
     List<String> covers,
     CoverPool pool,
     String? profile,
+    CoverStore store,
   ) async {
     Future<SyncPayload> post() async {
       final reply = await client.sync(session, body, profile: profile);
@@ -740,12 +742,19 @@ class PcSync extends ChangeNotifier {
       );
     }
 
-    await _giveCovers(session, covers, pool, profile);
+    await _giveCovers(session, covers, pool, profile, store);
     try {
       return await post();
     } on MissingCovers catch (lacking) {
       // The phone lost some pictures since it was asked: give them again.
-      await _giveCovers(session, lacking.hashes, pool, profile, ask: false);
+      await _giveCovers(
+        session,
+        lacking.hashes,
+        pool,
+        profile,
+        store,
+        ask: false,
+      );
       return await post();
     }
   }
@@ -754,7 +763,8 @@ class PcSync extends ChangeNotifier {
     SyncSession session,
     List<String> hashes,
     CoverPool pool,
-    String? profile, {
+    String? profile,
+    CoverStore store, {
     bool ask = true,
   }) async {
     if (hashes.isEmpty) return;
@@ -762,7 +772,7 @@ class PcSync extends ChangeNotifier {
         ? await client.missingCovers(session, hashes, profile: profile)
         : hashes;
     await forEachLimited(lacking, (hash) async {
-      final picture = pool[hash];
+      final picture = pool[hash] ?? await store.readCover(hash);
       if (picture == null) {
         throw const SyncFailure('A cover could not be read on this PC.');
       }
@@ -778,8 +788,14 @@ class PcSync extends ChangeNotifier {
     List<Book> books,
     CoverPool pool,
     String? profile,
+    CoverStore store,
   ) async {
-    await forEachLimited(missingCovers(books, pool), (hash) async {
+    final own = await store.coverHashes();
+    final fetch = [
+      for (final hash in missingCovers(books, pool))
+        if (!own.contains(hash)) hash,
+    ];
+    await forEachLimited(fetch, (hash) async {
       final picture = await client.getCover(session, hash, profile: profile);
       if (picture == null) return;
       try {
@@ -788,20 +804,6 @@ class PcSync extends ChangeNotifier {
         // A damaged picture: the book is left without a cover.
       }
     });
-  }
-
-  /// [books] with their pictures from [pool]. One it does not have is
-  /// left without a cover rather than holding up the sync. Does not wait
-  /// for anything, so nothing can change the library in between.
-  List<Book> _attachPictures(List<Book> books, CoverPool pool) {
-    final lost = missingCovers(books, pool).toSet();
-    return withCoverPictures([
-      for (final book in books)
-        if (lost.contains(hashOfCoverRef(book.coverUrl)))
-          book.copyWith(coverUrl: () => null)
-        else
-          book,
-    ], pool);
   }
 
   /// Whether the phone at [address] syncs every profile, and this PC does.
@@ -977,6 +979,7 @@ class PcSync extends ChangeNotifier {
         const [],
         pool,
         phoneProfile,
+        repository,
       );
     }
     // Taken after that, so a change made meanwhile is sent too.
@@ -1011,11 +1014,15 @@ class PcSync extends ChangeNotifier {
       coverHashesOf(sent.books),
       pool,
       phoneProfile,
+      repository,
     );
     // The pictures this PC does not have yet come from the phone. They
     // are fetched first: from the snapshot below until the library is
     // saved, nothing waits, so a change made meanwhile can't be lost.
-    await _fetchPictures(session, reply.books, pool, phoneProfile);
+    await _fetchPictures(session, reply.books, pool, phoneProfile, repository);
+    // The pictures that came in are kept apart from the books (see
+    // cover_store.dart); the books keep references.
+    final kept = await keepPoolCovers(reply.books, pool, repository);
     // Merge the reply with the library as it is now, so a change made on
     // this PC while the sync was running is not lost. The phone's copy wins
     // a tie, so both sides end up the same.
@@ -1032,7 +1039,10 @@ class PcSync extends ChangeNotifier {
     final refBooks = reply.features.contains('audioBookmarks')
         ? merged.books
         : keepPcBookmarks(merged.books, nowBooks);
-    final books = _attachPictures(refBooks, pool);
+    final books = withoutLostCovers(refBooks, {
+      ...kept,
+      ...coverHashesOf(nowBooks),
+    });
     final changed = countSyncChanges(now.books, books);
     await repository.applySynced(books, merged.tombstones);
     // The wish list: the newer copy of each wish wins, including a wish

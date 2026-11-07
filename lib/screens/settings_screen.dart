@@ -324,7 +324,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _exportBackup() => _run(() async {
         await widget.fileIo.shareText(
           fileName: 'chapterly-backup-${formatDate(DateTime.now())}.json',
-          content: encodeBackup(widget.repository.allBooks),
+          content: encodeBackup(
+            await widget.repository.withPictures(widget.repository.allBooks),
+          ),
           mimeType: 'application/json',
           subject: 'Chapterly backup',
         );
@@ -372,7 +374,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _exportCsv() => _run(() async {
         await widget.fileIo.shareText(
           fileName: 'chapterly-books-${formatDate(DateTime.now())}.csv',
-          content: encodeBooksCsv(widget.repository.books),
+          content: encodeBooksCsv(
+            await widget.repository.withPictures(widget.repository.books),
+          ),
           mimeType: 'text/csv',
           subject: 'Chapterly books',
         );

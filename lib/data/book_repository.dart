@@ -17,7 +17,9 @@ import 'backup.dart' show newestOfEachBook;
 import 'fuzzy.dart';
 import 'book_sorting.dart';
 import 'book_store.dart';
+import 'cover_store.dart';
 import 'duplicates.dart';
+import 'sync_covers.dart';
 
 /// Splits "sci-fi, Favorites,, sci-fi" into ["sci-fi", "Favorites"].
 /// Tags are trimmed, empty ones dropped, and duplicates (ignoring case) removed.
@@ -106,7 +108,7 @@ Book _withShelf(Book book, Shelf shelf) {
 
 /// Keeps the library in memory for the UI and saves every change to a [BookStore].
 /// Deleted books stay in the list with a `deletedAt` date until the trash is emptied.
-class BookRepository extends ChangeNotifier {
+class BookRepository extends ChangeNotifier implements CoverStore {
   BookRepository(this._store);
 
   final BookStore _store;
@@ -140,7 +142,53 @@ class BookRepository extends ChangeNotifier {
       ..addAll(await _store.loadTombstones());
     _isLoaded = true;
     notifyListeners();
+    // Pictures no book refers to any more (a cover replaced, a book removed
+    // for good) are removed.
+    try {
+      await _store.removeCoversExcept(coverHashesOf(_books).toSet());
+    } catch (_) {
+      // Tried again next time.
+    }
   }
+
+  // ---- cover pictures, kept apart from the books (see cover_store.dart)
+
+  /// Pictures given to the store that may not be written yet.
+  final _fresh = <String, String>{};
+
+  /// [book] with a picture inside it moved to the cover store, so the
+  /// library in memory holds only a short reference.
+  Book _keepApart(Book book) {
+    final url = book.coverUrl;
+    if (!isDataCoverUrl(url)) return book;
+    final hash = coverHash(url!);
+    _fresh[hash] = url;
+    _store.writeCover(hash, url).then(
+          (_) => _fresh.remove(hash),
+          onError: (Object _) {},
+        );
+    return book.copyWith(coverUrl: () => coverRef(hash));
+  }
+
+  @override
+  Future<String?> readCover(String hash) async =>
+      _fresh[hash] ?? await _store.readCover(hash);
+
+  @override
+  Future<void> writeCover(String hash, String dataUrl) =>
+      _store.writeCover(hash, dataUrl);
+
+  @override
+  Future<Set<String>> coverHashes() async =>
+      {...await _store.coverHashes(), ..._fresh.keys};
+
+  @override
+  Future<void> removeCoversExcept(Set<String> keep) =>
+      _store.removeCoversExcept(keep);
+
+  /// [books] with their pictures, for a backup or an export.
+  Future<List<Book>> withPictures(List<Book> books) =>
+      withStoredPictures(books, this);
 
   /// Books on [shelf] that are not in the trash. Every filter given must match:
   /// [tags] (all of them, or any when [matchAllTags] is false), [excludedTags]
@@ -225,6 +273,11 @@ class BookRepository extends ChangeNotifier {
   @override
   void notifyListeners() {
     _vocabulary = null;
+    _changes++;
+    // A picture that reached the library some other way is moved out too.
+    for (var i = 0; i < _books.length; i++) {
+      if (isDataCoverUrl(_books[i].coverUrl)) _books[i] = _keepApart(_books[i]);
+    }
     super.notifyListeners();
   }
 
@@ -305,6 +358,7 @@ class BookRepository extends ChangeNotifier {
       origin: () =>
           BookOrigin.of(book, name: originName, source: originSource),
     );
+    book = _keepApart(book);
     _books.insert(0, book);
     notifyListeners();
     await _store.save(book);
@@ -890,6 +944,29 @@ class BookRepository extends ChangeNotifier {
   /// Groups of books in the library that look like the same book.
   List<List<Book>> findDuplicates() => findDuplicateGroups(books);
 
+  /// [findPossibleDuplicates] for the books not in the trash, worked out
+  /// again only after the library or [dismissed] changed: comparing a big
+  /// library takes a while.
+  List<PossibleDuplicate> possibleDuplicates({
+    Set<String> dismissed = const {},
+  }) {
+    final known = _possible;
+    if (known != null &&
+        known.version == _changes &&
+        known.dismissed.length == dismissed.length &&
+        known.dismissed.containsAll(dismissed)) {
+      return known.found;
+    }
+    final found = findPossibleDuplicates(books, dismissed: dismissed);
+    _possible = (version: _changes, dismissed: {...dismissed}, found: found);
+    return found;
+  }
+
+  /// Counts changes to the library, for results kept until it changes.
+  int _changes = 0;
+  ({int version, Set<String> dismissed, List<PossibleDuplicate> found})?
+      _possible;
+
   /// Keeps the best book of [group] (with the others' details added) and
   /// moves the rest to the trash.
   Future<void> mergeDuplicates(List<Book> group) async {
@@ -1120,7 +1197,9 @@ class BookRepository extends ChangeNotifier {
     List<Book> books,
     Map<String, DateTime> tombstones,
   ) async {
-    final sorted = [...books]..sort((a, b) => b.addedAt.compareTo(a.addedAt));
+    // A sync gives references; pictures from an older device are moved out.
+    final sorted = [...await keepCoversApart(books, this)]
+      ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
     _books
       ..clear()
       ..addAll(sorted);
@@ -1183,7 +1262,10 @@ class BookRepository extends ChangeNotifier {
     // Imported now: a sync must not drop them as old, or as books removed
     // for good before.
     final stamp = DateTime.now();
-    final stamped = [for (final book in fresh) book.copyWith(updatedAt: stamp)];
+    final stamped = await keepCoversApart(
+      [for (final book in fresh) book.copyWith(updatedAt: stamp)],
+      this,
+    );
     final removed = stamped.where((b) => _tombstones.containsKey(b.id)).toList();
     for (final book in removed) {
       _tombstones.remove(book.id);
@@ -1213,8 +1295,9 @@ class BookRepository extends ChangeNotifier {
   /// The store is written first: if that fails, the library here is left
   /// as it was.
   Future<void> replaceAll(List<Book> books, {bool forgetRemoved = false}) async {
-    final sorted = [...newestOfEachBook(books)]
-      ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
+    final sorted = [
+      ...await keepCoversApart(newestOfEachBook(books), this),
+    ]..sort((a, b) => b.addedAt.compareTo(a.addedAt));
     await _store.replaceAll(sorted);
     _books
       ..clear()
@@ -1246,7 +1329,7 @@ class BookRepository extends ChangeNotifier {
         _nextCopy[old] ??= old;
         continue;
       }
-      final updated = next.copyWith(updatedAt: stamp);
+      final updated = _keepApart(next.copyWith(updatedAt: stamp));
       _nextCopy[old] ??= updated;
       _books[i] = updated;
       changed.add(updated);

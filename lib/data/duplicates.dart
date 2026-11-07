@@ -223,48 +223,76 @@ Set<String> _authorWords(String author) => {
         if (word.length >= 2) word,
     };
 
-bool _sameAuthor(Book a, Book b) {
-  final wordsA = _authorWords(a.author);
-  final wordsB = _authorWords(b.author);
+/// What a book is compared by, worked out once per book rather than once
+/// per pair: comparing a big library looks at many pairs.
+class _Look {
+  _Look(this.book)
+      : title = _foldTitle(book.title),
+        authorWords = _authorWords(book.author) {
+    digits = _digitsIn(title);
+    main = _foldTitle(_mainPart(book.title));
+    plain = title
+        .replaceAll(_editionWords, ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    squashed = plain.replaceAll(' ', '');
+  }
+
+  final Book book;
+  final String title;
+  final Set<String> authorWords;
+  late final Set<String> digits;
+  late final String main;
+  late final String plain;
+  late final String squashed;
+
+  bool get hasSubtitle => main != title;
+}
+
+bool _sameAuthor(_Look a, _Look b) {
+  final wordsA = a.authorWords;
+  final wordsB = b.authorWords;
   if (wordsA.isEmpty || wordsB.isEmpty) return true;
   if (wordsA.intersection(wordsB).isNotEmpty) return true;
   // A typo in the surname.
   return wordsA.any((x) => x.length >= 5 && wordsB.any((y) => isNearWord(x, y)));
 }
 
-/// Why [a] and [b] may be the same book, or null when they do not look
+/// Why [x] and [y] may be the same book, or null when they do not look
 /// alike. Different series numbers, or different numbers in the titles
 /// ("Book 1" and "Book 2"), are never the same.
-String? _whyAlike(Book a, Book b) {
+String? _whyAlike(_Look x, _Look y) {
+  final a = x.book;
+  final b = y.book;
   if (a.seriesNumber != null &&
       b.seriesNumber != null &&
       a.seriesNumber != b.seriesNumber) {
     return null;
   }
-  final titleA = _foldTitle(a.title);
-  final titleB = _foldTitle(b.title);
-  if (titleA.isEmpty || titleB.isEmpty) return null;
-  if (_digitsIn(titleA).length + _digitsIn(titleB).length > 0 &&
-      !_sameSet(_digitsIn(titleA), _digitsIn(titleB))) {
+  if (x.title.isEmpty || y.title.isEmpty) return null;
+  if (x.digits.length + y.digits.length > 0 && !_sameSet(x.digits, y.digits)) {
     return null;
   }
-  if (!_sameAuthor(a, b)) return null;
-  final mainA = _foldTitle(_mainPart(a.title));
-  final mainB = _foldTitle(_mainPart(b.title));
-  final hasSubA = mainA != titleA;
-  final hasSubB = mainB != titleB;
-  if (hasSubA != hasSubB && mainA == mainB && mainA.length >= 3) {
+  if (!_sameAuthor(x, y)) return null;
+  if (x.hasSubtitle != y.hasSubtitle && x.main == y.main && x.main.length >= 3) {
     return 'Same title, one with a subtitle';
   }
-  final plainA = titleA.replaceAll(_editionWords, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-  final plainB = titleB.replaceAll(_editionWords, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-  if (plainA.isNotEmpty && plainA == plainB) {
+  if (x.plain.isNotEmpty && x.plain == y.plain) {
     return 'Same title apart from the edition';
   }
-  final squashedA = plainA.replaceAll(' ', '');
-  final squashedB = plainB.replaceAll(' ', '');
-  if (squashedA.length >= 5 && similarity(squashedA, squashedB) >= 0.85) {
-    return 'Almost the same title';
+  final squashedA = x.squashed;
+  final squashedB = y.squashed;
+  if (squashedA.length >= 5) {
+    // At least 85% alike: at most this many letters differ. Titles whose
+    // lengths differ by more can't be, and the count stops once it is over.
+    final longest = squashedA.length > squashedB.length
+        ? squashedA.length
+        : squashedB.length;
+    final most = (longest * 0.15).floor();
+    if ((squashedA.length - squashedB.length).abs() <= most &&
+        editDistance(squashedA, squashedB, max: most) <= most) {
+      return 'Almost the same title';
+    }
   }
   return null;
 }
@@ -292,13 +320,13 @@ List<PossibleDuplicate> findPossibleDuplicates(
           PossibleDuplicate.pairKey(group[i].id, group[j].id),
   };
   // Blocks: by surname, or by the start of the title for books without one.
-  final blocks = <String, List<Book>>{};
+  final blocks = <String, List<_Look>>{};
   for (final book in live) {
     final words = foldedWords(book.author);
     final block = words.isNotEmpty
         ? 'a:${words.last}'
         : 't:${_foldTitle(book.title).padRight(3).substring(0, 3)}';
-    blocks.putIfAbsent(block, () => []).add(book);
+    blocks.putIfAbsent(block, () => []).add(_Look(book));
   }
   final found = <PossibleDuplicate>[];
   final seen = <String>{};
@@ -307,12 +335,14 @@ List<PossibleDuplicate> findPossibleDuplicates(
       for (var j = i + 1; j < block.length; j++) {
         final a = block[i];
         final b = block[j];
-        final key = PossibleDuplicate.pairKey(a.id, b.id);
+        final key = PossibleDuplicate.pairKey(a.book.id, b.book.id);
         if (exact.contains(key) || dismissed.contains(key) || !seen.add(key)) {
           continue;
         }
         final reason = _whyAlike(a, b);
-        if (reason != null) found.add(PossibleDuplicate(a, b, reason));
+        if (reason != null) {
+          found.add(PossibleDuplicate(a.book, b.book, reason));
+        }
       }
     }
   }
