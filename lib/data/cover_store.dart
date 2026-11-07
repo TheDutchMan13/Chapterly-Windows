@@ -1,7 +1,5 @@
 // The same file is in both apps (lib/data/cover_store.dart).
 
-import 'dart:collection';
-import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -152,7 +150,7 @@ class CoverImages {
   static Future<String?> Function(String hash)? source;
 
   static const _max = 200;
-  static final _bytes = LinkedHashMap<String, Uint8List>();
+  static final _bytes = <String, Uint8List>{};
   static final _loading = <String, Future<Uint8List?>>{};
 
   /// The picture's bytes if they were read lately.
