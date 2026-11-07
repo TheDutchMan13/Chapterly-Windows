@@ -59,10 +59,13 @@ const _mainProfileFiles = [
 /// Removes a profile's books, files, pairing code, book server token and keys
 /// from this PC. Its automatic backups in Documents\Chapterly are kept.
 Future<void> removeProfileFiles(String id) async {
-  try {
-    await SecureCodeStore(storageKey: SecureCodeStore.keyFor(id)).delete();
-  } catch (_) {
-    // No code saved.
+  // The first profile's code is the pairing for every profile: it stays.
+  if (id != mainProfileId) {
+    try {
+      await SecureCodeStore(storageKey: SecureCodeStore.keyFor(id)).delete();
+    } catch (_) {
+      // No code saved.
+    }
   }
   try {
     await SecureTokenStore(storageKey: SecureTokenStore.keyFor(id)).delete();

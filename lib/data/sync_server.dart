@@ -1,21 +1,42 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data' show BytesBuilder;
+import 'dart:typed_data' show BytesBuilder, Uint8List;
 import 'dart:io';
 import 'dart:math';
 
 import 'sync_covers.dart';
 import 'sync_crypto.dart';
+import 'sync_profiles.dart';
 import 'sync_protocol.dart';
 
 /// The largest sync message the phone will read. Thousands of books fit
 /// easily: covers are not in it, they have their own requests.
 const _maxBodyBytes = 50 * 1024 * 1024;
 
+/// The largest list of profiles to add.
+const _maxProfilesBytes = 64 * 1024;
+
 /// The largest cover picture, and the largest list of cover names.
 const _maxCoverBytes = 2 * 1024 * 1024;
 const _maxHashListBytes = 2 * 1024 * 1024;
 const _maxHashes = 50000;
+
+/// How long a challenge from `/v2/hello` can be used, and how many are kept.
+const challengeLifetime = Duration(minutes: 5);
+const _maxChallenges = 32;
+
+/// How long a used nonce is remembered, so the same request can't be sent
+/// twice, and how many are kept.
+const _nonceMemory = Duration(minutes: 10);
+const _maxNonces = 10000;
+
+/// After this many messages that don't open within a minute, the phone
+/// stops answering sealed requests for a minute.
+const _maxFailures = 20;
+const _failureWindow = Duration(minutes: 1);
+
+/// The version of the sealed sync (see SYNC_V2.md), told in the ping.
+const syncSealVersion = 2;
 
 /// The cover pictures this device keeps for a sync, which a PC reads and
 /// adds to over `/v2/covers`.
@@ -28,6 +49,29 @@ abstract interface class SyncCovers {
 
   /// The picture named [hash], or null.
   Future<String?> get(String hash);
+}
+
+/// One profile's sync on the phone: its library and its covers.
+abstract interface class SyncEndpoint implements SyncCovers {
+  /// Merges the PC's library ([body]) and returns the merged one.
+  Future<String> handleSync(String body);
+}
+
+/// A profile that has a PIN and isn't open on the phone.
+class ProfileLocked implements Exception {
+  const ProfileLocked();
+}
+
+/// Every profile on the phone, for a PC that syncs them all with one
+/// pairing.
+abstract interface class SyncProfileHost {
+  /// Adds the profiles the PC asks for ([body], see encodeProfileRequest)
+  /// and returns the list of profiles (see encodeProfileList).
+  Future<String> profiles(String body);
+
+  /// The sync of profile [id], or null when there is no such profile.
+  /// Throws [ProfileLocked] for a profile that has a PIN and isn't open.
+  Future<SyncEndpoint?> endpoint(String id);
 }
 
 const _codeChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -55,26 +99,54 @@ Future<List<String>> localAddresses() async {
   ];
 }
 
-/// A small HTTP server on the home network, speaking sync version 2 (the phone
-/// app follows the same rules). The PC uses:
+/// The answer to a sealed request, before it is sealed.
+class _Reply {
+  const _Reply(this.status, this.body);
+
+  final int status;
+  final String body;
+}
+
+/// A request that was refused before it could be opened, answered in plain
+/// JSON.
+class _Refused implements Exception {
+  const _Refused(this.status, this.error);
+
+  final int status;
+  final String error;
+}
+
+/// A small HTTP server on the home network. The pairing code never goes
+/// over the network: requests and answers are sealed with a key made from
+/// it (see sync_crypto.dart and SYNC_V2.md). The PC uses these requests:
 ///
 /// - `GET /v1/ping` (no code needed) says whether this is a Chapterly phone.
-/// - `GET /v2/hello` (no code needed) gives a challenge.
-/// - `POST /v2/sync`, `POST /v2/covers/missing`, `PUT /v2/covers/<name>` and
-///   `GET /v2/covers/<name>`: sealed with a key made from the pairing code
-///   and the challenge (see sync_crypto.dart). The answers are sealed too.
-///   Books carry cover references (see sync_covers.dart), never the pictures.
+/// - `GET /v2/hello` (no code needed) gives a challenge, which every sealed
+///   request of one sync names in `X-Chapterly-Challenge`.
+/// - `POST /v2/sync` with the PC's library, sealed. The reply is the merged
+///   library, sealed. Books carry cover references (see sync_covers.dart),
+///   never the pictures.
+/// - `POST /v2/covers/missing`, `PUT /v2/covers/<name>` and
+///   `GET /v2/covers/<name>` (sealed) move the cover pictures.
+/// - With [profiles]: `POST /v2/profiles` (sealed) lists the profiles and
+///   adds the ones the PC asks for, and `/v2/p/<id>/sync` and
+///   `/v2/p/<id>/covers/...` are the same requests for one profile. A profile
+///   with a PIN answers only while it is open (423 "locked").
 class SyncServer {
   SyncServer({
     required this.token,
     required this.handleSync,
     this.covers,
-    DateTime Function()? now,
-  }) : _now = now ?? DateTime.now;
+    this.profiles,
+    DateTime Function()? clock,
+  }) : _now = clock ?? DateTime.now;
 
+  /// The normalized pairing code.
   final String token;
+
   final Future<String> Function(String body) handleSync;
   final SyncCovers? covers;
+  final SyncProfileHost? profiles;
   final DateTime Function() _now;
   HttpServer? _server;
   SyncKey? _key;
@@ -82,10 +154,10 @@ class SyncServer {
   /// Challenges given out, oldest first, with when they were given.
   final _challenges = <String, DateTime>{};
 
-  /// Nonces of the requests already taken, with when they came.
+  /// Nonces of requests already answered, oldest first.
   final _nonces = <String, DateTime>{};
 
-  /// When requests failed to open, for the last minute.
+  /// When recent messages failed to open.
   final _failures = <DateTime>[];
   DateTime? _blockedUntil;
 
@@ -96,59 +168,18 @@ class SyncServer {
 
   Future<void> start({int port = defaultSyncPort}) async {
     if (_server != null) return;
-    _key = await SyncKey.fromCode(token);
+    _key ??= await SyncKey.fromCode(token);
     final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
     _server = server;
     server.listen((request) => unawaited(_serve(request)));
   }
 
-  Future<void> stop() async {
+  /// Stops listening. With [force] false, a sync already running is
+  /// finished first.
+  Future<void> stop({bool force = true}) async {
     final server = _server;
     _server = null;
-    await server?.close(force: true);
-  }
-
-  String _challenge() {
-    final now = _now();
-    _challenges.removeWhere(
-      (_, at) => now.difference(at) > const Duration(minutes: 5),
-    );
-    while (_challenges.length >= 32) {
-      _challenges.remove(_challenges.keys.first);
-    }
-    final challenge = newChallenge();
-    _challenges[challenge] = now;
-    return challenge;
-  }
-
-  bool _knownChallenge(String challenge) {
-    final at = _challenges[challenge];
-    return at != null && _now().difference(at) <= const Duration(minutes: 5);
-  }
-
-  /// Remembers [nonce]; false when it was already used.
-  bool _freshNonce(String nonce) {
-    final now = _now();
-    _nonces.removeWhere(
-      (_, at) => now.difference(at) > const Duration(minutes: 10),
-    );
-    if (_nonces.containsKey(nonce)) return false;
-    while (_nonces.length >= 2000) {
-      _nonces.remove(_nonces.keys.first);
-    }
-    _nonces[nonce] = now;
-    return true;
-  }
-
-  void _failedOpen() {
-    final now = _now();
-    _failures
-      ..removeWhere((at) => now.difference(at) > const Duration(minutes: 1))
-      ..add(now);
-    if (_failures.length >= 20) {
-      _blockedUntil = now.add(const Duration(minutes: 1));
-      _failures.clear();
-    }
+    await server?.close(force: force);
   }
 
   Future<void> _serve(HttpRequest request) async {
@@ -159,42 +190,88 @@ class SyncServer {
         _json(response, 200, {
           'app': 'chapterly',
           'protocol': syncProtocolVersion,
-          'sync': 2,
+          'sync': syncSealVersion,
+          if (profiles != null) 'profiles': syncProfilesVersion,
         });
       } else if (request.method == 'GET' && path == '/v2/hello') {
-        _json(response, 200, {'challenge': _challenge()});
+        _json(response, 200, {'challenge': _newChallenge()});
       } else if (path == '/v1/sync' || path.startsWith('/v1/covers')) {
-        await request.drain<void>();
+        await _drain(request);
         _json(response, 426, {
           'error': 'Update Chapterly on your PC to sync with this phone.',
         });
-      } else if (_isSealedRoute(request.method, path)) {
+      } else if (path == '/v2/sync' ||
+          (path.startsWith('/v2/covers/') && covers != null) ||
+          (profiles != null &&
+              (path == '/v2/profiles' || splitProfilePath(path) != null))) {
         await _serveSealed(request);
       } else {
-        await request.drain<void>();
+        await _drain(request);
         _json(response, 404, {'error': 'Not found.'});
       }
+    } on _Refused catch (refused) {
+      _json(response, refused.status, {'error': refused.error});
     } catch (_) {
-      // The PC went away.
+      _json(response, 500, {'error': 'Sync failed on the phone.'});
     } finally {
-      try {
-        await response.close();
-      } catch (_) {
-        // Already gone.
-      }
+      await response.close();
     }
   }
 
-  bool _isSealedRoute(String method, String path) {
-    if (method == 'POST' && path == '/v2/sync') return true;
-    if (covers == null) return false;
-    if (method == 'POST' && path == '/v2/covers/missing') return true;
-    return (method == 'GET' || method == 'PUT') &&
-        path.startsWith('/v2/covers/') &&
-        path != '/v2/covers/missing';
+  String _newChallenge() {
+    final now = _now();
+    _challenges.removeWhere(
+      (_, given) => now.difference(given) > challengeLifetime,
+    );
+    while (_challenges.length >= _maxChallenges) {
+      _challenges.remove(_challenges.keys.first);
+    }
+    final challenge = newChallenge();
+    _challenges[challenge] = now;
+    return challenge;
   }
 
+  bool _knownChallenge(String challenge) {
+    final given = _challenges[challenge];
+    if (given == null) return false;
+    if (_now().difference(given) > challengeLifetime) {
+      _challenges.remove(challenge);
+      return false;
+    }
+    return true;
+  }
+
+  /// Remembers [nonce]; false if it was already used.
+  bool _freshNonce(String nonce) {
+    final now = _now();
+    while (_nonces.isNotEmpty &&
+        now.difference(_nonces.values.first) > _nonceMemory) {
+      _nonces.remove(_nonces.keys.first);
+    }
+    if (_nonces.containsKey(nonce)) return false;
+    while (_nonces.length >= _maxNonces) {
+      _nonces.remove(_nonces.keys.first);
+    }
+    _nonces[nonce] = now;
+    return true;
+  }
+
+  void _failed() {
+    final now = _now();
+    _failures
+      ..add(now)
+      ..removeWhere((at) => now.difference(at) > _failureWindow);
+    if (_failures.length >= _maxFailures) {
+      _blockedUntil = now.add(_failureWindow);
+      _failures.clear();
+    }
+  }
+
+  /// The most plain content a sealed request to [path] may carry.
   int _limitFor(String method, String path) {
+    if (path == '/v2/profiles') return _maxProfilesBytes;
+    final split = splitProfilePath(path);
+    if (split != null) return _limitFor(method, split.path);
     if (path == '/v2/sync') return _maxBodyBytes;
     if (path == '/v2/covers/missing') return _maxHashListBytes;
     if (method == 'PUT') return _maxCoverBytes;
@@ -203,72 +280,113 @@ class SyncServer {
 
   Future<void> _serveSealed(HttpRequest request) async {
     final response = request.response;
-    final method = request.method;
+    final method = request.method.toUpperCase();
     final path = request.uri.path;
     final blocked = _blockedUntil;
     if (blocked != null && _now().isBefore(blocked)) {
-      await request.drain<void>();
-      _json(response, 429, {'error': 'Too many tries. Wait a minute.'});
-      return;
+      await _drain(request);
+      throw const _Refused(429, 'Too many wrong tries. Wait a minute.');
     }
-    final header = request.headers.value('x-chapterly-challenge');
-    if (header == null || !_knownChallenge(header)) {
-      await request.drain<void>();
-      _json(response, 401, {'error': 'challenge'});
-      return;
+    final sealed = await _readBytes(
+      request,
+      _limitFor(method, path) + SyncKey.overhead,
+    );
+    final given = request.headers.value('x-chapterly-challenge');
+    if (given == null || !_knownChallenge(given)) {
+      throw const _Refused(401, 'challenge');
     }
-    final limit = _limitFor(method, path) + SyncKey.overhead;
-    final sealed = await _readBytes(request, limit);
-    if (sealed == null) {
-      _json(response, 413, {'error': 'The sync message is too large.'});
-      return;
-    }
-    final challenge = header;
+    final challenge = given;
     final key = _key!;
-    final List<int> plain;
+    final Uint8List plain;
     try {
-      plain = await key.open(sealed, requestContext(method, path, challenge));
+      plain = await key.open(
+        sealed,
+        requestContext(method, path, challenge),
+      );
     } on SyncAuthException {
-      _failedOpen();
-      _json(response, 401, {'error': 'code'});
-      return;
+      _failed();
+      throw const _Refused(401, 'code');
     }
     if (!_freshNonce(SyncKey.nonceOf(sealed))) {
-      _json(response, 401, {'error': 'replay'});
-      return;
+      throw const _Refused(401, 'replay');
     }
-    var status = 200;
-    String reply;
-    try {
-      (status, reply) = await _answer(method, path, utf8.decode(plain));
-    } on MissingCovers catch (error) {
-      status = 409;
-      reply = jsonEncode({
-        'error': 'Some covers are missing.',
-        'missing': error.hashes,
-      });
-    } on FormatException catch (error) {
-      status = 400;
-      reply = jsonEncode({'error': error.message});
-    } catch (_) {
-      status = 500;
-      reply = jsonEncode({'error': 'Sync failed on the phone.'});
-    }
-    response.statusCode = status;
-    response.headers.contentType = ContentType.binary;
-    response.add(
-      await key.seal(
-        utf8.encode(reply),
-        responseContext(method, path, challenge),
-      ),
+    final reply = await _answer(method, path, plain);
+    final body = await key.seal(
+      utf8.encode(reply.body),
+      responseContext(method, path, challenge),
     );
+    response.statusCode = reply.status;
+    response.headers.contentType = ContentType.binary;
+    response.contentLength = body.length;
+    response.add(body);
   }
 
-  /// The status and the plain answer to a request that opened.
-  Future<(int, String)> _answer(String method, String path, String body) async {
-    if (path == '/v2/sync') return (200, await handleSync(body));
-    final covers = this.covers!;
-    if (path == '/v2/covers/missing') {
+  /// The answer to an opened request, as JSON or the cover picture.
+  Future<_Reply> _answer(String method, String path, List<int> plain) async {
+    try {
+      final body = utf8.decode(plain);
+      final profiles = this.profiles;
+      if (profiles != null && path == '/v2/profiles') {
+        if (method != 'POST') return _error(404, 'Not found.');
+        return _Reply(200, await profiles.profiles(body));
+      }
+      final split = profiles == null ? null : splitProfilePath(path);
+      if (split != null) {
+        final SyncEndpoint? endpoint;
+        try {
+          endpoint = await profiles!.endpoint(split.id);
+        } on ProfileLocked {
+          return _error(423, 'locked');
+        }
+        if (endpoint == null) return _error(404, 'No such profile.');
+        return await _answerFor(
+          endpoint.handleSync,
+          endpoint,
+          method,
+          split.path,
+          body,
+        );
+      }
+      return await _answerFor(handleSync, covers, method, path, body);
+    } on MissingCovers catch (error) {
+      return _Reply(
+        409,
+        jsonEncode({
+          'error': 'Some covers are missing.',
+          'missing': error.hashes,
+        }),
+      );
+    } on FormatException catch (error) {
+      return _error(400, error.message);
+    } catch (_) {
+      return _error(500, 'Sync failed on the phone.');
+    }
+  }
+
+  Future<_Reply> _answerFor(
+    Future<String> Function(String body) handleSync,
+    SyncCovers? covers,
+    String method,
+    String path,
+    String body,
+  ) async {
+    if (path == '/v2/sync') {
+      if (method != 'POST') return _error(404, 'Not found.');
+      return _Reply(200, await handleSync(body));
+    }
+    if (covers == null || !path.startsWith('/v2/covers/')) {
+      return _error(404, 'Not found.');
+    }
+    return _answerCovers(covers, method, path, body);
+  }
+
+  Future<_Reply> _answerCovers(
+    SyncCovers covers,
+    String method,
+    String path,
+    String body,
+  ) async {
+    if (method == 'POST' && path == '/v2/covers/missing') {
       final data = jsonDecode(body);
       final list = data is Map ? data['hashes'] : null;
       if (list is! List || list.length > _maxHashes) {
@@ -278,36 +396,52 @@ class SyncServer {
         for (final item in list)
           if (item is String && isCoverHash(item)) item,
       ];
-      return (200, jsonEncode({'missing': await covers.missing(hashes)}));
+      return _Reply(200, jsonEncode({'missing': await covers.missing(hashes)}));
     }
     final hash = path.substring('/v2/covers/'.length);
-    if (!isCoverHash(hash)) return (404, jsonEncode({'error': 'Not found.'}));
+    if (!isCoverHash(hash)) return _error(404, 'Not found.');
     if (method == 'GET') {
       final picture = await covers.get(hash);
-      if (picture == null) {
-        return (404, jsonEncode({'error': 'No such cover.'}));
-      }
-      return (200, picture);
+      if (picture == null) return _error(404, 'No such cover.');
+      return _Reply(200, picture);
     }
-    await covers.put(hash, body);
-    // A sealed empty answer, like the phone: a 204 could not carry it.
-    return (200, '');
+    if (method == 'PUT') {
+      await covers.put(hash, body);
+      // 200 with a sealed empty answer rather than 204, which can't carry
+      // the sealed answer that proves the phone has the code.
+      return const _Reply(200, '');
+    }
+    return _error(404, 'Not found.');
   }
 
-  /// The request's body, or null when it is larger than [limit] bytes.
-  Future<List<int>?> _readBytes(HttpRequest request, int limit) async {
-    if (request.contentLength > limit) {
-      await request.drain<void>();
-      return null;
-    }
+  _Reply _error(int status, String message) =>
+      _Reply(status, jsonEncode({'error': message}));
+
+  /// The request's body, refused with 413 once it has more than [limit]
+  /// bytes.
+  Future<Uint8List> _readBytes(HttpRequest request, int limit) async {
+    const tooLarge = _Refused(413, 'The sync message is too large.');
+    if (request.contentLength > limit) throw tooLarge;
     final builder = BytesBuilder(copy: false);
-    var tooLarge = false;
     await for (final chunk in request) {
-      if (tooLarge) continue;
       builder.add(chunk);
-      if (builder.length > limit) tooLarge = true;
+      if (builder.length > limit) throw tooLarge;
     }
-    return tooLarge ? null : builder.takeBytes();
+    return builder.takeBytes();
+  }
+
+  /// Reads and drops a body that won't be used, so the PC can finish
+  /// sending it and hear the answer.
+  Future<void> _drain(HttpRequest request) async {
+    try {
+      var read = 0;
+      await for (final chunk in request) {
+        read += chunk.length;
+        if (read > _maxBodyBytes) break;
+      }
+    } catch (_) {
+      // The answer is sent anyway.
+    }
   }
 
   void _json(HttpResponse response, int status, Map<String, Object?> data) {

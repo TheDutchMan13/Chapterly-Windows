@@ -56,6 +56,9 @@ class SqliteBookStore implements BookStore {
   ''';
 
   /// Opens (or creates) the database file at [path].
+  /// Closes the database. Used for a profile opened only for a sync.
+  Future<void> close() => _db.close();
+
   static Future<SqliteBookStore> open(String path) async {
     final db = await databaseFactoryFfi.openDatabase(
       path,

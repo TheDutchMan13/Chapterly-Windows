@@ -15,6 +15,7 @@ import 'sync_covers.dart';
 import 'sync_crypto.dart';
 import 'sync_merge.dart';
 import 'sync_plan.dart';
+import 'sync_profiles.dart';
 import 'sync_protocol.dart';
 
 /// A sync problem, with a message for the user.
@@ -30,6 +31,12 @@ class SyncFailure implements Exception {
 const unreachableMessage = "Can't reach your phone. Check that Chapterly is "
     'open on the phone, that "Allow sync from my PC" is on, and that both '
     'are on the same Wi-Fi.';
+
+/// A profile that has a PIN on the phone and isn't open there.
+class PhoneProfileLocked extends SyncFailure {
+  const PhoneProfileLocked()
+      : super('It has a PIN on your phone. Open it there to sync it.');
+}
 
 const _notChapterly = SyncFailure('That address is not a Chapterly phone.');
 const _updatePhone = SyncFailure('Update Chapterly on your phone.');
@@ -194,7 +201,8 @@ class SyncClient {
   }
 
   /// Checks that [address] is a Chapterly phone that speaks this protocol.
-  Future<void> ping(Uri address) async {
+  /// Returns whether it syncs every profile with one pairing.
+  Future<bool> ping(Uri address) async {
     final request = http.Request('GET', address.replace(path: '/v1/ping'));
     final (status, bytes) =
         await _fetch(request, maxOtherReplyBytes, pingTimeout, 'ping');
@@ -215,6 +223,33 @@ class SyncClient {
     if (protocol < syncProtocolVersion) throw _updatePhone;
     final sync = data['sync'];
     if (sync is! int || sync < 2) throw _updatePhoneForSync;
+    final profiles = data['profiles'];
+    return profiles is int && profiles >= syncProfilesVersion;
+  }
+
+  /// The phone's profiles, after it added [create].
+  Future<List<SyncProfileInfo>> profiles(
+    SyncSession session, {
+    List<NewSyncProfile> create = const [],
+  }) async {
+    final answer = await _sealed(
+      session,
+      'POST',
+      '/v2/profiles',
+      encodeProfileRequest(create),
+      limit: maxOtherReplyBytes,
+      step: 'profiles',
+    );
+    if (answer.status != 200) {
+      throw SyncFailure(
+        _errorText(answer.text) ?? 'Your phone could not list its profiles.',
+      );
+    }
+    try {
+      return decodeProfileList(answer.text);
+    } on FormatException catch (error) {
+      throw SyncFailure(error.message);
+    }
   }
 
   /// Starts a sync run with the phone at [address]: makes the key from
@@ -321,13 +356,20 @@ class SyncClient {
 
   /// Sends this PC's library ([body], made by [encodeSyncPayload]) and
   /// returns the merged library from the phone.
-  Future<SyncPayload> sync(SyncSession session, String body) async {
+  /// With [profile], the phone's profile of that id; otherwise the one
+  /// open on the phone.
+  Future<SyncPayload> sync(
+    SyncSession session,
+    String body, {
+    String? profile,
+  }) async {
+    final path = profileSyncPath(profile, '/sync');
     final _Answer answer;
     try {
       answer = await _sealed(
         session,
         'POST',
-        '/v2/sync',
+        path,
         body,
         limit: maxSyncReplyBytes,
         step: 'sync',
@@ -345,7 +387,7 @@ class SyncClient {
         await _sealed(
           session,
           'POST',
-          '/v2/sync',
+          path,
           '{}',
           limit: maxOtherReplyBytes,
           step: 'sync',
@@ -383,9 +425,14 @@ class SyncClient {
         if (message != null && message.contains('newer')) throw _updatePhone;
         throw SyncFailure(message ?? 'Your phone could not read the sync.');
       case 404:
+        if (profile != null) {
+          throw const SyncFailure('It is no longer on your phone.');
+        }
         throw _notChapterly;
       case 409:
         throw MissingCovers(_hashesIn(text));
+      case 423:
+        throw const PhoneProfileLocked();
       default:
         throw SyncFailure(
           _errorText(text) ?? 'Your phone could not finish the sync. Try again.',
@@ -402,13 +449,14 @@ class SyncClient {
   /// Which of [hashes] the phone does not have a cover picture for.
   Future<List<String>> missingCovers(
     SyncSession session,
-    List<String> hashes,
-  ) async {
+    List<String> hashes, {
+    String? profile,
+  }) async {
     if (hashes.isEmpty) return const [];
     final answer = await _sealed(
       session,
       'POST',
-      '/v2/covers/missing',
+      profileSyncPath(profile, '/covers/missing'),
       jsonEncode({'hashes': hashes}),
       limit: maxOtherReplyBytes,
       step: 'covers',
@@ -421,12 +469,13 @@ class SyncClient {
   Future<void> putCover(
     SyncSession session,
     String hash,
-    String dataUrl,
-  ) async {
+    String dataUrl, {
+    String? profile,
+  }) async {
     final answer = await _sealed(
       session,
       'PUT',
-      '/v2/covers/$hash',
+      profileSyncPath(profile, '/covers/$hash'),
       dataUrl,
       limit: maxOtherReplyBytes,
       step: 'covers',
@@ -436,11 +485,15 @@ class SyncClient {
 
   /// Takes one cover picture from the phone, or null when it has none by
   /// that name.
-  Future<String?> getCover(SyncSession session, String hash) async {
+  Future<String?> getCover(
+    SyncSession session,
+    String hash, {
+    String? profile,
+  }) async {
     final answer = await _sealed(
       session,
       'GET',
-      '/v2/covers/$hash',
+      profileSyncPath(profile, '/covers/$hash'),
       '',
       limit: maxCoverReplyBytes,
       step: 'covers',
@@ -459,6 +512,8 @@ class SyncClient {
         return;
       case 401:
         throw _wrongCode;
+      case 423:
+        throw const PhoneProfileLocked();
       case 404:
         throw const SyncFailure(
           'Your phone does not know this way of syncing covers. Update '
@@ -515,8 +570,48 @@ class MemoryCodeStore implements CodeStore {
   }
 }
 
+/// One profile's library on this PC, as a sync uses it.
+class SyncTarget {
+  SyncTarget({
+    required this.repository,
+    required this.settings,
+    required this.base,
+  });
+
+  final BookRepository repository;
+  final AppSettings settings;
+
+  /// The books as they were after this profile's last sync.
+  final SyncBase base;
+}
+
+/// The profiles on this PC, so one pairing syncs them all. Set up in
+/// main.dart; tests leave it out and sync only the open profile.
+abstract interface class SyncProfileAccess {
+  /// The profile that is open on this PC.
+  String get openId;
+
+  /// Every profile here. One with a PIN that isn't open is locked.
+  List<SyncProfileInfo> list();
+
+  /// Adds a profile from the phone. Returns its id, or null when it could
+  /// not be added (a name that is taken, say).
+  Future<String?> create(String name, int color);
+
+  /// Opens another profile's library for a sync.
+  Future<SyncTarget> open(String id);
+
+  /// Closes a library [open] gave.
+  Future<void> close(SyncTarget target);
+
+  /// Which profile here syncs with which on the phone.
+  ProfileLinks get links;
+  Future<void> saveLinks(ProfileLinks links);
+}
+
 /// Pairs with the phone and syncs: when asked, when Chapterly opens, and
-/// every few minutes while it is open (see Settings).
+/// every few minutes while it is open (see Settings). With [profiles], one
+/// pairing syncs every profile on both sides.
 class PcSync extends ChangeNotifier {
   PcSync({
     required this.repository,
@@ -524,6 +619,7 @@ class PcSync extends ChangeNotifier {
     required this.codeStore,
     SyncClient? client,
     SyncBase? base,
+    this.profiles,
   })  : client = client ?? SyncClient(),
         base = base ?? SyncBase();
 
@@ -536,12 +632,16 @@ class PcSync extends ChangeNotifier {
   /// on both sides field by field (Windows app).
   final SyncBase base;
 
+  /// Every profile on this PC, or null to sync only the open one.
+  final SyncProfileAccess? profiles;
+
   bool _busy = false;
   bool _hasCode = false;
   SyncPlan? _pending;
   String? _dismissed;
   Timer? _timer;
   DateTime? _lastAutoAttempt;
+  String? _lastNote;
 
   /// Called after a sync in the background changed books here, with how
   /// many. The library uses it to show a message.
@@ -550,6 +650,10 @@ class PcSync extends ChangeNotifier {
   /// Changes an automatic sync held back because they would remove books.
   /// The library offers to review them.
   SyncPlan? get pendingReview => _pending;
+
+  /// What the last sync of every profile has to tell: how many profiles
+  /// synced and which were left out, and why. Null when there is nothing.
+  String? get lastNote => _lastNote;
 
   /// Hides [pendingReview] until the changes waiting are different.
   void dismissPending() {
@@ -563,6 +667,9 @@ class PcSync extends ChangeNotifier {
 
   /// Whether an address and a pairing code are saved.
   bool get paired => _hasCode && settings.syncAddress != null;
+
+  SyncTarget get _openTarget =>
+      SyncTarget(repository: repository, settings: settings, base: base);
 
   void _setBusy(bool value) {
     _busy = value;
@@ -603,8 +710,10 @@ class PcSync extends ChangeNotifier {
     settings.setSyncAddress(formatPhoneAddress(base));
     _hasCode = true;
     _busy = false;
-    // A new pairing starts without a last-synced copy.
+    // A new pairing starts without a last-synced copy, and works out again
+    // which profiles go together.
     await this.base.save(const []);
+    await profiles?.saveLinks(const ProfileLinks());
     final problem = await syncNow();
     // Only keep the pairing when the first sync worked, so a wrong code is
     // not saved.
@@ -619,9 +728,10 @@ class PcSync extends ChangeNotifier {
     String body,
     List<String> covers,
     CoverPool pool,
+    String? profile,
   ) async {
     Future<SyncPayload> post() async {
-      final reply = await client.sync(session, body);
+      final reply = await client.sync(session, body, profile: profile);
       return SyncPayload(
         books: withCoverRefs(reply.books, pool),
         tombstones: reply.tombstones,
@@ -630,12 +740,12 @@ class PcSync extends ChangeNotifier {
       );
     }
 
-    await _giveCovers(session, covers, pool);
+    await _giveCovers(session, covers, pool, profile);
     try {
       return await post();
     } on MissingCovers catch (lacking) {
       // The phone lost some pictures since it was asked: give them again.
-      await _giveCovers(session, lacking.hashes, pool, ask: false);
+      await _giveCovers(session, lacking.hashes, pool, profile, ask: false);
       return await post();
     }
   }
@@ -643,32 +753,34 @@ class PcSync extends ChangeNotifier {
   Future<void> _giveCovers(
     SyncSession session,
     List<String> hashes,
-    CoverPool pool, {
+    CoverPool pool,
+    String? profile, {
     bool ask = true,
   }) async {
     if (hashes.isEmpty) return;
-    final lacking =
-        ask ? await client.missingCovers(session, hashes) : hashes;
+    final lacking = ask
+        ? await client.missingCovers(session, hashes, profile: profile)
+        : hashes;
     await forEachLimited(lacking, (hash) async {
       final picture = pool[hash];
       if (picture == null) {
         throw const SyncFailure('A cover could not be read on this PC.');
       }
-      await client.putCover(session, hash, picture);
+      await client.putCover(session, hash, picture, profile: profile);
     });
   }
 
-  /// Takes the pictures this PC lacks from the phone. A book whose picture
-  /// the phone no longer has comes back without a cover rather than holding
-  /// up the sync.
-  /// Fetches the pictures [books] name that this PC does not have yet.
+  /// Fetches the pictures [books] name that this PC does not have yet. A
+  /// book whose picture the phone no longer has comes back without a cover
+  /// rather than holding up the sync.
   Future<void> _fetchPictures(
     SyncSession session,
     List<Book> books,
     CoverPool pool,
+    String? profile,
   ) async {
     await forEachLimited(missingCovers(books, pool), (hash) async {
-      final picture = await client.getCover(session, hash);
+      final picture = await client.getCover(session, hash, profile: profile);
       if (picture == null) return;
       try {
         pool.put(hash, picture);
@@ -692,9 +804,15 @@ class PcSync extends ChangeNotifier {
     ], pool);
   }
 
-  /// Sends this library to the phone and takes back the merged library.
-  /// Returns null when it worked, or the message to show.
-  Future<String?> syncNow() async {
+  /// Whether the phone at [address] syncs every profile, and this PC does.
+  Future<bool> _everyProfile(Uri address) async =>
+      profiles != null && await client.ping(address);
+
+  /// Sends this library to the phone and takes back the merged library;
+  /// with [profiles], every profile on both sides. With [skipOpen], the
+  /// open profile is left for later (its changes wait for review). Returns
+  /// null when it worked, or the message to show.
+  Future<String?> syncNow({bool skipOpen = false}) async {
     if (_busy) return 'A sync is already running.';
     final saved = settings.syncAddress;
     final address = saved == null ? null : parsePhoneAddress(saved);
@@ -704,85 +822,16 @@ class PcSync extends ChangeNotifier {
     }
     _setBusy(true);
     try {
-      // Books travel with cover references; the pictures are given to the
-      // phone, or taken from it, only when one side lacks them.
-      final pool = CoverPool();
+      _lastNote = null;
+      final every = await _everyProfile(address);
       // The key and the phone's challenge, for every request of this run.
       final session = await client.connect(address, code);
-      SyncPayload? phone;
-      if (!base.isEmpty) {
-        // Ask for the phone's library (sending none changes nothing there)
-        // to merge books changed on both sides before sending.
-        phone = await _exchange(
-          session,
-          encodeSyncPayload(const [], const {}),
-          const [],
-          pool,
-        );
+      if (every) {
+        _lastNote = await _syncEveryProfile(session, skipOpen: skipOpen);
+      } else if (!skipOpen) {
+        await _syncTarget(session, _openTarget, null);
       }
-      // Taken after that, so a change made meanwhile is sent too.
-      var sent = repository.snapshot();
-      sent = (
-        books: withCoverRefs(sent.books, pool),
-        tombstones: sent.tombstones,
-      );
-      if (phone != null) {
-        final resolved = resolveConflicts(
-          base: base.books,
-          local: sent.books,
-          remote: phone.books,
-          now: DateTime.now(),
-          phoneKeepsBookmarks: phone.features.contains('audioBookmarks'),
-        );
-        if (resolved.isNotEmpty) {
-          final byId = {for (final book in resolved) book.id: book};
-          sent = (
-            books: [for (final book in sent.books) byId[book.id] ?? book],
-            tombstones: sent.tombstones,
-          );
-        }
-      }
-      final reply = await _exchange(
-        session,
-        encodeSyncPayload(
-          sent.books,
-          sent.tombstones,
-          wishes: settings.allWishes,
-        ),
-        coverHashesOf(sent.books),
-        pool,
-      );
-      // The pictures this PC does not have yet come from the phone. They
-      // are fetched first: from the snapshot below until the library is
-      // saved, nothing waits, so a change made meanwhile can't be lost.
-      await _fetchPictures(session, reply.books, pool);
-      // Merge the reply with the library as it is now, so a change made on
-      // this PC while the sync was running is not lost. The phone's copy wins
-      // a tie, so both sides end up the same.
-      final now = repository.snapshot();
-      final nowBooks = withCoverRefs(now.books, pool);
-      final merged = mergeLibraries(
-        local: reply.books,
-        localTombstones: reply.tombstones,
-        remote: nowBooks,
-        remoteTombstones: now.tombstones,
-      );
-      // A phone app older than 1.15.0 drops audiobook bookmarks: keep this
-      // PC's.
-      final refBooks = reply.features.contains('audioBookmarks')
-          ? merged.books
-          : keepPcBookmarks(merged.books, nowBooks);
-      final books = _attachPictures(refBooks, pool);
-      final changed = countSyncChanges(now.books, books);
-      await repository.applySynced(books, merged.tombstones);
-      // The wish list: the newer copy of each wish wins, including a wish
-      // changed on this PC while the sync was running.
-      settings.mergeWishesFrom(reply.wishes);
-      // What the phone holds now. A change made on this PC during the sync
-      // is not in it, so the next sync still sees it as a PC change.
-      await base.save(reply.books);
-      settings.recordSync(at: DateTime.now(), changed: changed);
-      _pending = null;
+      if (!skipOpen) _pending = null;
       return null;
     } on SyncFailure catch (error) {
       settings.recordSyncError(error.message);
@@ -796,10 +845,248 @@ class PcSync extends ChangeNotifier {
     }
   }
 
-  /// Works out what a sync would change on this PC and on the phone,
-  /// without changing anything. It asks the phone for its library by sending
-  /// an empty one: merging nothing into the phone's library leaves it as it
-  /// is. Returns the plan, or the message to show.
+  /// Pairs up the profiles on both sides, adds the ones each side is
+  /// missing, and syncs every pair, the open profile first. A profile with a
+  /// PIN syncs only while it is open (on each side). Returns what to tell
+  /// about the profiles that were left out, or null.
+  Future<String?> _syncEveryProfile(
+    SyncSession session, {
+    bool skipOpen = false,
+  }) async {
+    final access = profiles!;
+    var phone = await client.profiles(session);
+    var plan = planProfileLinks(
+      pc: access.list(),
+      phone: phone,
+      saved: access.links,
+    );
+    if (plan.createOnPhone.isNotEmpty) {
+      phone = await client.profiles(
+        session,
+        create: [
+          for (final profile in plan.createOnPhone)
+            (name: profile.name, color: profile.color),
+        ],
+      );
+      plan = planProfileLinks(
+        pc: access.list(),
+        phone: phone,
+        saved: plan.links,
+      );
+    }
+    var added = false;
+    for (final profile in plan.createOnPc) {
+      if (await access.create(profile.name, profile.color) != null) {
+        added = true;
+      }
+    }
+    final here = access.list();
+    if (added) {
+      plan = planProfileLinks(pc: here, phone: phone, saved: plan.links);
+    }
+    final before = access.links;
+    await access.saveLinks(plan.links);
+    final links = plan.links.links;
+    final onPhone = {for (final profile in phone) profile.id: profile};
+    final openId = access.openId;
+    final ordered = [
+      ...here.where((profile) => profile.id == openId),
+      ...here.where((profile) => profile.id != openId),
+    ];
+    final notes = <String>[];
+    var synced = 0;
+    for (final profile in ordered) {
+      final isOpen = profile.id == openId;
+      if (isOpen && skipOpen) continue;
+      final phoneId = links[profile.id];
+      if (profile.locked) {
+        notes.add('${profile.name}: it has a PIN here. Open it to sync it.');
+        continue;
+      }
+      if (phoneId == null) {
+        if (!plan.links.leftOnPc.contains(profile.id)) {
+          notes.add('${profile.name}: could not be added to your phone.');
+        }
+        continue;
+      }
+      if (onPhone[phoneId]?.locked ?? false) {
+        notes.add('${profile.name}: ${const PhoneProfileLocked().message}');
+        continue;
+      }
+      final target = isOpen ? _openTarget : await access.open(profile.id);
+      try {
+        // A new pair starts without a last-synced copy.
+        if (before.links[profile.id] != phoneId) {
+          await target.base.save(const []);
+        }
+        if (!isOpen && target.settings.reviewSync) {
+          // Changes that would remove books wait until the profile is
+          // opened and they are reviewed there.
+          final check = await _planFor(session, target, phoneId);
+          if (check.removals > 0) {
+            notes.add(
+              '${profile.name}: some books would be removed. Open it and '
+              'choose Sync now to review the changes.',
+            );
+            continue;
+          }
+        }
+        await _syncTarget(session, target, phoneId);
+        synced++;
+      } on SyncFailure catch (error) {
+        // A problem with the connection or the code ends the whole sync.
+        if (isOpen || error.message.startsWith(unreachableMessage)) rethrow;
+        if (error is! PhoneProfileLocked) {
+          target.settings.recordSyncError(error.message);
+        }
+        notes.add('${profile.name}: ${error.message}');
+      } catch (_) {
+        if (isOpen) rethrow;
+        const message = 'The sync could not be finished.';
+        target.settings.recordSyncError(message);
+        notes.add('${profile.name}: $message');
+      } finally {
+        if (!isOpen) await access.close(target);
+      }
+    }
+    if (notes.isEmpty) return null;
+    final count = synced == 1 ? '1 profile' : '$synced profiles';
+    return 'Synced $count. Not synced:\n${notes.join('\n')}';
+  }
+
+  /// Syncs one profile's library ([target]) with the phone's profile
+  /// [phoneProfile] (null: the one open on the phone).
+  Future<void> _syncTarget(
+    SyncSession session,
+    SyncTarget target,
+    String? phoneProfile,
+  ) async {
+    final repository = target.repository;
+    final settings = target.settings;
+    final base = target.base;
+    // Books travel with cover references; the pictures are given to the
+    // phone, or taken from it, only when one side lacks them.
+    final pool = CoverPool();
+    SyncPayload? phone;
+    if (!base.isEmpty) {
+      // Ask for the phone's library (sending none changes nothing there)
+      // to merge books changed on both sides before sending.
+      phone = await _exchange(
+        session,
+        encodeSyncPayload(const [], const {}),
+        const [],
+        pool,
+        phoneProfile,
+      );
+    }
+    // Taken after that, so a change made meanwhile is sent too.
+    var sent = repository.snapshot();
+    sent = (
+      books: withCoverRefs(sent.books, pool),
+      tombstones: sent.tombstones,
+    );
+    if (phone != null) {
+      final resolved = resolveConflicts(
+        base: base.books,
+        local: sent.books,
+        remote: phone.books,
+        now: DateTime.now(),
+        phoneKeepsBookmarks: phone.features.contains('audioBookmarks'),
+      );
+      if (resolved.isNotEmpty) {
+        final byId = {for (final book in resolved) book.id: book};
+        sent = (
+          books: [for (final book in sent.books) byId[book.id] ?? book],
+          tombstones: sent.tombstones,
+        );
+      }
+    }
+    final reply = await _exchange(
+      session,
+      encodeSyncPayload(
+        sent.books,
+        sent.tombstones,
+        wishes: settings.allWishes,
+      ),
+      coverHashesOf(sent.books),
+      pool,
+      phoneProfile,
+    );
+    // The pictures this PC does not have yet come from the phone. They
+    // are fetched first: from the snapshot below until the library is
+    // saved, nothing waits, so a change made meanwhile can't be lost.
+    await _fetchPictures(session, reply.books, pool, phoneProfile);
+    // Merge the reply with the library as it is now, so a change made on
+    // this PC while the sync was running is not lost. The phone's copy wins
+    // a tie, so both sides end up the same.
+    final now = repository.snapshot();
+    final nowBooks = withCoverRefs(now.books, pool);
+    final merged = mergeLibraries(
+      local: reply.books,
+      localTombstones: reply.tombstones,
+      remote: nowBooks,
+      remoteTombstones: now.tombstones,
+    );
+    // A phone app older than 1.15.0 drops audiobook bookmarks: keep this
+    // PC's.
+    final refBooks = reply.features.contains('audioBookmarks')
+        ? merged.books
+        : keepPcBookmarks(merged.books, nowBooks);
+    final books = _attachPictures(refBooks, pool);
+    final changed = countSyncChanges(now.books, books);
+    await repository.applySynced(books, merged.tombstones);
+    // The wish list: the newer copy of each wish wins, including a wish
+    // changed on this PC while the sync was running.
+    settings.mergeWishesFrom(reply.wishes);
+    // What the phone holds now. A change made on this PC during the sync
+    // is not in it, so the next sync still sees it as a PC change.
+    await base.save(reply.books);
+    settings.recordSync(at: DateTime.now(), changed: changed);
+  }
+
+  /// What a sync of [target] with the phone's profile [phoneProfile] would
+  /// change, without changing anything. It asks the phone for its library by
+  /// sending an empty one: merging nothing into the phone's library leaves
+  /// it as it is. With [phoneEmpty], the phone does not have the profile
+  /// yet; with [useBase] false, the last-synced copy is not used (a new
+  /// pair).
+  Future<SyncPlan> _planFor(
+    SyncSession session,
+    SyncTarget target,
+    String? phoneProfile, {
+    bool phoneEmpty = false,
+    bool useBase = true,
+  }) async {
+    final phone = phoneEmpty
+        ? const SyncPayload(books: [], tombstones: {})
+        : await client.sync(
+            session,
+            encodeSyncPayload(const [], const {}),
+            profile: phoneProfile,
+          );
+    final now = target.repository.snapshot();
+    // Books changed on both sides are shown as the sync will merge them.
+    final resolved = target.base.isEmpty || !useBase
+        ? const <Book>[]
+        : resolveConflicts(
+            base: target.base.books,
+            local: now.books,
+            remote: phone.books,
+            now: DateTime.now(),
+            phoneKeepsBookmarks: phone.features.contains('audioBookmarks'),
+          );
+    final byId = {for (final book in resolved) book.id: book};
+    return planSync(
+      phoneBooks: phone.books,
+      phoneTombstones: phone.tombstones,
+      pcBooks: [for (final book in now.books) byId[book.id] ?? book],
+      pcTombstones: now.tombstones,
+    );
+  }
+
+  /// Works out what a sync would change on this PC and on the phone, for
+  /// the open profile, without changing anything. Returns the plan, or the
+  /// message to show.
   Future<({SyncPlan? plan, String? problem})> preview() async {
     if (_busy) return (plan: null, problem: 'A sync is already running.');
     final saved = settings.syncAddress;
@@ -810,27 +1097,33 @@ class PcSync extends ChangeNotifier {
     }
     _setBusy(true);
     try {
-      final phone = await client.sync(
-        await client.connect(address, code),
-        encodeSyncPayload(const [], const {}),
-      );
-      final now = repository.snapshot();
-      // Books changed on both sides are shown as the sync will merge them.
-      final resolved = base.isEmpty
-          ? const <Book>[]
-          : resolveConflicts(
-              base: base.books,
-              local: now.books,
-              remote: phone.books,
-              now: DateTime.now(),
-              phoneKeepsBookmarks: phone.features.contains('audioBookmarks'),
-            );
-      final byId = {for (final book in resolved) book.id: book};
-      final plan = planSync(
-        phoneBooks: phone.books,
-        phoneTombstones: phone.tombstones,
-        pcBooks: [for (final book in now.books) byId[book.id] ?? book],
-        pcTombstones: now.tombstones,
+      final every = await _everyProfile(address);
+      final session = await client.connect(address, code);
+      if (!every) {
+        return (plan: await _planFor(session, _openTarget, null), problem: null);
+      }
+      final access = profiles!;
+      final phone = await client.profiles(session);
+      final links = planProfileLinks(
+        pc: access.list(),
+        phone: phone,
+        saved: access.links,
+      ).links;
+      final phoneId = links.links[access.openId];
+      final onPhone = [
+        for (final profile in phone)
+          if (profile.id == phoneId) profile,
+      ];
+      if (onPhone.isNotEmpty && onPhone.first.locked) {
+        throw const PhoneProfileLocked();
+      }
+      final plan = await _planFor(
+        session,
+        _openTarget,
+        phoneId,
+        // A profile the phone doesn't have yet is added there empty.
+        phoneEmpty: phoneId == null,
+        useBase: access.links.links[access.openId] == phoneId,
       );
       return (plan: plan, problem: null);
     } on SyncFailure catch (error) {
@@ -856,7 +1149,8 @@ class PcSync extends ChangeNotifier {
   /// A sync nobody asked for: when Chapterly opens or in the background.
   /// When the phone is not there it says nothing and records nothing. With
   /// "Show changes before syncing" on, changes that would remove books are
-  /// held back for review instead. Returns true when it synced.
+  /// held back for review instead (the other profiles still sync). Returns
+  /// true when it synced.
   Future<bool> autoSync() async {
     if (_busy || !paired) return false;
     final address = parsePhoneAddress(settings.syncAddress ?? '');
@@ -869,16 +1163,17 @@ class PcSync extends ChangeNotifier {
     if (settings.reviewSync) {
       final plan = (await preview()).plan;
       if (plan == null) return false;
-      if (plan.isEmpty) {
-        recordInSync();
-        return true;
-      }
       if (plan.removals > 0) {
         if (plan.signature != _dismissed) {
           _pending = plan;
           notifyListeners();
         }
+        if (profiles != null) await syncNow(skipOpen: true);
         return false;
+      }
+      if (plan.isEmpty && profiles == null) {
+        recordInSync();
+        return true;
       }
     }
     return await syncNow() == null;
@@ -959,7 +1254,7 @@ class PcSync extends ChangeNotifier {
     }
   }
 
-  /// Removes the saved address and code.
+  /// Removes the saved address and code, and which profiles go together.
   Future<void> forget() async {
     try {
       await codeStore.delete();
@@ -968,6 +1263,7 @@ class PcSync extends ChangeNotifier {
     }
     settings.setSyncAddress(null);
     await base.save(const []);
+    await profiles?.saveLinks(const ProfileLinks());
     _hasCode = false;
     _pending = null;
     notifyListeners();

@@ -11,8 +11,8 @@ class SecureCodeStore implements CodeStore {
 
   static const _key = 'chapterly_sync_code';
 
-  /// Each profile pairs with the phone on its own. The first profile keeps
-  /// the code it had before profiles.
+  /// Before 1.43.0 each profile paired with the phone on its own. Now one
+  /// pairing, saved under the first profile's name, syncs every profile.
   static String keyFor(String profileId) =>
       profileId == mainProfileId ? _key : '${_key}_$profileId';
 

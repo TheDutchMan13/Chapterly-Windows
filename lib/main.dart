@@ -24,6 +24,7 @@ import 'data/library_scan.dart';
 import 'data/linked_files.dart';
 import 'data/open_library_client.dart';
 import 'data/pc_sync.dart';
+import 'data/pc_sync_profiles.dart';
 import 'data/profile_files.dart';
 import 'data/profiles.dart';
 import 'data/reading_nudge.dart';
@@ -84,11 +85,21 @@ Future<void> main() async {
   await repository.load();
   final settings = await AppSettings.load(profiles.scope(profile.id));
   await settings.loadSecrets(SecureSecretStore(profile.id));
+  // One pairing for every profile: the first profile's pairing code is the
+  // PC's (or the open profile's, the first time).
+  const codeStore = SecureCodeStore();
+  if (profile.id != mainProfileId && await codeStore.read() == null) {
+    final own = await SecureCodeStore(
+      storageKey: SecureCodeStore.keyFor(profile.id),
+    ).read();
+    if (own != null) await codeStore.write(own);
+  }
   final pcSync = PcSync(
     repository: repository,
     settings: settings,
-    codeStore: SecureCodeStore(storageKey: SecureCodeStore.keyFor(profile.id)),
+    codeStore: codeStore,
     base: await SyncBase.load(File(p.join(dataDir.path, 'sync_base.json'))),
+    profiles: StoreSyncProfiles(profiles),
   );
   await pcSync.load();
   pcSync.startBackgroundSync();

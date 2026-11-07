@@ -15,7 +15,7 @@ const _maxReceivedCovers = 150 * 1000 * 1000;
 /// What the phone does when the PC syncs: merges the PC's library with its
 /// own and keeps the cover pictures the PC sends. Apart from the server that
 /// calls it, so the PC app's tests can run the same code.
-class PhoneSyncCore implements SyncCovers {
+class PhoneSyncCore implements SyncEndpoint {
   PhoneSyncCore({required this.repository, required this.settings});
 
   final BookRepository repository;
@@ -54,6 +54,7 @@ class PhoneSyncCore implements SyncCovers {
   @override
   Future<String?> get(String hash) async => _own()[hash] ?? _received[hash];
 
+  @override
   Future<String> handleSync(String body) async {
     try {
       final remote = decodeSyncPayload(body);

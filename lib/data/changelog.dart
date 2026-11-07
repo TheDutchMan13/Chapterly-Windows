@@ -13,6 +13,18 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.43.0',
+    date: '2026-11-07',
+    changes: [
+      'One pairing syncs every profile: pair your phone and PC once, and '
+          'each profile syncs with the profile of the same name on the other '
+          'device, without switching profiles',
+      'A profile missing on one device is added there the next time you '
+          'sync. A profile with a PIN is never copied, and syncs only while '
+          'it is open',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.42.0',
     date: '2026-11-06',
     changes: [

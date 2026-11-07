@@ -10,9 +10,7 @@ Future<void> runManualSync(BuildContext context, PcSync sync) async {
   final messenger = ScaffoldMessenger.of(context);
   if (!sync.settings.reviewSync) {
     final problem = await sync.syncNow();
-    messenger.showSnackBar(
-      SnackBar(content: Text(problem ?? 'Synced with your phone')),
-    );
+    messenger.showSnackBar(syncResultSnackBar(sync, problem));
     return;
   }
   final result = await sync.preview();
@@ -23,7 +21,7 @@ Future<void> runManualSync(BuildContext context, PcSync sync) async {
     );
     return;
   }
-  if (plan.isEmpty) {
+  if (plan.isEmpty && sync.profiles == null) {
     sync.recordInSync();
     messenger.showSnackBar(
       const SnackBar(content: Text('Already in sync with your phone')),
@@ -31,14 +29,23 @@ Future<void> runManualSync(BuildContext context, PcSync sync) async {
     return;
   }
   if (!context.mounted) return;
-  final go = await showSyncPreview(context, plan);
+  // Nothing to change in this profile: the other profiles still sync.
+  final go = plan.isEmpty ? true : await showSyncPreview(context, plan);
   if (go != true) {
     if (sync.pendingReview != null) sync.dismissPending();
     return;
   }
   final problem = await sync.syncNow();
-  messenger.showSnackBar(
-    SnackBar(content: Text(problem ?? 'Synced with your phone')),
+  messenger.showSnackBar(syncResultSnackBar(sync, problem));
+}
+
+/// What a sync started by hand says: the problem, or that it worked and
+/// which profiles were left out.
+SnackBar syncResultSnackBar(PcSync sync, String? problem) {
+  final note = problem == null ? sync.lastNote : null;
+  return SnackBar(
+    content: Text(problem ?? note ?? 'Synced with your phone'),
+    duration: Duration(seconds: note == null ? 4 : 10),
   );
 }
 

@@ -19,6 +19,10 @@ const _scopedStart = 'p.';
 const _profilesKey = 'profiles';
 const _activeKey = 'activeProfile';
 
+/// Settings for the whole device, shared by every profile, such as the sync
+/// pairing: `device.syncAddress`. Never part of a profile's own settings.
+const deviceKeyStart = 'device.';
+
 /// Colours for the profile circles. White letters can be read on each.
 const profileColors = [
   0xFF795548,
@@ -104,6 +108,7 @@ class ScopedPrefs {
 
   bool _owns(String key) => prefix.isEmpty
       ? !key.startsWith(_scopedStart) &&
+          !key.startsWith(deviceKeyStart) &&
           key != _profilesKey &&
           key != _activeKey
       : key.startsWith(prefix);
@@ -198,6 +203,9 @@ class ProfileStore extends ChangeNotifier {
 
   /// A profile's settings.
   ScopedPrefs scope(String id) => ScopedPrefs(_prefs, profilePrefix(id));
+
+  /// The settings for the whole device (see [deviceKeyStart]).
+  ScopedPrefs get device => ScopedPrefs(_prefs, deviceKeyStart);
 
   /// Whether a profile asks for a PIN when it opens.
   bool hasPin(String id) => scope(id).getString('pinHash') != null;

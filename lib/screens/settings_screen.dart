@@ -1500,9 +1500,7 @@ class _SyncSettingsState extends State<_SyncSettings> {
     setState(() => _problem = problem);
     if (problem == null) {
       _code.clear();
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Connected and synced with your phone')),
-      );
+      messenger.showSnackBar(_connectedSnackBar(widget.pcSync));
     }
   }
 
@@ -1516,9 +1514,7 @@ class _SyncSettingsState extends State<_SyncSettings> {
     );
     if (paired != true) return;
     if (mounted) _code.clear();
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Connected and synced with your phone')),
-    );
+    messenger.showSnackBar(_connectedSnackBar(widget.pcSync));
   }
 
   Future<void> _syncNow() => runManualSync(context, widget.pcSync);
@@ -1578,6 +1574,17 @@ class _SyncSettingsState extends State<_SyncSettings> {
             leading: const Icon(Icons.history),
             title: const Text('Last sync'),
             subtitle: Text(_lastSyncText()),
+          ),
+          const ListTile(
+            leading: Icon(Icons.people_outline),
+            title: Text('Every profile syncs'),
+            subtitle: Text(
+              'One pairing covers all your profiles. A profile missing on '
+              'one side is added there, matched by name. A profile with a '
+              'PIN syncs only while it is open, here and on your phone. '
+              'Removing a profile on one side does not remove it on the '
+              'other.',
+            ),
           ),
           SwitchListTile(
             secondary: const Icon(Icons.autorenew),
@@ -1986,4 +1993,17 @@ class _SectionHeader extends StatelessWidget {
       child: Text(title, style: Theme.of(context).textTheme.titleSmall),
     );
   }
+}
+
+/// Shown after pairing: connected, and which profiles were left out.
+SnackBar _connectedSnackBar(PcSync sync) {
+  final note = sync.lastNote;
+  return SnackBar(
+    content: Text(
+      note == null
+          ? 'Connected and synced with your phone'
+          : 'Connected to your phone. $note',
+    ),
+    duration: Duration(seconds: note == null ? 4 : 10),
+  );
 }

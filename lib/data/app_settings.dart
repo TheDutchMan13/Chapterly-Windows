@@ -95,6 +95,9 @@ class AppSettings extends ChangeNotifier {
   DateTime? _lastSyncAt;
   int _lastSyncChanged = 0;
   String? _lastSyncError;
+  /// Where the sync pairing is kept: for the whole device, not one
+  /// profile. Null in tests.
+  ScopedPrefs? _device;
   String? _syncAddress;
   bool _syncOnOpen = true;
   bool _reviewSync = true;
@@ -438,7 +441,18 @@ class AppSettings extends ChangeNotifier {
     settings._lastSyncAt = _fromMillis(prefs.getInt('lastSync'));
     settings._lastSyncChanged = prefs.getInt('lastSyncChanged') ?? 0;
     settings._lastSyncError = prefs.getString('lastSyncError');
-    settings._syncAddress = prefs.getString('syncAddress');
+    // One pairing for every profile, kept for the whole device. The first
+    // time, the first profile's phone is used (or this one's).
+    final device = ScopedPrefs(prefs.prefs, deviceKeyStart);
+    settings._device = device;
+    if (device.getString('syncAddress') == null &&
+        device.getBool('syncAddressMoved') == null) {
+      final first = ScopedPrefs(prefs.prefs, '').getString('syncAddress');
+      final address = first ?? prefs.getString('syncAddress');
+      if (address != null) device.setString('syncAddress', address);
+      device.setBool('syncAddressMoved', true);
+    }
+    settings._syncAddress = device.getString('syncAddress');
     settings._syncOnOpen = prefs.getBool('syncOnOpen') ?? true;
     settings._reviewSync = prefs.getBool('reviewSync') ?? true;
     settings._syncEveryMinutes = prefs.getInt('syncEveryMinutes') ?? 15;
@@ -1086,10 +1100,11 @@ class AppSettings extends ChangeNotifier {
   /// Pass null to forget the phone.
   void setSyncAddress(String? address) {
     _syncAddress = address;
+    final store = _device ?? prefs;
     if (address == null) {
-      prefs?.remove('syncAddress');
+      store?.remove('syncAddress');
     } else {
-      prefs?.setString('syncAddress', address);
+      store?.setString('syncAddress', address);
     }
     notifyListeners();
   }
