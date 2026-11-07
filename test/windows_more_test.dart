@@ -23,6 +23,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'cover_helpers.dart';
+
 const _code = 'ABCDEFGHJKMNPQRS';
 
 Book _book(
@@ -428,7 +430,10 @@ void main() {
       await repository.setTitle(id, '   ');
       expect(repository.byId(id)!.title, 'New');
       await repository.setCover(id, 'data:image/jpeg;base64,AAAA');
-      expect(repository.byId(id)!.coverUrl, 'data:image/jpeg;base64,AAAA');
+      expect(
+        await pictureOf(repository, repository.byId(id)),
+        'data:image/jpeg;base64,AAAA',
+      );
       await repository.setCover(id, null);
       expect(repository.byId(id)!.coverUrl, isNull);
     });

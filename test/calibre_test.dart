@@ -8,6 +8,8 @@ import 'package:chapterly/models/shelf.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
+import 'cover_helpers.dart';
+
 const _opf = '''<?xml version='1.0' encoding='utf-8'?>
 <package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uuid_id">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
@@ -128,7 +130,7 @@ void main() {
       expect(book.series, 'Dune');
       expect(book.seriesNumber, 2);
       expect(book.firstPublishYear, 1969);
-      expect(book.coverUrl, startsWith('data:image/jpeg'));
+      expect(await pictureOf(repository, book), startsWith('data:image/jpeg'));
       // Nothing left to fill the second time.
       expect(await fillFromCalibre(repository, id, info), isFalse);
     });

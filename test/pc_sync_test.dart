@@ -17,6 +17,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'phone_sync_core.dart';
+import 'cover_helpers.dart';
 
 const _code = 'ABCDEFGHJKMNPQRS';
 
@@ -397,8 +398,11 @@ void main() {
 
       expect(await pair(), isNull);
 
-      for (final books in [pc.allBooks, phone.repository.allBooks]) {
-        final covers = {for (final b in books) b.id: b.coverUrl};
+      for (final repository in [pc, phone.repository]) {
+        final covers = {
+          for (final b in repository.allBooks)
+            b.id: await pictureOf(repository, b),
+        };
         expect(covers, {'pc': picture('a'), 'phone': picture('b')});
       }
     });
@@ -413,7 +417,8 @@ void main() {
 
       expect(phone.repository.allBooks, hasLength(1000));
       expect(
-        phone.repository.allBooks.where((b) => isDataCoverUrl(b.coverUrl)),
+        phone.repository.allBooks
+            .where((b) => hashOfCoverRef(b.coverUrl) != null),
         hasLength(1000),
       );
       // Each picture went once. The same picture on two books is one.
@@ -432,7 +437,10 @@ void main() {
       phone.covers.lieAboutMissing = true;
 
       expect(await pair(), isNull);
-      expect(phone.repository.byId('pc')!.coverUrl, picture('a'));
+      expect(
+        await pictureOf(phone.repository, phone.repository.byId('pc')),
+        picture('a'),
+      );
     });
 
     test('a picture the phone no longer has leaves that book without a cover',
@@ -445,7 +453,7 @@ void main() {
 
       expect(await pair(), isNull);
       expect(pc.byId('one')!.coverUrl, isNull);
-      expect(pc.byId('two')!.coverUrl, picture('b'));
+      expect(await pictureOf(pc, pc.byId('two')), picture('b'));
     });
 
     test('a damaged picture from the phone is not kept as a cover', () async {

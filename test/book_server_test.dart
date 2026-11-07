@@ -28,6 +28,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'server_fake.dart';
+import 'cover_helpers.dart';
 
 AudioBookmark _mark(int n, {String note = ''}) => AudioBookmark(
       track: 0,
@@ -1023,7 +1024,7 @@ void main() {
       expect(server.covers.keys, [coverHash(cover)]);
 
       expect(await pc.library.syncNow(), 1);
-      expect(pc.repository.byId(id)!.coverUrl, cover);
+      expect(await pictureOf(pc.repository, pc.repository.byId(id)), cover);
     });
 
     test('a cover a device has is not fetched or sent again', () async {
@@ -1064,7 +1065,7 @@ void main() {
       await phone.library.syncNow();
       for (final device in [phone, pc]) {
         final book = device.repository.byId(id)!;
-        expect(book.coverUrl, fresh);
+        expect(await pictureOf(device.repository, book), fresh);
         expect(book.rating, 4);
       }
     });
@@ -1083,7 +1084,10 @@ void main() {
       expect(await pc.library.syncNow(), 2);
       expect(pc.repository.byId(id)!.coverUrl, isNull);
       expect(
-        pc.repository.books.where((b) => b.title == 'Emma').single.coverUrl,
+        await pictureOf(
+          pc.repository,
+          pc.repository.books.where((b) => b.title == 'Emma').single,
+        ),
         picture('b'),
       );
     });
@@ -1105,13 +1109,13 @@ void main() {
       final id = await phone.repository.add(
           title: 'Dune', author: 'F', shelf: Shelf.forLater, coverUrl: cover);
       // As an earlier version saved it: the picture inside the book.
-      final book = phone.repository.byId(id)!;
+      final book = phone.repository.byId(id)!.copyWith(coverUrl: () => cover);
       server.library = jsonEncode(
         jsonDecode(encodeSyncPayload([book], const {})),
       );
       server.libraryVersion = 1;
       expect(await pc.library.syncNow(), 1);
-      expect(pc.repository.byId(id)!.coverUrl, cover);
+      expect(await pictureOf(pc.repository, pc.repository.byId(id)), cover);
       // And what is saved back names it.
       expect(server.library, isNot(contains('data:image')));
     });
@@ -1131,7 +1135,7 @@ void main() {
       expect(await pc.library.syncNow(), 1000);
       expect(pc.repository.books, hasLength(1000));
       expect(
-        pc.repository.books.where((b) => isDataCoverUrl(b.coverUrl)),
+        pc.repository.books.where((b) => hashOfCoverRef(b.coverUrl) != null),
         hasLength(1000),
       );
       // A second sync moves no pictures.

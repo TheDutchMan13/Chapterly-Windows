@@ -109,8 +109,16 @@ void main() {
       () async {
     final repository = BookRepository(InMemoryBookStore());
     await repository.load();
-    await repository.add(title: 'The Hobbit', author: 'J Tolkien', shelf: Shelf.forLater);
-    await repository.add(title: 'The Hobit', author: 'J Tolkien', shelf: Shelf.forLater);
+    await repository.add(
+      title: 'The Fellowship of the Ring',
+      author: 'J Tolkien',
+      shelf: Shelf.forLater,
+    );
+    await repository.add(
+      title: 'The Felowship of the Ring',
+      author: 'J Tolkien',
+      shelf: Shelf.forLater,
+    );
     final first = repository.possibleDuplicates();
     expect(first, hasLength(1));
     expect(identical(repository.possibleDuplicates(), first), isTrue);
