@@ -13,6 +13,23 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.45.0',
+    date: '2026-11-07',
+    changes: [
+      'Faster and lighter with a big library: cover pictures are kept apart '
+          'from the books and only read when a cover is shown, so a library '
+          'of thousands of books takes far less memory. The first time '
+          '1.45.0 opens, it moves your covers over once, which can take a '
+          'few seconds',
+      'Covers are drawn at the size they are shown, so scrolling a long '
+          'list is smoother',
+      'Syncing a library with many covers is much quicker: pictures are no '
+          'longer checked again on every sync',
+      'Possible duplicates are found several times faster, and worked out '
+          'again only after your library changes',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.44.0',
     date: '2026-11-07',
     changes: [
