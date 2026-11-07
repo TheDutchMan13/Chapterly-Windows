@@ -80,12 +80,12 @@ void main() {
       final p = challengeProgress(
         _challenge(ChallengeKind.books, target: 92),
         books,
-        now: DateTime(2027, 3, 2),
+        now: DateTime(2027, 3, 10),
       );
-      // Day 2 of 92: 2 expected, 1 done (Mar 1).
-      expect(p.daysLeft, 91);
-      expect(p.ahead, -1);
-      expect(p.describe(), contains('91 days left'));
+      // Day 10 of 92: 10 expected, 2 finished in the range.
+      expect(p.daysLeft, 83);
+      expect(p.ahead, -8);
+      expect(p.describe(), contains('83 days left · 8 behind pace'));
       final before = challengeProgress(
         _challenge(ChallengeKind.books),
         books,
