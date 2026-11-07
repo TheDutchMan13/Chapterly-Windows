@@ -13,6 +13,14 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.45.1',
+    date: '2026-11-07',
+    changes: [
+      'Fixed a long freeze the first time 1.45.0 opened a big library: the '
+          'covers are now moved over in one go instead of one at a time',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.45.0',
     date: '2026-11-07',
     changes: [

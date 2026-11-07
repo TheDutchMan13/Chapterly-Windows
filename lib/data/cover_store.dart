@@ -24,6 +24,12 @@ abstract interface class CoverStore {
   Future<void> removeCoversExcept(Set<String> keep);
 }
 
+/// A store that can keep many pictures in one go, much faster than one by
+/// one (each single write is its own disk flush).
+abstract interface class BulkCoverStore implements CoverStore {
+  Future<void> writeCovers(Map<String, String> pictures);
+}
+
 /// Whether [url] is a picture of the book's own: inside it, or kept apart.
 bool isOwnCover(String? url) =>
     isDataCoverUrl(url) || hashOfCoverRef(url) != null;
@@ -52,9 +58,17 @@ Future<List<Book>> keepCoversApart(List<Book> books, CoverStore store) async {
       : [for (final url in unique) coverHash(url)];
   final byUrl = <String, String>{};
   final have = await store.coverHashes();
+  final fresh = <String, String>{};
   for (var i = 0; i < unique.length; i++) {
     byUrl[unique[i]] = hashes[i];
-    if (have.add(hashes[i])) await store.writeCover(hashes[i], unique[i]);
+    if (have.add(hashes[i])) fresh[hashes[i]] = unique[i];
+  }
+  if (store is BulkCoverStore) {
+    if (fresh.isNotEmpty) await store.writeCovers(fresh);
+  } else {
+    for (final entry in fresh.entries) {
+      await store.writeCover(entry.key, entry.value);
+    }
   }
   return [
     for (final book in books)

@@ -6,7 +6,7 @@ import 'cover_store.dart';
 import 'sync_covers.dart';
 
 /// Saves books in a SQLite database file on this PC.
-class SqliteBookStore implements BookStore {
+class SqliteBookStore implements BookStore, BulkCoverStore {
   SqliteBookStore._(this._db);
 
   final Database _db;
@@ -305,6 +305,24 @@ class SqliteBookStore implements BookStore {
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
     _hashes?.add(hash);
+  }
+
+  @override
+  Future<void> writeCovers(Map<String, String> pictures) async {
+    // One transaction for all of them: a write per picture would flush the
+    // disk every time, which takes minutes for a big library.
+    await _db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final entry in pictures.entries) {
+        batch.insert(
+          'covers',
+          {'hash': entry.key, 'data': entry.value},
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+    _hashes?.addAll(pictures.keys);
   }
 
   @override
