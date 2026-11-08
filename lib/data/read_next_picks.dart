@@ -49,14 +49,16 @@ List<ReadNextPick> nextInSeries(List<Book> all, List<Book> waiting) {
     final next = unread.first;
     read.sort();
     final lastRead = read.last;
-    picks.add(ReadNextPick(
-      next,
-      ReadNextReason.nextInSeries,
-      lastRead == next.seriesNumber! - 1
-          ? 'Next in ${next.series!.trim()}: you finished #$lastRead'
-          : 'Continues ${next.series!.trim()} (#${next.seriesNumber}); '
-              'you have read up to #$lastRead',
-    ));
+    picks.add(
+      ReadNextPick(
+        next,
+        ReadNextReason.nextInSeries,
+        lastRead == next.seriesNumber! - 1
+            ? 'Next in ${next.series!.trim()}: you finished #$lastRead'
+            : 'Continues ${next.series!.trim()} (#${next.seriesNumber}); '
+                  'you have read up to #$lastRead',
+      ),
+    );
   }
   picks.sort((a, b) => a.book.title.compareTo(b.book.title));
   return picks;
@@ -70,12 +72,29 @@ List<ReadNextPick> byAuthorsYouLike(
   Set<String> skip = const {},
 }) {
   final scored = <(Book, double, String)>[];
+  // Every book filed once under each of its authors, so an author's books
+  // are found without going through the whole library again (that took
+  // seconds with a big library).
+  final byAuthor = <String, List<Book>>{};
+  for (final book in all) {
+    if (book.deletedAt != null) continue;
+    final keys = {
+      authorKey(book.author),
+      for (final name in authorNames(book.author)) authorKey(name),
+    }..remove('');
+    for (final key in keys) {
+      (byAuthor[key] ??= []).add(book);
+    }
+  }
   final cache = <String, AuthorSummary>{};
   for (final book in waiting) {
     if (skip.contains(book.id) || book.author.trim().isEmpty) continue;
-    final name = authorNames(book.author).first;
-    final summary = cache[authorKey(name)] ??=
-        summarizeAuthor(booksByAuthor(all, name));
+    final names = authorNames(book.author);
+    if (names.isEmpty) continue;
+    final name = names.first;
+    final key = authorKey(name);
+    if (key.isEmpty) continue;
+    final summary = cache[key] ??= summarizeAuthor(byAuthor[key] ?? const []);
     if (summary.finished == 0) continue;
     final rating = summary.averageRating;
     final liked = rating == null ? summary.finished >= 2 : rating >= 4;
@@ -135,11 +154,17 @@ Map<ReadNextReason, List<ReadNextPick>> readNextPicks(
 }) {
   final series = nextInSeries(all, waiting).take(each).toList();
   final used = {for (final pick in series) pick.book.id};
-  final authors =
-      byAuthorsYouLike(all, waiting, skip: used).take(each).toList();
+  final authors = byAuthorsYouLike(
+    all,
+    waiting,
+    skip: used,
+  ).take(each).toList();
   used.addAll([for (final pick in authors) pick.book.id]);
-  final oldest =
-      waitingLongest(waiting, skip: used, now: now).take(each).toList();
+  final oldest = waitingLongest(
+    waiting,
+    skip: used,
+    now: now,
+  ).take(each).toList();
   return {
     ReadNextReason.nextInSeries: series,
     ReadNextReason.authorYouLike: authors,

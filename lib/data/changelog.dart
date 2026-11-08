@@ -13,6 +13,18 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.45.3',
+    date: '2026-11-07',
+    changes: [
+      'Fixed the app being slow and freezing for seconds after every click '
+          'with a big library: the Read next page worked out its "By authors '
+          'you like" list by going through the whole library again for each '
+          'author, and did it on every click, even while hidden. It now '
+          'takes a few milliseconds and is only worked out again when your '
+          'library changes',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.45.2',
     date: '2026-11-07',
     changes: [

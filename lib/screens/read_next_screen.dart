@@ -58,7 +58,11 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
     if (limit == null) return books;
     final pace = speedFor(widget.repository);
     return [
-      for (final fit in fitsInTime(books, limit, (b) => readingTimeFor(b, pace)))
+      for (final fit in fitsInTime(
+        books,
+        limit,
+        (b) => readingTimeFor(b, pace),
+      ))
         fit.book,
     ];
   }
@@ -106,10 +110,7 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
         if (finishable.isNotEmpty) ...[
           const SizedBox(height: 8),
           Text(
-            'Or finish one you are reading: ${[
-              for (final fit in finishable.take(3))
-                '${fit.book.title} (${fit.minutes < 60 ? '${fit.minutes} min' : '${(fit.minutes / 60).toStringAsFixed(1)} h'} left)',
-            ].join(', ')}',
+            'Or finish one you are reading: ${[for (final fit in finishable.take(3)) '${fit.book.title} (${fit.minutes < 60 ? '${fit.minutes} min' : '${(fit.minutes / 60).toStringAsFixed(1)} h'} left)'].join(', ')}',
             textAlign: TextAlign.center,
           ),
         ],
@@ -137,9 +138,7 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
     final navigator = Navigator.of(context);
     await widget.repository.moveTo(book.id, Shelf.inProgress);
     navigator.pop();
-    messenger.showSnackBar(
-      SnackBar(content: Text('Started "${book.title}"')),
-    );
+    messenger.showSnackBar(SnackBar(content: Text('Started "${book.title}"')));
   }
 
   void _open(Book book) {
@@ -155,6 +154,23 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
     );
   }
 
+  /// What was worked out last, kept until the library or the books asked
+  /// about change: the screen is rebuilt often (even while another page is
+  /// shown) and working these out again each time was slow.
+  final _kept = <String, (String, Object?)>{};
+
+  T _keep<T>(String what, String key, T Function() work) {
+    final full = '${widget.repository.changeCount}|$key';
+    final known = _kept[what];
+    if (known != null && known.$1 == full) return known.$2 as T;
+    final value = work();
+    _kept[what] = (full, value);
+    return value;
+  }
+
+  static String _idsOf(List<Book> books) =>
+      [for (final b in books) b.id].join(',');
+
   /// More good places to start, from the books that match your filters,
   /// leaving out the one shown above.
   List<Widget> _picksSection(
@@ -162,10 +178,14 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
     List<Book> candidates,
     Book? shown,
   ) {
-    final picks = readNextPicks(widget.repository.books, [
-      for (final book in candidates)
-        if (book.id != shown?.id) book,
-    ]);
+    final picks = _keep(
+      'picks',
+      '${_idsOf(candidates)}|${shown?.id}',
+      () => readNextPicks(widget.repository.books, [
+        for (final book in candidates)
+          if (book.id != shown?.id) book,
+      ]),
+    );
     const titles = {
       ReadNextReason.nextInSeries: 'Next in a series you started',
       ReadNextReason.authorYouLike: 'By authors you like',
@@ -217,7 +237,11 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
           List<Recommendation> ranked = const [];
           Recommendation? recommendation;
           if (_bestMatch && candidates.isNotEmpty) {
-            ranked = recommend(widget.repository.books, candidates);
+            ranked = _keep(
+              'ranked',
+              _idsOf(candidates),
+              () => recommend(widget.repository.books, candidates),
+            );
             recommendation = ranked[_rank % ranked.length];
             current = recommendation.book;
           }
@@ -293,7 +317,7 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
                     _timeLimit == null
                         ? 'No book on For later matches those filters.'
                         : 'No book on For later fits in that time (books need '
-                            'a page count or audiobook length).',
+                              'a page count or audiobook length).',
                     textAlign: TextAlign.center,
                   )
                 else ...[
@@ -330,7 +354,11 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
                         color: Theme.of(context).colorScheme.primary,
                       ),
                     ),
-                    if (predictRating(widget.repository.books, shown)
+                    if (_keep(
+                          'guess',
+                          shown.id,
+                          () => predictRating(widget.repository.books, shown),
+                        )
                         case final guess?)
                       Text(guess.describe(), textAlign: TextAlign.center),
                     Text(
@@ -353,8 +381,8 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
                       OutlinedButton.icon(
                         onPressed: candidates.length > 1
                             ? () => _bestMatch
-                                ? setState(() => _rank++)
-                                : _pickAnother(candidates)
+                                  ? setState(() => _rank++)
+                                  : _pickAnother(candidates)
                             : null,
                         icon: Icon(
                           _bestMatch ? Icons.skip_next : Icons.casino_outlined,

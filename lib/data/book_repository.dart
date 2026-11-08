@@ -966,6 +966,10 @@ class BookRepository extends ChangeNotifier implements CoverStore {
 
   /// Counts changes to the library, for results kept until it changes.
   int _changes = 0;
+
+  /// Goes up each time the library changes: a screen can keep what it
+  /// worked out until then.
+  int get changeCount => _changes;
   ({int version, Set<String> dismissed, List<PossibleDuplicate> found})?
       _possible;
 
