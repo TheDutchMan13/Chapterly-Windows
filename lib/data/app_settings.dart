@@ -12,6 +12,7 @@ import 'profiles.dart';
 import 'quote_of_day.dart';
 import 'saved_filters.dart';
 import 'wish_list.dart';
+import 'sync_phones.dart';
 
 enum SortField {
   dateAdded,
@@ -100,6 +101,7 @@ class AppSettings extends ChangeNotifier {
   /// profile. Null in tests.
   ScopedPrefs? _device;
   String? _syncAddress;
+  List<SyncPhone> _extraPhones = const [];
   bool _syncOnOpen = true;
   bool _reviewSync = true;
   int _syncEveryMinutes = 15;
@@ -238,6 +240,9 @@ class AppSettings extends ChangeNotifier {
   /// The phone's address for sync, such as 192.168.1.20:8765, or null when
   /// this PC is not paired.
   String? get syncAddress => _syncAddress;
+
+  /// The phones paired after the first, for the whole PC.
+  List<SyncPhone> get extraPhones => _extraPhones;
 
   /// Sync with the phone each time Chapterly opens, quietly, if the phone is
   /// there.
@@ -455,6 +460,7 @@ class AppSettings extends ChangeNotifier {
       device.setBool('syncAddressMoved', true);
     }
     settings._syncAddress = device.getString('syncAddress');
+    settings._extraPhones = decodeSyncPhones(device.getString('syncPhones'));
     settings._syncOnOpen = prefs.getBool('syncOnOpen') ?? true;
     settings._reviewSync = prefs.getBool('reviewSync') ?? true;
     settings._syncEveryMinutes = prefs.getInt('syncEveryMinutes') ?? 15;
@@ -1136,6 +1142,18 @@ class AppSettings extends ChangeNotifier {
       store?.remove('syncAddress');
     } else {
       store?.setString('syncAddress', address);
+    }
+    notifyListeners();
+  }
+
+  /// Saves the phones paired after the first.
+  void setExtraPhones(List<SyncPhone> phones) {
+    _extraPhones = List.unmodifiable(phones);
+    final store = _device ?? prefs;
+    if (phones.isEmpty) {
+      store?.remove('syncPhones');
+    } else {
+      store?.setString('syncPhones', encodeSyncPhones(phones));
     }
     notifyListeners();
   }

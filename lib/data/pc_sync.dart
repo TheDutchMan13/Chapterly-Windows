@@ -15,6 +15,7 @@ import 'cover_store.dart';
 import 'sync_covers.dart';
 import 'sync_crypto.dart';
 import 'sync_merge.dart';
+import 'sync_phones.dart';
 import 'sync_plan.dart';
 import 'sync_profiles.dart';
 import 'sync_protocol.dart';
@@ -600,15 +601,16 @@ abstract interface class SyncProfileAccess {
   /// not be added (a name that is taken, say).
   Future<String?> create(String name, int color);
 
-  /// Opens another profile's library for a sync.
-  Future<SyncTarget> open(String id);
+  /// Opens another profile's library for a sync with [phone] (its own
+  /// last-synced copy is used).
+  Future<SyncTarget> open(String id, {String phone = ''});
 
   /// Closes a library [open] gave.
   Future<void> close(SyncTarget target);
 
-  /// Which profile here syncs with which on the phone.
-  ProfileLinks get links;
-  Future<void> saveLinks(ProfileLinks links);
+  /// Which profile here syncs with which on [phone].
+  ProfileLinks linksFor(String phone);
+  Future<void> saveLinks(ProfileLinks links, {String phone = ''});
 }
 
 /// Pairs with the phone and syncs: when asked, when Chapterly opens, and
@@ -622,6 +624,8 @@ class PcSync extends ChangeNotifier {
     SyncClient? client,
     SyncBase? base,
     this.profiles,
+    this.codeStoreFor,
+    this.baseFor,
   })  : client = client ?? SyncClient(),
         base = base ?? SyncBase();
 
@@ -636,6 +640,21 @@ class PcSync extends ChangeNotifier {
 
   /// Every profile on this PC, or null to sync only the open one.
   final SyncProfileAccess? profiles;
+
+  /// Where the pairing code of a phone after the first is kept. The first
+  /// phone's is [codeStore].
+  final CodeStore Function(String phone)? codeStoreFor;
+
+  /// Loads a phone's last-synced copy of the open profile. The first
+  /// phone's is [base].
+  final Future<SyncBase> Function(String phone)? baseFor;
+
+  final _extraCodes = <String, CodeStore>{};
+  final _extraBases = <String, SyncBase>{};
+
+  /// The phone a sync step is for (empty: the first). A sync runs one phone
+  /// at a time, so the steps below use this one.
+  String _phone = '';
 
   bool _busy = false;
   bool _hasCode = false;
@@ -667,11 +686,35 @@ class PcSync extends ChangeNotifier {
   /// True while connecting or syncing.
   bool get busy => _busy;
 
-  /// Whether an address and a pairing code are saved.
-  bool get paired => _hasCode && settings.syncAddress != null;
+  /// Whether a phone is paired.
+  bool get paired => phones.isNotEmpty;
 
-  SyncTarget get _openTarget =>
-      SyncTarget(repository: repository, settings: settings, base: base);
+  bool get _firstPaired => _hasCode && settings.syncAddress != null;
+
+  /// The phones this PC is paired with, the first one first.
+  List<SyncPhone> get phones => [
+        if (_firstPaired)
+          SyncPhone(id: '', name: 'Phone 1', address: settings.syncAddress!),
+        ...settings.extraPhones,
+      ];
+
+  CodeStore _codesOf(String phone) => phone.isEmpty
+      ? codeStore
+      : _extraCodes[phone] ??=
+          codeStoreFor?.call(phone) ?? MemoryCodeStore();
+
+  Future<SyncBase> _baseOf(String phone) async {
+    if (phone.isEmpty) return base;
+    final known = _extraBases[phone];
+    if (known != null) return known;
+    return _extraBases[phone] = await (baseFor?.call(phone) ?? Future.value(SyncBase()));
+  }
+
+  Future<SyncTarget> _openTarget() async => SyncTarget(
+        repository: repository,
+        settings: settings,
+        base: await _baseOf(_phone),
+      );
 
   void _setBusy(bool value) {
     _busy = value;
@@ -685,8 +728,9 @@ class PcSync extends ChangeNotifier {
   }
 
   /// Checks the address, saves the address and code, and syncs once. That
-  /// first sync is what proves the code is right. Returns null when it
-  /// worked, or the message to show.
+  /// first sync is what proves the code is right. A phone not paired yet is
+  /// added to the others; one with the same address is paired again.
+  /// Returns null when it worked, or the message to show.
   Future<String?> pair({required String address, required String code}) async {
     if (_busy) return 'A sync is already running.';
     final base = parsePhoneAddress(address);
@@ -698,10 +742,26 @@ class PcSync extends ChangeNotifier {
       return 'The pairing code has 16 letters and numbers, as your phone '
           'shows it.';
     }
+    final text = formatPhoneAddress(base);
+    final known = phones;
+    SyncPhone? same;
+    for (final phone in known) {
+      if (phone.address == text) same = phone;
+    }
+    final id = same?.id ??
+        (_firstPaired ? nextPhoneId([for (final p in known) p.id]) : '');
+    final name = same?.name ??
+        (id.isEmpty
+            ? 'Phone 1'
+            : nextPhoneName([for (final p in known) p.name]));
     _setBusy(true);
+    // A phone that is paired already keeps its code if the new one is wrong
+    // (a QR search can try it with another phone's code).
+    String? previous;
     try {
       await client.ping(base);
-      await codeStore.write(clean);
+      if (same != null) previous = await _codesOf(id).read();
+      await _codesOf(id).write(clean);
     } on SyncFailure catch (error) {
       _setBusy(false);
       return error.message;
@@ -709,17 +769,33 @@ class PcSync extends ChangeNotifier {
       _setBusy(false);
       return 'Windows could not save the pairing code.';
     }
-    settings.setSyncAddress(formatPhoneAddress(base));
-    _hasCode = true;
+    if (id.isEmpty) {
+      settings.setSyncAddress(text);
+      _hasCode = true;
+    } else {
+      settings.setExtraPhones([
+        for (final phone in settings.extraPhones)
+          if (phone.id != id) phone,
+        SyncPhone(id: id, name: name, address: text),
+      ]);
+    }
     _busy = false;
     // A new pairing starts without a last-synced copy, and works out again
     // which profiles go together.
-    await this.base.save(const []);
-    await profiles?.saveLinks(const ProfileLinks());
-    final problem = await syncNow();
+    if (same == null) {
+      await (await _baseOf(id)).save(const []);
+      await profiles?.saveLinks(const ProfileLinks(), phone: id);
+    }
+    final problem = await syncNow(only: {id});
     // Only keep the pairing when the first sync worked, so a wrong code is
     // not saved.
-    if (problem != null) await forget();
+    if (problem != null) {
+      if (same == null) {
+        await forget(id);
+      } else if (previous != null) {
+        await _codesOf(id).write(previous);
+      }
+    }
     return problem;
   }
 
@@ -811,40 +887,81 @@ class PcSync extends ChangeNotifier {
   Future<bool> _everyProfile(Uri address) async =>
       profiles != null && await client.ping(address);
 
-  /// Sends this library to the phone and takes back the merged library;
-  /// with [profiles], every profile on both sides. With [skipOpen], the
-  /// open profile is left for later (its changes wait for review). Returns
-  /// null when it worked, or the message to show.
-  Future<String?> syncNow({bool skipOpen = false}) async {
+  /// Sends this library to every paired phone (or just those in [only])
+  /// and takes back the merged library; with [profiles], every profile on
+  /// both sides. With [skipOpen], the open profile is left for later (its
+  /// changes wait for review). Returns null when it worked, or the message
+  /// to show.
+  Future<String?> syncNow({bool skipOpen = false, Set<String>? only}) async {
     if (_busy) return 'A sync is already running.';
-    final saved = settings.syncAddress;
-    final address = saved == null ? null : parsePhoneAddress(saved);
-    final code = await codeStore.read();
-    if (address == null || code == null) {
-      return 'Connect to your phone first, in Settings.';
-    }
+    final all = [
+      for (final phone in phones)
+        if (only == null || only.contains(phone.id)) phone,
+    ];
+    if (all.isEmpty) return 'Connect to your phone first, in Settings.';
     _setBusy(true);
     try {
       _lastNote = null;
+      final many = phones.length > 1;
+      String label(SyncPhone phone, String text) =>
+          many ? '${phone.name}: $text' : text;
+      final problems = <String>[];
+      final notes = <String>[];
+      for (final phone in all) {
+        final result = await _syncPhone(phone, skipOpen: skipOpen);
+        if (result.problem != null) {
+          problems.add(label(phone, result.problem!));
+        }
+        if (result.note != null) notes.add(label(phone, result.note!));
+      }
+      if (problems.isEmpty && all.length > 1) {
+        // What one phone sent reaches the phones synced before it.
+        for (final phone in all.take(all.length - 1)) {
+          await _syncPhone(phone, skipOpen: skipOpen);
+        }
+      }
+      _lastNote = notes.isEmpty ? null : notes.join('\n');
+      if (problems.isNotEmpty) return problems.join('\n');
+      if (!skipOpen) _pending = null;
+      return null;
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  /// Syncs with one phone. Returns the problem to show, or a note about
+  /// profiles that were left out.
+  Future<({String? problem, String? note})> _syncPhone(
+    SyncPhone phone, {
+    bool skipOpen = false,
+  }) async {
+    _phone = phone.id;
+    final address = parsePhoneAddress(phone.address);
+    final code = await _codesOf(phone.id).read();
+    if (address == null || code == null) {
+      return (
+        problem: 'Connect to your phone first, in Settings.',
+        note: null,
+      );
+    }
+    try {
       final every = await _everyProfile(address);
       // The key and the phone's challenge, for every request of this run.
       final session = await client.connect(address, code);
+      String? note;
       if (every) {
-        _lastNote = await _syncEveryProfile(session, skipOpen: skipOpen);
+        note = await _syncEveryProfile(session, skipOpen: skipOpen);
       } else if (!skipOpen) {
-        await _syncTarget(session, _openTarget, null);
+        await _syncTarget(session, await _openTarget(), null);
       }
-      if (!skipOpen) _pending = null;
-      return null;
+      return (problem: null, note: note);
     } on SyncFailure catch (error) {
       settings.recordSyncError(error.message);
-      return error.message;
+      return (problem: error.message, note: null);
     } catch (_) {
       const message = 'The sync could not be finished.';
       settings.recordSyncError(message);
-      return message;
-    } finally {
-      _setBusy(false);
+      return (problem: message, note: null);
     }
   }
 
@@ -861,7 +978,7 @@ class PcSync extends ChangeNotifier {
     var plan = planProfileLinks(
       pc: access.list(),
       phone: phone,
-      saved: access.links,
+      saved: access.linksFor(_phone),
     );
     if (plan.createOnPhone.isNotEmpty) {
       phone = await client.profiles(
@@ -887,8 +1004,8 @@ class PcSync extends ChangeNotifier {
     if (added) {
       plan = planProfileLinks(pc: here, phone: phone, saved: plan.links);
     }
-    final before = access.links;
-    await access.saveLinks(plan.links);
+    final before = access.linksFor(_phone);
+    await access.saveLinks(plan.links, phone: _phone);
     final links = plan.links.links;
     final onPhone = {for (final profile in phone) profile.id: profile};
     final openId = access.openId;
@@ -916,7 +1033,9 @@ class PcSync extends ChangeNotifier {
         notes.add('${profile.name}: ${const PhoneProfileLocked().message}');
         continue;
       }
-      final target = isOpen ? _openTarget : await access.open(profile.id);
+      final target = isOpen
+          ? await _openTarget()
+          : await access.open(profile.id, phone: _phone);
       try {
         // A new pair starts without a last-synced copy.
         if (before.links[profile.id] != phoneId) {
@@ -1096,33 +1215,62 @@ class PcSync extends ChangeNotifier {
   }
 
   /// Works out what a sync would change on this PC and on the phone, for
-  /// the open profile, without changing anything. Returns the plan, or the
+  /// the open profile, without changing anything. With several phones, the
+  /// first one that has changes to show is used. Returns the plan, or the
   /// message to show.
-  Future<({SyncPlan? plan, String? problem})> preview() async {
+  Future<({SyncPlan? plan, String? problem})> preview({
+    Set<String>? only,
+  }) async {
     if (_busy) return (plan: null, problem: 'A sync is already running.');
-    final saved = settings.syncAddress;
-    final address = saved == null ? null : parsePhoneAddress(saved);
-    final code = await codeStore.read();
-    if (address == null || code == null) {
+    final all = [
+      for (final phone in phones)
+        if (only == null || only.contains(phone.id)) phone,
+    ];
+    if (all.isEmpty) {
       return (plan: null, problem: 'Connect to your phone first, in Settings.');
     }
     _setBusy(true);
     try {
+      var result = (plan: null as SyncPlan?, problem: null as String?);
+      for (final phone in all) {
+        result = await _previewPhone(phone);
+        final plan = result.plan;
+        if (plan != null && !plan.isEmpty) break;
+      }
+      return result;
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<({SyncPlan? plan, String? problem})> _previewPhone(
+    SyncPhone phone,
+  ) async {
+    _phone = phone.id;
+    final address = parsePhoneAddress(phone.address);
+    final code = await _codesOf(phone.id).read();
+    if (address == null || code == null) {
+      return (plan: null, problem: 'Connect to your phone first, in Settings.');
+    }
+    try {
       final every = await _everyProfile(address);
       final session = await client.connect(address, code);
       if (!every) {
-        return (plan: await _planFor(session, _openTarget, null), problem: null);
+        return (
+          plan: await _planFor(session, await _openTarget(), null),
+          problem: null,
+        );
       }
       final access = profiles!;
-      final phone = await client.profiles(session);
+      final phones = await client.profiles(session);
       final links = planProfileLinks(
         pc: access.list(),
-        phone: phone,
-        saved: access.links,
+        phone: phones,
+        saved: access.linksFor(_phone),
       ).links;
       final phoneId = links.links[access.openId];
       final onPhone = [
-        for (final profile in phone)
+        for (final profile in phones)
           if (profile.id == phoneId) profile,
       ];
       if (onPhone.isNotEmpty && onPhone.first.locked) {
@@ -1130,11 +1278,11 @@ class PcSync extends ChangeNotifier {
       }
       final plan = await _planFor(
         session,
-        _openTarget,
+        await _openTarget(),
         phoneId,
         // A profile the phone doesn't have yet is added there empty.
         phoneEmpty: phoneId == null,
-        useBase: access.links.links[access.openId] == phoneId,
+        useBase: access.linksFor(_phone).links[access.openId] == phoneId,
       );
       return (plan: plan, problem: null);
     } on SyncFailure catch (error) {
@@ -1144,8 +1292,6 @@ class PcSync extends ChangeNotifier {
       const message = 'Could not get the library from your phone.';
       settings.recordSyncError(message);
       return (plan: null, problem: message);
-    } finally {
-      _setBusy(false);
     }
   }
 
@@ -1168,30 +1314,49 @@ class PcSync extends ChangeNotifier {
   }
 
   Future<bool> _autoSyncNow() async {
-    final address = parsePhoneAddress(settings.syncAddress ?? '');
-    if (address == null) return false;
-    try {
-      await client.ping(address);
-    } on SyncFailure {
-      return false;
+    // Only the phones that are here: one that is away is left alone and
+    // says nothing.
+    final reachable = <SyncPhone>[];
+    for (final phone in phones) {
+      final address = parsePhoneAddress(phone.address);
+      if (address == null) continue;
+      try {
+        await client.ping(address);
+        reachable.add(phone);
+      } on SyncFailure {
+        // Not on this network now.
+      }
     }
-    if (settings.reviewSync) {
-      final plan = (await preview()).plan;
-      if (plan == null) return false;
+    if (reachable.isEmpty) return false;
+    final toSync = <String>{};
+    final held = <String>{};
+    var inSync = false;
+    for (final phone in reachable) {
+      if (!settings.reviewSync) {
+        toSync.add(phone.id);
+        continue;
+      }
+      final plan = (await preview(only: {phone.id})).plan;
+      if (plan == null) continue;
       if (plan.removals > 0) {
         if (plan.signature != _dismissed) {
           _pending = plan;
           notifyListeners();
         }
-        if (profiles != null) await syncNow(skipOpen: true);
-        return false;
+        if (profiles != null) held.add(phone.id);
+        continue;
       }
       if (plan.isEmpty && profiles == null) {
         recordInSync();
-        return true;
+        inSync = true;
+        continue;
       }
+      toSync.add(phone.id);
     }
-    return await syncNow() == null;
+    if (held.isNotEmpty) await syncNow(skipOpen: true, only: held);
+    if (held.isNotEmpty) return false;
+    if (toSync.isEmpty) return inSync;
+    return await syncNow(only: toSync) == null;
   }
 
   /// Syncs when Chapterly opens, if paired and switched on. Returns true
@@ -1238,9 +1403,10 @@ class PcSync extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Saves a new address for the paired phone, for example after the router
-  /// gave it a new one. Returns null when it worked, or the message to show.
-  Future<String?> changeAddress(String input) async {
+  /// Saves a new address for a paired phone (the first, unless [phone] says
+  /// which), for example after the router gave it a new one. Returns null
+  /// when it worked, or the message to show.
+  Future<String?> changeAddress(String input, {String phone = ''}) async {
     final address = parsePhoneAddress(input);
     if (address == null) {
       return 'Type the address your phone shows, such as 192.168.1.20:8765.';
@@ -1250,7 +1416,15 @@ class PcSync extends ChangeNotifier {
     } on SyncFailure catch (error) {
       return error.message;
     }
-    settings.setSyncAddress(formatPhoneAddress(address));
+    final text = formatPhoneAddress(address);
+    if (phone.isEmpty) {
+      settings.setSyncAddress(text);
+    } else {
+      settings.setExtraPhones([
+        for (final other in settings.extraPhones)
+          if (other.id == phone) other.copyWith(address: text) else other,
+      ]);
+    }
     notifyListeners();
     return null;
   }
@@ -1269,17 +1443,33 @@ class PcSync extends ChangeNotifier {
     }
   }
 
-  /// Removes the saved address and code, and which profiles go together.
-  Future<void> forget() async {
-    try {
-      await codeStore.delete();
-    } catch (_) {
-      // Already gone.
+  /// Removes a phone's saved address and code, and which profiles go
+  /// together (every phone, when [phone] is null).
+  Future<void> forget([String? phone]) async {
+    final ids = phone != null
+        ? [phone]
+        : phones.isEmpty
+            ? ['']
+            : [for (final p in phones) p.id];
+    for (final id in ids) {
+      try {
+        await _codesOf(id).delete();
+      } catch (_) {
+        // Already gone.
+      }
+      if (id.isEmpty) {
+        settings.setSyncAddress(null);
+        _hasCode = false;
+      } else {
+        settings.setExtraPhones([
+          for (final other in settings.extraPhones)
+            if (other.id != id) other,
+        ]);
+        _extraCodes.remove(id);
+      }
+      await (await _baseOf(id)).save(const []);
+      await profiles?.saveLinks(const ProfileLinks(), phone: id);
     }
-    settings.setSyncAddress(null);
-    await base.save(const []);
-    await profiles?.saveLinks(const ProfileLinks());
-    _hasCode = false;
     _pending = null;
     notifyListeners();
   }

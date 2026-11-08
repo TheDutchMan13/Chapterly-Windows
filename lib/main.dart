@@ -53,6 +53,7 @@ import 'server/server_platform.dart';
 import 'server/server_state.dart';
 import 'server/server_sync.dart';
 import 'data/cover_store.dart';
+import 'data/sync_phones.dart';
 
 /// Lets code outside the screens (such as Ctrl+V for a cover) show messages.
 final _messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -111,6 +112,13 @@ Future<void> main() async {
     codeStore: codeStore,
     base: await SyncBase.load(File(p.join(dataDir.path, 'sync_base.json'))),
     profiles: StoreSyncProfiles(profiles),
+    // Phones paired after the first keep their own code and last-synced
+    // copy.
+    codeStoreFor: (phone) =>
+        SecureCodeStore(storageKey: 'chapterly_sync_phone_$phone'),
+    baseFor: (phone) => SyncBase.load(
+      File(p.join(dataDir.path, syncBaseFileName(phone))),
+    ),
   );
   await pcSync.load();
   pcSync.startBackgroundSync();

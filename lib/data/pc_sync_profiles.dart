@@ -8,6 +8,7 @@ import 'pc_sync.dart';
 import 'profile_files.dart';
 import 'profiles.dart';
 import 'sqlite_book_store.dart';
+import 'sync_phones.dart';
 import 'sync_profiles.dart';
 import 'sync_three_way.dart';
 
@@ -17,10 +18,6 @@ class StoreSyncProfiles implements SyncProfileAccess {
   StoreSyncProfiles(this.store);
 
   final ProfileStore store;
-
-  /// Which profile here syncs with which on the phone, kept for the whole
-  /// PC (see [deviceKeyStart]).
-  static const _linksKey = 'syncLinks';
 
   final _stores = <SyncTarget, SqliteBookStore>{};
 
@@ -48,7 +45,7 @@ class StoreSyncProfiles implements SyncProfileAccess {
   }
 
   @override
-  Future<SyncTarget> open(String id) async {
+  Future<SyncTarget> open(String id, {String phone = ''}) async {
     final dir = await profileDataDir(id);
     final books = await SqliteBookStore.open(p.join(dir.path, 'chapterly.db'));
     final repository = BookRepository(books);
@@ -56,7 +53,9 @@ class StoreSyncProfiles implements SyncProfileAccess {
     final target = SyncTarget(
       repository: repository,
       settings: await AppSettings.load(store.scope(id)),
-      base: await SyncBase.load(File(p.join(dir.path, 'sync_base.json'))),
+      base: await SyncBase.load(
+        File(p.join(dir.path, syncBaseFileName(phone))),
+      ),
     );
     _stores[target] = books;
     return target;
@@ -67,16 +66,19 @@ class StoreSyncProfiles implements SyncProfileAccess {
     await _stores.remove(target)?.close();
   }
 
+  /// Which profile here syncs with which on a phone, kept for the whole PC
+  /// (see [deviceKeyStart]).
   @override
-  ProfileLinks get links =>
-      ProfileLinks.fromJson(store.device.getString(_linksKey));
+  ProfileLinks linksFor(String phone) =>
+      ProfileLinks.fromJson(store.device.getString(syncLinksKey(phone)));
 
   @override
-  Future<void> saveLinks(ProfileLinks links) async {
+  Future<void> saveLinks(ProfileLinks links, {String phone = ''}) async {
+    final key = syncLinksKey(phone);
     if (links.isEmpty) {
-      await store.device.remove(_linksKey);
+      await store.device.remove(key);
     } else {
-      await store.device.setString(_linksKey, links.toJson());
+      await store.device.setString(key, links.toJson());
     }
   }
 }

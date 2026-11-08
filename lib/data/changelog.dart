@@ -13,6 +13,17 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.46.0',
+    date: '2026-11-08',
+    changes: [
+      'Sync with more than one phone: pair another phone from Settings > '
+          'Sync with Add another phone. Each phone syncs with this PC, and '
+          'what one sends reaches the others the next time you sync. Phones '
+          'that are away are left alone and say nothing. You can forget or '
+          'find again each phone on its own',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.45.4',
     date: '2026-11-07',
     changes: [

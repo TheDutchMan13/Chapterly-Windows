@@ -32,7 +32,12 @@ class _Library {
   final repository = BookRepository(InMemoryBookStore());
   final settings = AppSettings();
   final base = SyncBase();
+  final _bases = <String, SyncBase>{};
   bool pin = false;
+
+  /// The last-synced copy for a phone (empty: the first).
+  SyncBase baseFor(String phone) =>
+      phone.isEmpty ? base : _bases[phone] ??= SyncBase();
 
   Future<void> load(List<String> books) async {
     await repository.load();
@@ -114,7 +119,8 @@ class _PcProfiles implements SyncProfileAccess {
   final libraries = <String, _Library>{};
   @override
   String openId = 'main';
-  ProfileLinks saved = const ProfileLinks();
+  final _saved = <String, ProfileLinks>{};
+  ProfileLinks get saved => _saved[''] ?? const ProfileLinks();
   var opened = 0;
   var closed = 0;
 
@@ -140,13 +146,13 @@ class _PcProfiles implements SyncProfileAccess {
   }
 
   @override
-  Future<SyncTarget> open(String id) async {
+  Future<SyncTarget> open(String id, {String phone = ''}) async {
     opened++;
     final library = libraries[id]!;
     return SyncTarget(
       repository: library.repository,
       settings: library.settings,
-      base: library.base,
+      base: library.baseFor(phone),
     );
   }
 
@@ -154,10 +160,11 @@ class _PcProfiles implements SyncProfileAccess {
   Future<void> close(SyncTarget target) async => closed++;
 
   @override
-  ProfileLinks get links => saved;
+  ProfileLinks linksFor(String phone) => _saved[phone] ?? const ProfileLinks();
 
   @override
-  Future<void> saveLinks(ProfileLinks links) async => saved = links;
+  Future<void> saveLinks(ProfileLinks links, {String phone = ''}) async =>
+      _saved[phone] = links;
 
   String? idOf(String name) {
     for (final entry in names.entries) {
@@ -352,6 +359,128 @@ void main() {
       expect(phone.names.length, 3);
       expect(pcProfiles.names.length, 2);
       expect(pcProfiles.opened, 0);
+    });
+  });
+
+  group('several phones', () {
+    late _Phone first;
+    late _Phone second;
+    late _PcProfiles pcProfiles;
+    late _Library pcMain;
+    late PcSync sync;
+    final codes = <String, MemoryCodeStore>{};
+
+    setUp(() async {
+      codes.clear();
+      first = _Phone();
+      await first.add('main', 'Me', ['one']);
+      await first.start();
+      second = _Phone();
+      await second.add('main', 'Me', ['two']);
+      await second.start();
+      pcProfiles = _PcProfiles();
+      pcMain = await pcProfiles.add('main', 'Me', ['pc']);
+      sync = PcSync(
+        repository: pcMain.repository,
+        settings: pcMain.settings,
+        codeStore: MemoryCodeStore(),
+        base: pcMain.base,
+        client: SyncClient(pingTimeout: const Duration(seconds: 2)),
+        profiles: pcProfiles,
+        codeStoreFor: (id) => codes[id] ??= MemoryCodeStore(),
+        baseFor: (id) async => pcMain.baseFor(id),
+      );
+    });
+
+    tearDown(() async {
+      await first.server.stop();
+      await second.server.stop();
+    });
+
+    test('a second phone is added, and books reach every phone', () async {
+      expect(await sync.pair(address: first.address, code: _code), isNull);
+      expect(sync.phones.map((p) => p.name), ['Phone 1']);
+
+      expect(await sync.pair(address: second.address, code: _code), isNull);
+      expect(sync.phones.map((p) => p.name), ['Phone 1', 'Phone 2']);
+      expect(sync.phones.map((p) => p.id), ['', 'p2']);
+
+      // Syncing every phone brings each one's books to the others.
+      expect(await sync.syncNow(), isNull);
+      const all = ['one', 'pc', 'two'];
+      expect(pcMain.books, all);
+      expect(first.libraries['main']!.books, all);
+      expect(second.libraries['main']!.books, all);
+    });
+
+    test('a removal on one phone reaches the other', () async {
+      await sync.pair(address: first.address, code: _code);
+      await sync.pair(address: second.address, code: _code);
+      expect(await sync.syncNow(), isNull);
+
+      await first.libraries['main']!.repository.deleteForever('two');
+      expect(await sync.syncNow(), isNull);
+
+      expect(second.libraries['main']!.books, ['one', 'pc']);
+      expect(pcMain.books, ['one', 'pc']);
+    });
+
+    test('pairing the same phone again does not add another', () async {
+      await sync.pair(address: first.address, code: _code);
+      await sync.pair(address: first.address, code: _code);
+      expect(sync.phones, hasLength(1));
+    });
+
+    test('a wrong code is not kept and leaves the others alone', () async {
+      await sync.pair(address: first.address, code: _code);
+      final problem =
+          await sync.pair(address: second.address, code: 'AAAAAAAAAAAAAAAA');
+      expect(problem, isNotNull);
+      expect(sync.phones, hasLength(1));
+    });
+
+    test('a wrong code for a phone already paired leaves it paired', () async {
+      await sync.pair(address: first.address, code: _code);
+      final problem =
+          await sync.pair(address: first.address, code: 'AAAAAAAAAAAAAAAA');
+      expect(problem, isNotNull);
+      expect(sync.phones, hasLength(1));
+      expect(await sync.syncNow(), isNull);
+    });
+
+    test('forgetting one phone keeps the other', () async {
+      await sync.pair(address: first.address, code: _code);
+      await sync.pair(address: second.address, code: _code);
+
+      await sync.forget('p2');
+      expect(sync.phones.map((p) => p.name), ['Phone 1']);
+      expect(sync.paired, isTrue);
+
+      await sync.forget();
+      expect(sync.paired, isFalse);
+    });
+
+    test('a phone that is away is named, and the others still sync', () async {
+      await sync.pair(address: first.address, code: _code);
+      await sync.pair(address: second.address, code: _code);
+      await second.server.stop();
+
+      final problem = await sync.syncNow();
+      expect(problem, startsWith('Phone 2:'));
+      expect(first.libraries['main']!.books, contains('two'));
+    });
+
+    test('an automatic sync leaves a phone that is away alone', () async {
+      await sync.pair(address: first.address, code: _code);
+      await sync.pair(address: second.address, code: _code);
+      await second.server.stop();
+      await first.libraries['main']!.repository.replaceAll([
+        for (final id in ['one', 'new-one']) _book(id),
+      ]);
+
+      expect(await sync.autoSync(), isTrue);
+      expect(pcMain.books, contains('new-one'));
+      expect(pcMain.settings.lastSyncError, isNull);
     });
   });
 }

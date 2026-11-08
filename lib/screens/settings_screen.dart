@@ -19,6 +19,7 @@ import '../data/pc_sync.dart';
 import '../data/profiles.dart';
 import '../data/theme_options.dart';
 import '../data/update_check.dart';
+import '../data/sync_phones.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
 import 'pin_dialogs.dart';
@@ -1406,6 +1407,9 @@ class _SyncSettingsState extends State<_SyncSettings> {
   String? _problem;
   bool _finding = false;
 
+  /// Showing the form to pair another phone.
+  bool _adding = false;
+
   @override
   void dispose() {
     _address.dispose();
@@ -1464,16 +1468,17 @@ class _SyncSettingsState extends State<_SyncSettings> {
     setState(() => _address.text = address);
   }
 
-  Future<void> _findAgain() async {
+  Future<void> _findAgain(SyncPhone phone) async {
     final messenger = ScaffoldMessenger.of(context);
     final address = await _find();
     if (address == null || !mounted) return;
-    final problem = await widget.pcSync.changeAddress(address);
+    final problem =
+        await widget.pcSync.changeAddress(address, phone: phone.id);
     if (!mounted) return;
     setState(() => _problem = problem);
     if (problem == null) {
       messenger.showSnackBar(
-        SnackBar(content: Text('Found your phone at $address')),
+        SnackBar(content: Text('Found ${phone.name} at $address')),
       );
     }
   }
@@ -1504,6 +1509,8 @@ class _SyncSettingsState extends State<_SyncSettings> {
     setState(() => _problem = problem);
     if (problem == null) {
       _code.clear();
+      _address.clear();
+      setState(() => _adding = false);
       messenger.showSnackBar(_connectedSnackBar(widget.pcSync));
     }
   }
@@ -1517,17 +1524,24 @@ class _SyncSettingsState extends State<_SyncSettings> {
       builder: (dialogContext) => _QrPairDialog(pcSync: widget.pcSync),
     );
     if (paired != true) return;
-    if (mounted) _code.clear();
+    if (mounted) {
+      _code.clear();
+      setState(() => _adding = false);
+    }
     messenger.showSnackBar(_connectedSnackBar(widget.pcSync));
   }
 
   Future<void> _syncNow() => runManualSync(context, widget.pcSync);
 
-  Future<void> _forget() async {
+  Future<void> _forget(SyncPhone phone) async {
     final sure = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Forget this phone?'),
+        title: Text(
+          widget.pcSync.phones.length > 1
+              ? 'Forget ${phone.name}?'
+              : 'Forget this phone?',
+        ),
         content: const Text(
           'Your books stay on this PC. To sync again, scan the QR code or enter '
           'the address and pairing code from your phone.',
@@ -1544,36 +1558,50 @@ class _SyncSettingsState extends State<_SyncSettings> {
         ],
       ),
     );
-    if (sure == true) await widget.pcSync.forget();
+    if (sure == true) await widget.pcSync.forget(phone.id);
   }
 
   @override
   Widget build(BuildContext context) {
     final sync = widget.pcSync;
-    if (sync.paired) {
+    if (sync.paired && !_adding) {
+      final phones = sync.phones;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ListTile(
-            leading: const Icon(Icons.phone_android),
-            title: const Text('Your phone'),
-            subtitle: Text(widget.settings.syncAddress ?? ''),
-            trailing: IconButton(
-              tooltip: 'Copy address',
-              icon: const Icon(Icons.copy),
-              onPressed: () async {
-                final messenger = ScaffoldMessenger.of(context);
-                await Clipboard.setData(
-                  ClipboardData(text: widget.settings.syncAddress ?? ''),
-                );
-                messenger
-                  ..hideCurrentSnackBar()
-                  ..showSnackBar(
-                    const SnackBar(content: Text('Address copied')),
-                  );
-              },
+          for (final phone in phones)
+            ListTile(
+              leading: const Icon(Icons.phone_android),
+              title: Text(phones.length > 1 ? phone.name : 'Your phone'),
+              subtitle: Text(phone.address),
+              trailing: PopupMenuButton<String>(
+                tooltip: 'Phone options',
+                enabled: !sync.busy,
+                onSelected: (choice) async {
+                  switch (choice) {
+                    case 'copy':
+                      final messenger = ScaffoldMessenger.of(context);
+                      await Clipboard.setData(
+                        ClipboardData(text: phone.address),
+                      );
+                      messenger
+                        ..hideCurrentSnackBar()
+                        ..showSnackBar(
+                          const SnackBar(content: Text('Address copied')),
+                        );
+                    case 'find':
+                      await _findAgain(phone);
+                    case 'forget':
+                      await _forget(phone);
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'copy', child: Text('Copy address')),
+                  PopupMenuItem(value: 'find', child: Text('Find it again')),
+                  PopupMenuItem(value: 'forget', child: Text('Forget')),
+                ],
+              ),
             ),
-          ),
           ListTile(
             leading: const Icon(Icons.history),
             title: const Text('Last sync'),
@@ -1583,7 +1611,9 @@ class _SyncSettingsState extends State<_SyncSettings> {
             leading: Icon(Icons.people_outline),
             title: Text('Every profile syncs'),
             subtitle: Text(
-              'One pairing covers all your profiles. A profile missing on '
+              'One pairing covers all your profiles, and you can pair more '
+              'than one phone: each syncs with this PC, and what one sends '
+              'reaches the others. A profile missing on '
               'one side is added there, matched by name. A profile with a '
               'PIN syncs only while it is open, here and on your phone. '
               'Removing a profile on one side does not remove it on the '
@@ -1650,13 +1680,15 @@ class _SyncSettingsState extends State<_SyncSettings> {
                   icon: const Icon(Icons.sync),
                   label: Text(sync.busy ? 'Syncing...' : 'Sync now'),
                 ),
-                OutlinedButton(
-                  onPressed: sync.busy ? null : _findAgain,
-                  child: _findLabel('Find my phone again'),
-                ),
-                TextButton(
-                  onPressed: sync.busy ? null : _forget,
-                  child: const Text('Forget this phone'),
+                OutlinedButton.icon(
+                  onPressed: sync.busy
+                      ? null
+                      : () => setState(() {
+                            _adding = true;
+                            _problem = null;
+                          }),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add another phone'),
                 ),
               ],
             ),
@@ -1685,10 +1717,16 @@ class _SyncSettingsState extends State<_SyncSettings> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'On your phone, open Chapterly and go to Settings > Sync with a '
-            'PC. Switch on "Allow sync from my PC", then scan the code from '
-            'this PC. Or type the address and pairing code it shows.',
+          Text(
+            sync.paired
+                ? 'To add another phone, open Chapterly on it and go to '
+                    'Settings > Sync with a PC. Switch on "Allow sync from my '
+                    'PC", then scan the code from this PC. Or type the '
+                    'address and pairing code it shows.'
+                : 'On your phone, open Chapterly and go to Settings > Sync '
+                    'with a PC. Switch on "Allow sync from my PC", then scan '
+                    'the code from this PC. Or type the address and pairing '
+                    'code it shows.',
           ),
           const SizedBox(height: 12),
           FilledButton.icon(
@@ -1754,6 +1792,16 @@ class _SyncSettingsState extends State<_SyncSettings> {
                 : const Icon(Icons.link),
             label: const Text('Connect and sync'),
           ),
+          if (sync.paired)
+            TextButton(
+              onPressed: sync.busy
+                  ? null
+                  : () => setState(() {
+                        _adding = false;
+                        _problem = null;
+                      }),
+              child: const Text('Cancel'),
+            ),
           const SizedBox(height: 8),
           const Text(
             'The pairing code is kept in Windows Credential Manager. The '
