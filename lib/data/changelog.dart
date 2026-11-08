@@ -13,6 +13,15 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.46.1',
+    date: '2026-11-08',
+    changes: [
+      'See your phones at a glance: in Settings > Sync with your phone, '
+          'each paired phone now says whether it is here right now and when '
+          'it last synced, and a new button checks again without syncing',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.46.0',
     date: '2026-11-08',
     changes: [

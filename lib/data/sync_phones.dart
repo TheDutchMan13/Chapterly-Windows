@@ -76,3 +76,25 @@ String syncBaseFileName(String phone) =>
 
 /// The key the links between profiles are kept under.
 String syncLinksKey(String phone) => phone.isEmpty ? 'syncLinks' : 'syncLinks.$phone';
+
+/// When each phone last synced, as saved: {id: milliseconds}.
+String encodePhoneSynced(Map<String, DateTime> synced) => jsonEncode({
+      for (final entry in synced.entries)
+        entry.key: entry.value.millisecondsSinceEpoch,
+    });
+
+Map<String, DateTime> decodePhoneSynced(String? text) {
+  if (text == null || text.isEmpty) return const {};
+  try {
+    final data = jsonDecode(text);
+    if (data is! Map) return const {};
+    return {
+      for (final entry in data.entries)
+        if (entry.key is String && entry.value is int)
+          entry.key as String:
+              DateTime.fromMillisecondsSinceEpoch(entry.value as int),
+    };
+  } catch (_) {
+    return const {};
+  }
+}

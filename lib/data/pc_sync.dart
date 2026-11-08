@@ -686,6 +686,45 @@ class PcSync extends ChangeNotifier {
   /// True while connecting or syncing.
   bool get busy => _busy;
 
+  final _here = <String, bool?>{};
+  bool _checking = false;
+
+  /// Whether each phone (by id) answered the last check: true is here now,
+  /// false is not reachable, missing is not checked yet.
+  Map<String, bool?> get phonesHere => Map.unmodifiable(_here);
+
+  /// True while [checkPhones] is looking.
+  bool get checking => _checking;
+
+  /// Asks every paired phone whether it is reachable now, without syncing.
+  Future<void> checkPhones() async {
+    if (_checking) return;
+    _checking = true;
+    notifyListeners();
+    try {
+      final all = phones;
+      await Future.wait([
+        for (final phone in all)
+          () async {
+            final address = parsePhoneAddress(phone.address);
+            var here = false;
+            if (address != null) {
+              try {
+                await client.ping(address);
+                here = true;
+              } catch (_) {
+                // Not reachable, or not a phone that fits this version.
+              }
+            }
+            _here[phone.id] = here;
+          }(),
+      ]);
+    } finally {
+      _checking = false;
+      notifyListeners();
+    }
+  }
+
   /// Whether a phone is paired.
   bool get paired => phones.isNotEmpty;
 
@@ -954,6 +993,8 @@ class PcSync extends ChangeNotifier {
       } else if (!skipOpen) {
         await _syncTarget(session, await _openTarget(), null);
       }
+      settings.setPhoneSynced(phone.id, DateTime.now());
+      _here[phone.id] = true;
       return (problem: null, note: note);
     } on SyncFailure catch (error) {
       settings.recordSyncError(error.message);
@@ -1467,6 +1508,8 @@ class PcSync extends ChangeNotifier {
         ]);
         _extraCodes.remove(id);
       }
+      settings.setPhoneSynced(id, null);
+      _here.remove(id);
       await (await _baseOf(id)).save(const []);
       await profiles?.saveLinks(const ProfileLinks(), phone: id);
     }

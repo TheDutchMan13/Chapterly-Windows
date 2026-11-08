@@ -1411,10 +1411,32 @@ class _SyncSettingsState extends State<_SyncSettings> {
   bool _adding = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Which phones are here now, found out when this section is opened.
+    if (widget.pcSync.paired) widget.pcSync.checkPhones();
+  }
+
+  @override
   void dispose() {
     _address.dispose();
     _code.dispose();
     super.dispose();
+  }
+
+  String _phoneStatus(SyncPhone phone) {
+    final sync = widget.pcSync;
+    final here = sync.phonesHere[phone.id];
+    final state = sync.checking && here == null
+        ? 'Checking...'
+        : here == null
+            ? 'Not checked'
+            : here
+                ? 'Here now'
+                : 'Not reachable';
+    final at = widget.settings.phoneSynced[phone.id];
+    final last = at == null ? 'never synced' : 'synced ${formatDateTime(at)}';
+    return '$state · $last';
   }
 
   String _lastSyncText() {
@@ -1573,7 +1595,8 @@ class _SyncSettingsState extends State<_SyncSettings> {
             ListTile(
               leading: const Icon(Icons.phone_android),
               title: Text(phones.length > 1 ? phone.name : 'Your phone'),
-              subtitle: Text(phone.address),
+              subtitle: Text('${phone.address}\n${_phoneStatus(phone)}'),
+              isThreeLine: true,
               trailing: PopupMenuButton<String>(
                 tooltip: 'Phone options',
                 enabled: !sync.busy,
@@ -1602,6 +1625,13 @@ class _SyncSettingsState extends State<_SyncSettings> {
                 ],
               ),
             ),
+          ListTile(
+            leading: const Icon(Icons.wifi_find),
+            title: const Text('Check which phones are here'),
+            subtitle: const Text('Looks for each phone now, without syncing.'),
+            enabled: !sync.busy && !sync.checking,
+            onTap: sync.checkPhones,
+          ),
           ListTile(
             leading: const Icon(Icons.history),
             title: const Text('Last sync'),

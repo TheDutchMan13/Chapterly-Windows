@@ -482,5 +482,30 @@ void main() {
       expect(pcMain.books, contains('new-one'));
       expect(pcMain.settings.lastSyncError, isNull);
     });
+
+    test('each phone shows if it is here and when it last synced', () async {
+      await sync.pair(address: first.address, code: _code);
+      await sync.pair(address: second.address, code: _code);
+      // Pairing syncs once, so both phones have a time.
+      expect(pcMain.settings.phoneSynced.keys, unorderedEquals(['', 'p2']));
+
+      await sync.checkPhones();
+      expect(sync.phonesHere, {'': true, 'p2': true});
+
+      await second.server.stop();
+      await sync.checkPhones();
+      expect(sync.phonesHere, {'': true, 'p2': false});
+
+      // A sync with only the first phone leaves the other's time alone.
+      final before = pcMain.settings.phoneSynced['p2'];
+      expect(await sync.syncNow(only: {''}), isNull);
+      expect(pcMain.settings.phoneSynced['p2'], before);
+
+      // Forgetting a phone forgets its time.
+      await sync.forget('p2');
+      expect(pcMain.settings.phoneSynced.keys, ['']);
+      await sync.forget();
+      expect(pcMain.settings.phoneSynced, isEmpty);
+    });
   });
 }

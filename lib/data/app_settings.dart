@@ -102,6 +102,7 @@ class AppSettings extends ChangeNotifier {
   ScopedPrefs? _device;
   String? _syncAddress;
   List<SyncPhone> _extraPhones = const [];
+  Map<String, DateTime> _phoneSynced = const {};
   bool _syncOnOpen = true;
   bool _reviewSync = true;
   int _syncEveryMinutes = 15;
@@ -243,6 +244,9 @@ class AppSettings extends ChangeNotifier {
 
   /// The phones paired after the first, for the whole PC.
   List<SyncPhone> get extraPhones => _extraPhones;
+
+  /// When each phone (by id, empty for the first) last synced, device-wide.
+  Map<String, DateTime> get phoneSynced => _phoneSynced;
 
   /// Sync with the phone each time Chapterly opens, quietly, if the phone is
   /// there.
@@ -461,6 +465,7 @@ class AppSettings extends ChangeNotifier {
     }
     settings._syncAddress = device.getString('syncAddress');
     settings._extraPhones = decodeSyncPhones(device.getString('syncPhones'));
+    settings._phoneSynced = decodePhoneSynced(device.getString('phoneSynced'));
     settings._syncOnOpen = prefs.getBool('syncOnOpen') ?? true;
     settings._reviewSync = prefs.getBool('reviewSync') ?? true;
     settings._syncEveryMinutes = prefs.getInt('syncEveryMinutes') ?? 15;
@@ -1154,6 +1159,25 @@ class AppSettings extends ChangeNotifier {
       store?.remove('syncPhones');
     } else {
       store?.setString('syncPhones', encodeSyncPhones(phones));
+    }
+    notifyListeners();
+  }
+
+  /// Notes that the phone [id] (empty: the first) synced at [at], or, with
+  /// null, that it was forgotten.
+  void setPhoneSynced(String id, DateTime? at) {
+    final next = {..._phoneSynced};
+    if (at == null) {
+      next.remove(id);
+    } else {
+      next[id] = at;
+    }
+    _phoneSynced = Map.unmodifiable(next);
+    final store = _device ?? prefs;
+    if (next.isEmpty) {
+      store?.remove('phoneSynced');
+    } else {
+      store?.setString('phoneSynced', encodePhoneSynced(next));
     }
     notifyListeners();
   }
