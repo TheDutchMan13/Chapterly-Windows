@@ -19,6 +19,7 @@ import 'book_sorting.dart';
 import 'book_store.dart';
 import 'cover_store.dart';
 import 'duplicates.dart';
+import 'perf_log.dart';
 import 'sync_covers.dart';
 
 /// Splits "sci-fi, Favorites,, sci-fi" into ["sci-fi", "Favorites"].
@@ -272,6 +273,7 @@ class BookRepository extends ChangeNotifier implements CoverStore {
 
   @override
   void notifyListeners() {
+    PerfLog.libraryChanged();
     _vocabulary = null;
     _changes++;
     // A picture that reached the library some other way is moved out too.

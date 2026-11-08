@@ -24,6 +24,7 @@ import 'data/library_scan.dart';
 import 'data/linked_files.dart';
 import 'data/open_library_client.dart';
 import 'data/pc_sync.dart';
+import 'data/perf_log.dart';
 import 'data/pc_sync_profiles.dart';
 import 'data/profile_files.dart';
 import 'data/profiles.dart';
@@ -60,12 +61,15 @@ final _messengerKey = GlobalKey<ScaffoldMessengerState>();
 String _profileId = mainProfileId;
 
 Future<void> main() async {
+  PerfLog.mark('Chapterly starts');
   WidgetsFlutterBinding.ensureInitialized();
   await PluginWindowControl.initialize();
+  PerfLog.mark('window ready');
   MiniTimer.instance.window = const PluginWindowControl();
   MiniPlayer.instance.window = const PluginWindowControl();
   // The open profile. Choosing another one restarts Chapterly with it.
   final profiles = await ProfileStore.load();
+  PerfLog.mark('profiles loaded');
   final profile = profiles.active;
   _profileId = profile.id;
   ProfileSwitching.store = profiles;
@@ -80,14 +84,18 @@ Future<void> main() async {
   // C:\Users\<you>\AppData\Roaming\...\chapterly, or profiles\<id> in it
   final dataDir = await profileDataDir(profile.id);
   openProfileDir = dataDir;
+  PerfLog.attach(File(p.join(dataDir.path, 'performance_log.txt')));
   final repository = BookRepository(
     await SqliteBookStore.open(p.join(dataDir.path, 'chapterly.db')),
   );
+  PerfLog.mark('database opened');
   await repository.load();
+  PerfLog.mark('library loaded (${repository.allBooks.length} books)');
   // Cover pictures are read from this library when they are shown.
   CoverImages.source = repository.readCover;
   final settings = await AppSettings.load(profiles.scope(profile.id));
   await settings.loadSecrets(SecureSecretStore(profile.id));
+  PerfLog.mark('settings loaded');
   // One pairing for every profile: the first profile's pairing code is the
   // PC's (or the open profile's, the first time).
   const codeStore = SecureCodeStore();
@@ -106,6 +114,7 @@ Future<void> main() async {
   );
   await pcSync.load();
   pcSync.startBackgroundSync();
+  PerfLog.mark('sync ready');
   // Audiobooks play through media_kit on Windows.
   JustAudioMediaKit.title = 'Chapterly';
   JustAudioMediaKit.ensureInitialized();
@@ -119,6 +128,7 @@ Future<void> main() async {
     files: audioFiles,
   );
   Listening.controller = listenController;
+  PerfLog.mark('audiobooks ready');
   listenController.smartRewind = settings.smartRewind;
   settings.addListener(
     () => listenController.smartRewind = settings.smartRewind,
@@ -142,6 +152,7 @@ Future<void> main() async {
   EbookReading.library = await EbookLibrary.load(
     File(p.join(dataDir.path, 'ebook_library.json')),
   );
+  PerfLog.mark('ebook library loaded');
   EbookReading.files = const WindowsEbookFiles();
   EbookReading.repository = repository;
   EbookReading.booksDir = Directory(p.join(dataDir.path, 'books'));
@@ -151,6 +162,7 @@ Future<void> main() async {
   // The book server: browsing it, downloads, and keeping your place in its
   // books the same on every device.
   await _setUpBookServer(dataDir, repository, listenController, settings);
+  PerfLog.mark('book server set up');
   // Links the files in your book and audiobook folders to your books.
   LibraryScanning.scanner = LibraryScanner(
     repository: repository,
@@ -170,7 +182,10 @@ Future<void> main() async {
     AutoBackupObserver(repository: repository, settings: settings),
   );
   // Not awaited: the app opens while the backup is written.
-  runAutoBackup(repository, settings);
+  unawaited(PerfLog.timed(
+    'automatic backup',
+    () => runAutoBackup(repository, settings),
+  ));
   // Fills in series found in titles, now and as books are added.
   AutoSeries.start(repository, settings);
   // Google Books fills in missing covers, pages and tags (off until switched on).
@@ -183,6 +198,11 @@ Future<void> main() async {
   _remindNowAndThen(repository, settings);
   // Closing the window can keep Chapterly in the tray (a setting).
   unawaited(AppTray(settings).start());
+  PerfLog.mark('opening the window');
+  PerfLog.watch();
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => PerfLog.mark('first screen drawn'),
+  );
   runApp(
     ChapterlyApp(
       repository: repository,

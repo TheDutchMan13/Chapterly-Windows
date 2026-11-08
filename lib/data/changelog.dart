@@ -13,6 +13,17 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.45.2',
+    date: '2026-11-07',
+    changes: [
+      'Chapterly now keeps a short performance_log.txt in its data folder: '
+          'how long each step of starting took, slow screens, and moments '
+          'when the app was busy. It holds no book details and starts fresh '
+          'each time Chapterly opens. It helps find out why the app feels '
+          'slow',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.45.1',
     date: '2026-11-07',
     changes: [

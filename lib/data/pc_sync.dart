@@ -18,6 +18,7 @@ import 'sync_merge.dart';
 import 'sync_plan.dart';
 import 'sync_profiles.dart';
 import 'sync_protocol.dart';
+import 'perf_log.dart';
 
 /// A sync problem, with a message for the user.
 class SyncFailure implements Exception {
@@ -1163,6 +1164,10 @@ class PcSync extends ChangeNotifier {
   /// true when it synced.
   Future<bool> autoSync() async {
     if (_busy || !paired) return false;
+    return PerfLog.timed('automatic sync', _autoSyncNow);
+  }
+
+  Future<bool> _autoSyncNow() async {
     final address = parsePhoneAddress(settings.syncAddress ?? '');
     if (address == null) return false;
     try {
