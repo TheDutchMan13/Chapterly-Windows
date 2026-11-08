@@ -54,6 +54,7 @@ import 'find_isbns_screen.dart';
 import 'fix_library_screen.dart';
 import 'update_covers_screen.dart';
 import 'new_books_banner.dart';
+import '../widgets/while_shown.dart';
 
 enum _AddChoice { search, isbn, bulk, manual }
 
@@ -1844,7 +1845,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge([widget.settings, widget.repository]),
-      builder: (context, _) => _frame(DefaultTabController(
+      builder: (context, _) => WhileShown(build: (context) => _frame(DefaultTabController(
         key: ValueKey(_collections.length),
         length: Shelf.values.length + _collections.length,
         child: PopScope(
@@ -2074,7 +2075,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 : null,
           ),
         ),
-      )),
+      ))),
     );
   }
 }

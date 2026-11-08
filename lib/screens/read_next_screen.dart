@@ -15,6 +15,7 @@ import '../models/shelf.dart';
 import '../widgets/book_cover.dart';
 import 'book_insights.dart';
 import 'book_detail_screen.dart';
+import '../widgets/while_shown.dart';
 
 /// Picks a book from the For later shelf, so you do not have to: the best
 /// match for your taste (Windows app), or a random one.
@@ -225,7 +226,8 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
       appBar: AppBar(title: const Text('What should I read next?')),
       body: ListenableBuilder(
         listenable: widget.repository,
-        builder: (context, _) {
+        builder: (context, _) => WhileShown(
+          build: (context) {
           final waiting = widget.repository.booksOn(Shelf.forLater);
           final tags = ({for (final book in waiting) ...book.tags}.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase())));
@@ -401,6 +403,7 @@ class _ReadNextScreenState extends State<ReadNextScreen> {
             ],
           );
         },
+        ),
       ),
     );
   }

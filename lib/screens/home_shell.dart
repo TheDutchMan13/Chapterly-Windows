@@ -65,6 +65,10 @@ class _HomeShellState extends State<HomeShell> {
 
   int _index = 0;
 
+  /// Pages opened so far: the others are not built until first visited,
+  /// which makes starting quicker.
+  final _opened = <int>{0};
+
   final _addMenu = MenuController();
   final _importMenu = MenuController();
 
@@ -135,7 +139,12 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _go(int index) {
-    if (index != _index) setState(() => _index = index);
+    if (index != _index) {
+      setState(() {
+        _index = index;
+        _opened.add(index);
+      });
+    }
   }
 
   /// Whether this build can read books or play audiobooks (not in tests).
@@ -294,6 +303,9 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
+  Widget _page(int index, Widget Function() make) =>
+      _opened.contains(index) ? make() : const SizedBox.shrink();
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -357,7 +369,8 @@ class _HomeShellState extends State<HomeShell> {
               child: IndexedStack(
                 index: _index,
                 children: [
-                  LibraryScreen(
+                  // Each page is made on first visit.
+                  _page(0, () => LibraryScreen(
                     repository: widget.repository,
                     client: widget.client,
                     settings: widget.settings,
@@ -365,28 +378,28 @@ class _HomeShellState extends State<HomeShell> {
                     fileIo: widget.fileIo,
                     onOpenSettings: () => _go(_settingsPage),
                     openBookRequests: _openBook,
-                  ),
-                  StatisticsScreen(
+                  )),
+                  _page(1, () => StatisticsScreen(
                     repository: widget.repository,
                     settings: widget.settings,
                     fileIo: widget.fileIo,
-                  ),
-                  NextUpScreen(
+                  )),
+                  _page(2, () => NextUpScreen(
                     repository: widget.repository,
                     settings: widget.settings,
                     fileIo: widget.fileIo,
-                  ),
-                  ReadNextScreen(
+                  )),
+                  _page(3, () => ReadNextScreen(
                     repository: widget.repository,
                     settings: widget.settings,
                     fileIo: widget.fileIo,
-                  ),
-                  SettingsScreen(
+                  )),
+                  _page(4, () => SettingsScreen(
                     repository: widget.repository,
                     settings: widget.settings,
                     pcSync: widget.pcSync,
                     fileIo: widget.fileIo,
-                  ),
+                  )),
                 ],
               ),
             ),

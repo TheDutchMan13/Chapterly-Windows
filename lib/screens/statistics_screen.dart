@@ -16,6 +16,7 @@ import 'challenges_card.dart';
 import 'reader_stats_card.dart';
 import 'stats_widgets.dart';
 import 'year_review_screen.dart';
+import '../widgets/while_shown.dart';
 
 const _formatColors = [
   statsBlue,
@@ -502,7 +503,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       appBar: AppBar(title: const Text('Statistics')),
       body: ListenableBuilder(
         listenable: Listenable.merge([widget.repository, widget.settings]),
-        builder: (context, _) {
+        builder: (context, _) => WhileShown(
+          build: (context) {
           final books = widget.repository.books;
           if (books.isEmpty) {
             return const Center(child: Text('Add some books to see statistics.'));
@@ -832,6 +834,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             },
           );
         },
+        ),
       ),
     );
   }

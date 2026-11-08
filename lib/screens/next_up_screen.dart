@@ -8,6 +8,7 @@ import '../models/shelf.dart';
 import '../models/wish_priority.dart';
 import '../widgets/book_cover.dart';
 import 'book_detail_screen.dart';
+import '../widgets/while_shown.dart';
 
 enum _RowAction { top, up, down, start }
 
@@ -82,7 +83,8 @@ class NextUpScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Next up')),
       body: ListenableBuilder(
         listenable: repository,
-        builder: (context, _) {
+        builder: (context, _) => WhileShown(
+          build: (context) {
           final books = repository.nextUp;
           if (books.isEmpty) {
             return const Center(
@@ -159,6 +161,7 @@ class NextUpScreen extends StatelessWidget {
             ],
           );
         },
+        ),
       ),
     );
   }
