@@ -13,6 +13,20 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.47.0',
+    date: '2026-11-09',
+    changes: [
+      'See which devices use your book server: in Book server, the menu '
+          'now has Devices on the server, with each app, whose it is and '
+          'when it last connected. You can take an old one off the list. It '
+          'needs book server 1.9.0 or newer, and shows up once each app is '
+          'updated',
+      'When the book server cannot be reached, Chapterly now says why: the '
+          'PC is there but the server is not running, the address was not '
+          'found, or Tailscale or the PC is off',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.46.1',
     date: '2026-11-08',
     changes: [

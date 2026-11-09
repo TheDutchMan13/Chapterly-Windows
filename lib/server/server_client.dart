@@ -57,10 +57,47 @@ const _serverNeedsUpdate = ServerFailure(
 );
 
 const _unreachable = ServerFailure(
-  'Chapterly cannot reach your book server. Is it running, and is '
-  'Tailscale on?',
+  'Chapterly cannot reach your book server. Turn on Tailscale on this device '
+  'and check the PC with the server is on and online.',
   unreachable: true,
 );
+
+/// The PC answered, but nothing is listening: the server is not running.
+const _notRunning = ServerFailure(
+  'Your PC is there, but the book server is not running on it. Start it '
+  '(on the PC: Start-ScheduledTask -TaskName "Chapterly Server").',
+  unreachable: true,
+);
+
+/// The address does not lead anywhere.
+const _noSuchAddress = ServerFailure(
+  'This address was not found. Check the book server address, and that '
+  'Tailscale is on.',
+  unreachable: true,
+);
+
+/// What a failed connection means, from the system's words for it. Only
+/// what the system says for certain is named; anything else is the general
+/// "cannot reach" message.
+ServerFailure unreachableBecause(Object error) {
+  var text = error.toString().toLowerCase();
+  var code = 0;
+  if (error is SocketException) {
+    code = error.osError?.errorCode ?? 0;
+    text = '${error.message} ${error.osError?.message ?? ''}'.toLowerCase();
+  }
+  // 111 and 61: refused on Android and Linux/macOS, 10061 on Windows.
+  if (code == 111 || code == 61 || code == 10061 || text.contains('refused')) {
+    return _notRunning;
+  }
+  if (text.contains('host lookup') ||
+      text.contains('no address associated') ||
+      text.contains('nodename nor servname') ||
+      code == 11001) {
+    return _noSuchAddress;
+  }
+  return _unreachable;
+}
 
 /// The port the server uses when the address has none.
 const defaultServerPort = 8780;
@@ -325,15 +362,32 @@ class ServerClient {
     required this.token,
     http.Client? client,
     this.timeout = const Duration(seconds: 15),
+    this.device,
+    this.deviceName,
   }) : _client = client ?? http.Client();
 
   final Uri address;
   final String token;
+
+  /// Which app this is, shown in the server's list of devices. Optional.
+  final String? device;
+  final String? deviceName;
   final Duration timeout;
   final http.Client _client;
 
   /// Headers that sign in, also for loading covers.
-  Map<String, String> get authHeaders => {'Authorization': 'Bearer $token'};
+  Map<String, String> get authHeaders => {
+        'Authorization': 'Bearer $token',
+        'X-Chapterly-Device': ?device,
+        if (device != null && deviceName != null)
+          'X-Chapterly-Device-Name': _headerSafe(deviceName!),
+      };
+
+  /// Header values are plain characters only.
+  static String _headerSafe(String text) => String.fromCharCodes([
+        for (final unit in text.codeUnits)
+          if (unit >= 32 && unit < 127) unit else 63,
+      ]);
 
   Uri _uri(String path, [Map<String, String>? query]) => address.replace(
         path: path,
@@ -354,10 +408,10 @@ class ServerClient {
       response = await request().timeout(wait ?? timeout);
     } on TimeoutException {
       throw _unreachable;
-    } on SocketException {
-      throw _unreachable;
-    } on http.ClientException {
-      throw _unreachable;
+    } on SocketException catch (error) {
+      throw unreachableBecause(error);
+    } on http.ClientException catch (error) {
+      throw unreachableBecause(error);
     }
     _check(response.statusCode, response.body);
     return response;
@@ -431,6 +485,30 @@ class ServerClient {
     ));
     if (data is Map && data['name'] is String) return data['name'] as String;
     throw const ServerFailure('The server sent something Chapterly cannot read.');
+  }
+
+  /// The apps that have signed in as you, newest first. An owner's list has
+  /// everybody's.
+  Future<List<ServerDevice>> devices() async {
+    final data = _json(await _send(
+      () => _client.get(_uri('/v1/devices'), headers: authHeaders),
+    ));
+    final list = data is Map ? data['devices'] : null;
+    if (list is! List) {
+      throw const ServerFailure('The server sent something Chapterly cannot read.');
+    }
+    return [
+      for (final item in list)
+        if (item is Map) ServerDevice.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
+  /// Takes a device off the server's list. It comes back if it signs in again.
+  Future<void> forgetDevice(ServerDevice device) async {
+    await _send(() => _client.delete(
+          _uri('/v1/devices/${device.id}', {'person': device.person}),
+          headers: authHeaders,
+        ));
   }
 
   /// One book, with its corrections.
@@ -781,10 +859,10 @@ class ServerClient {
       return received;
     } on TimeoutException {
       throw _unreachable;
-    } on SocketException {
-      throw _unreachable;
-    } on http.ClientException {
-      throw _unreachable;
+    } on SocketException catch (error) {
+      throw unreachableBecause(error);
+    } on http.ClientException catch (error) {
+      throw unreachableBecause(error);
     } finally {
       await sink?.close();
       if (await partial.exists()) {
@@ -798,4 +876,33 @@ class ServerClient {
   }
 
   void close() => _client.close();
+}
+
+/// One app that has signed in to the book server.
+class ServerDevice {
+  const ServerDevice({
+    required this.id,
+    required this.name,
+    required this.person,
+    required this.lastSeen,
+    required this.thisDevice,
+  });
+
+  factory ServerDevice.fromJson(Map<String, dynamic> json) => ServerDevice(
+        id: json['id'] as String? ?? '',
+        name: json['name'] as String? ?? 'Unnamed device',
+        person: json['person'] as String? ?? '',
+        lastSeen: DateTime.tryParse(json['lastSeen'] as String? ?? '')?.toLocal(),
+        thisDevice: json['thisDevice'] == true,
+      );
+
+  final String id;
+  final String name;
+
+  /// Whose it is on the server.
+  final String person;
+  final DateTime? lastSeen;
+
+  /// Whether this is the app that asked.
+  final bool thisDevice;
 }

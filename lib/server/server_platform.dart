@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../data/profiles.dart';
@@ -44,4 +46,15 @@ class SecureTokenStore implements TokenStore {
 
   @override
   Future<void> delete() => _storage.delete(key: storageKey);
+}
+
+/// How this device is named in the book server's list of devices.
+String serverDeviceName() {
+  var host = '';
+  try {
+    host = Platform.localHostname;
+  } catch (_) {
+    // No name: the list just says Windows PC.
+  }
+  return host.isEmpty ? 'Windows PC' : 'Windows PC ($host)';
 }

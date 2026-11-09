@@ -13,6 +13,7 @@ import '../server/server_client.dart';
 import '../server/server_downloads.dart';
 import '../server/server_sync.dart';
 import 'book_detail_screen.dart';
+import 'server_devices_screen.dart';
 
 // The same screen is in the Android app.
 
@@ -444,6 +445,14 @@ class _BrowseViewState extends State<_BrowseView> {
     );
   }
 
+  void _openDevices() {
+    final client = _client;
+    if (client == null) return;
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ServerDevicesScreen(client: client),
+    ));
+  }
+
   void _openDownloads() {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => DownloadsScreen(downloads: widget.downloads),
@@ -620,6 +629,7 @@ class _BrowseViewState extends State<_BrowseView> {
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'disconnect') _disconnect();
+              if (value == 'devices') _openDevices();
               if (value == 'library') {
                 state.setLibrarySync(!state.librarySync);
               }
@@ -630,6 +640,7 @@ class _BrowseViewState extends State<_BrowseView> {
                 checked: state.librarySync,
                 child: const Text('Sync my whole library'),
               ),
+              const PopupMenuItem(value: 'devices', child: Text('Devices on the server')),
               const PopupMenuItem(value: 'disconnect', child: Text('Disconnect')),
             ],
           ),

@@ -171,11 +171,14 @@ class ServerSync extends ChangeNotifier {
     ServerClient Function(Uri address, String token)? clientFor,
     this.sendAfter = const Duration(seconds: 10),
     DateTime Function()? now,
-  })  : _clientFor = clientFor ?? _defaultClient,
+  })  : _clientFor = clientFor ??
+            ((address, token) => ServerClient(
+                  address: address,
+                  token: token,
+                  device: state.device,
+                  deviceName: serverDeviceName(),
+                )),
         _now = now ?? DateTime.now;
-
-  static ServerClient _defaultClient(Uri address, String token) =>
-      ServerClient(address: address, token: token);
 
   final ServerState state;
   final BookRepository repository;
