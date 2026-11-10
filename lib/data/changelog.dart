@@ -13,6 +13,23 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.49.0',
+    date: '2026-11-10',
+    changes: [
+      'Chapterly opens on the shelf that has your books, not on an empty '
+          'Finished shelf. It picks the first shelf, in your order, that has '
+          'books',
+      'Far fewer tags in the way: the Library and Read next show your 12 '
+          'most used tags, plus the tags you have picked, and an All tags '
+          'button that opens the full list. You can search it and sort it by '
+          'most used or A to Z, and it says how many books each tag has. '
+          'With 385 tags, Read next used to show a wall of them and push '
+          'the book it picked off the screen',
+      'Read next opens about four times quicker with a large library '
+          '(about 0.4 seconds instead of 1.7 in a test on a PC)',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.48.0',
     date: '2026-11-10',
     changes: [

@@ -55,6 +55,7 @@ import 'fix_library_screen.dart';
 import 'update_covers_screen.dart';
 import 'new_books_banner.dart';
 import '../widgets/while_shown.dart';
+import 'tag_picker.dart';
 
 enum _AddChoice { search, isbn, bulk, manual }
 
@@ -1841,12 +1842,30 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  /// The shelf the library opens on, found once: the first shelf (in your
+  /// order) that has books, so it does not open on an empty one. Falls back
+  /// to the first shelf, and waits until the library is loaded.
+  int? _opening;
+
+  int _openingShelf() {
+    final known = _opening;
+    if (known != null) return known;
+    if (!widget.repository.isLoaded) return 0;
+    final order = widget.settings.shelfOrder;
+    var index = order.indexWhere(
+      (shelf) => widget.repository.booksOn(shelf).isNotEmpty,
+    );
+    if (index < 0) index = 0;
+    return _opening = index;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge([widget.settings, widget.repository]),
       builder: (context, _) => WhileShown(build: (context) => _frame(DefaultTabController(
         key: ValueKey(_collections.length),
+        initialIndex: _openingShelf(),
         length: Shelf.values.length + _collections.length,
         child: PopScope(
           canPop: _selected.isEmpty && !_searching,
@@ -1882,7 +1901,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 if (!widget.repository.isLoaded) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                final allTags = widget.repository.allTags;
+                final tagCounts = widget.repository.tagCounts;
+                final allTags = tagCounts.keys.toSet();
                 // Forget filters for tags that no longer exist on any book,
                 // and selections for books that are gone.
                 _selectedTags.retainAll(allTags);
@@ -1986,9 +2006,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             onPressed: () =>
                                 setState(() => _matchAllTags = !_matchAllTags),
                           ),
-                        for (final tag in allTags)
+                        if (tagCounts.length > visibleTagCount)
+                          allTagsChip(
+                            total: tagCounts.length,
+                            onPressed: () => showTagPicker(
+                              context,
+                              counts: tagCounts,
+                              canExclude: true,
+                              choiceOf: (tag) => _excludedTags.contains(tag)
+                                  ? TagChoice.excluded
+                                  : _selectedTags.contains(tag)
+                                      ? TagChoice.included
+                                      : TagChoice.none,
+                              onTap: _cycleTag,
+                            ),
+                          ),
+                        for (final tag in chipTags(
+                          tagCounts,
+                          {..._selectedTags, ..._excludedTags},
+                        ))
                           FilterChip(
-                            tooltip: 'Tap to show these books, '
+                            tooltip: '${tagCounts[tag]} books. Tap to show these books, '
                                 'tap again to hide them',
                             avatar: _excludedTags.contains(tag)
                                 ? const Icon(Icons.block, size: 18)
