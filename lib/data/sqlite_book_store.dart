@@ -325,6 +325,36 @@ class SqliteBookStore implements BookStore, BulkCoverStore {
     _hashes?.addAll(pictures.keys);
   }
 
+  /// Gives the disk back the space of removed data. A library whose
+  /// pictures were moved out of the books, or many times replaced, kept all
+  /// that space empty inside the file: half of a 195 MB library. The first
+  /// time, the file is rewritten once (about a second for a big library on
+  /// a PC) and set to give space back from then on; after that only the
+  /// empty part is trimmed, which is quick. Never fails: a full disk just
+  /// leaves the file as it was. Returns the bytes given back.
+  Future<int> compact() async {
+    Future<int> number(String pragma) async =>
+        (await _db.rawQuery('PRAGMA $pragma')).first.values.first as int? ?? 0;
+    try {
+      final pageSize = await number('page_size');
+      final before = await number('page_count');
+      if (await number('auto_vacuum') != 2) {
+        await _db.execute('PRAGMA auto_vacuum = INCREMENTAL');
+        await _db.execute('VACUUM');
+      } else {
+        // Each run may stop part way; a few runs give back the rest.
+        for (var run = 0; run < 20; run++) {
+          final free = await number('freelist_count');
+          if (free * pageSize <= 1 << 20) break;
+          await _db.rawQuery('PRAGMA incremental_vacuum($free)');
+        }
+      }
+      return (before - await number('page_count')) * pageSize;
+    } on DatabaseException {
+      return 0;
+    }
+  }
+
   @override
   Future<void> removeCoversExcept(Set<String> keep) async {
     final gone = [

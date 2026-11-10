@@ -21,6 +21,20 @@ class FileIo {
     await File(location.path).writeAsString(content);
   }
 
+  /// Asks where to save a file and lets [write] make it there, for a file
+  /// too big to build in memory first (a backup with pictures). Does nothing
+  /// if the dialog is cancelled.
+  Future<void> shareWrittenFile({
+    required String fileName,
+    required String mimeType,
+    required Future<void> Function(File file) write,
+    String? subject,
+  }) async {
+    final location = await getSaveLocation(suggestedName: fileName);
+    if (location == null) return;
+    await write(File(location.path));
+  }
+
   /// Asks where to save the PNG [bytes] and writes them there.
   Future<void> shareImage({
     required String fileName,

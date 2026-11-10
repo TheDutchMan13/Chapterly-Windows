@@ -7,6 +7,7 @@ import '../data/app_info.dart';
 import '../data/app_settings.dart';
 import '../data/auto_backup.dart';
 import '../data/backup.dart';
+import '../data/backup_writer.dart';
 import '../data/book_repository.dart';
 import '../data/csv.dart';
 import '../data/date_format.dart';
@@ -323,10 +324,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _exportBackup() => _run(() async {
-        await widget.fileIo.shareText(
+        final books = List.of(widget.repository.allBooks);
+        await widget.fileIo.shareWrittenFile(
           fileName: 'chapterly-backup-${formatDate(DateTime.now())}.json',
-          content: encodeBackup(
-            await widget.repository.withPictures(widget.repository.allBooks),
+          write: (file) => writeBackupFile(
+            file,
+            books,
+            readCover: widget.repository.readCover,
           ),
           mimeType: 'application/json',
           subject: 'Chapterly backup',

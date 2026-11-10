@@ -86,9 +86,8 @@ Future<void> main() async {
   final dataDir = await profileDataDir(profile.id);
   openProfileDir = dataDir;
   PerfLog.attach(File(p.join(dataDir.path, 'performance_log.txt')));
-  final repository = BookRepository(
-    await SqliteBookStore.open(p.join(dataDir.path, 'chapterly.db')),
-  );
+  final store = await SqliteBookStore.open(p.join(dataDir.path, 'chapterly.db'));
+  final repository = BookRepository(store);
   PerfLog.mark('database opened');
   await repository.load();
   PerfLog.mark('library loaded (${repository.allBooks.length} books)');
@@ -193,6 +192,11 @@ Future<void> main() async {
   unawaited(PerfLog.timed(
     'automatic backup',
     () => runAutoBackup(repository, settings),
+  ));
+  // Gives back the empty space in the library file, once the app is open.
+  unawaited(Future<void>.delayed(
+    const Duration(seconds: 20),
+    () => PerfLog.timed('library file tidied', store.compact),
   ));
   // Fills in series found in titles, now and as books are added.
   AutoSeries.start(repository, settings);

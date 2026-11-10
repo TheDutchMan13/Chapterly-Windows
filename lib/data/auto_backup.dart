@@ -4,7 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'app_settings.dart';
-import 'backup.dart';
+import 'backup_writer.dart';
 import 'book_repository.dart';
 
 /// How many automatic backups are kept in a folder. Older ones are removed.
@@ -58,6 +58,17 @@ Future<int> pruneAutoBackups(Directory folder, {int keep = autoBackupKeep}) asyn
     }
   }
   files.sort((a, b) => b.path.compareTo(a.path));
+  // A backup the app was closed in the middle of writing.
+  await for (final entity in folder.list()) {
+    final name = entity.uri.pathSegments.last;
+    if (entity is File && name.startsWith(_prefix) && name.endsWith('.json.part')) {
+      try {
+        await entity.delete();
+      } on FileSystemException {
+        // Still being written by another copy of the app.
+      }
+    }
+  }
   var removed = 0;
   for (final file in files.skip(keep)) {
     try {
@@ -70,10 +81,11 @@ Future<int> pruneAutoBackups(Directory folder, {int keep = autoBackupKeep}) asyn
   return removed;
 }
 
-/// Writes [content] to the first of [folders] that works and tidies that
-/// folder. Returns the path of the new file. Throws if no folder works.
+/// Lets [write] make the backup file in the first of [folders] that works
+/// and tidies that folder. Returns the path of the new file. Throws if no
+/// folder works.
 Future<String> writeAutoBackup({
-  required String content,
+  required Future<void> Function(File file) write,
   required List<Directory> folders,
   required DateTime now,
 }) async {
@@ -82,7 +94,7 @@ Future<String> writeAutoBackup({
     try {
       await folder.create(recursive: true);
       final file = File('${folder.path}/${autoBackupFileName(now)}');
-      await file.writeAsString(content, flush: true);
+      await write(file);
       await pruneAutoBackups(folder);
       return file.path;
     } on FileSystemException catch (error) {
@@ -111,9 +123,12 @@ Future<void> runAutoBackup(
   if (!repository.isLoaded || repository.allBooks.isEmpty) return;
   _running = true;
   try {
+    final books = List.of(repository.allBooks);
     final path = await writeAutoBackup(
-      content: encodeBackup(
-        await repository.withPictures(repository.allBooks),
+      write: (file) => writeBackupFile(
+        file,
+        books,
+        readCover: repository.readCover,
         now: time,
       ),
       folders: await autoBackupFolders(),

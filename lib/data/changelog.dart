@@ -13,6 +13,23 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.48.0',
+    date: '2026-11-10',
+    changes: [
+      'Backups no longer slow the app down: automatic backups and Export '
+          'backup are now written one book at a time. With a big library the '
+          'app used to freeze for over a second and use about 570 MB more '
+          'memory while a backup was made; now it keeps running smoothly and '
+          'uses about 35 MB. The backup file is exactly the same as before, '
+          'so old and new backups restore in any version',
+      'A backup cut short (the app closed, the disk full) no longer leaves '
+          'half a file or replaces a good one',
+      'The library file gives back space it no longer needs, a few seconds '
+          'after Chapterly opens. A big library that had been 195 MB is now '
+          'about 98 MB, with nothing removed',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.47.0',
     date: '2026-11-09',
     changes: [

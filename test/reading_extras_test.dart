@@ -469,7 +469,7 @@ void main() {
       }
       await File('${folder.path}/other.json').writeAsString('{}');
       final path = await writeAutoBackup(
-        content: '{"app":"chapterly"}',
+        write: (file) => file.writeAsString('{"app":"chapterly"}'),
         folders: [folder],
         now: DateTime(2026, 2, 1),
       );
@@ -493,7 +493,7 @@ void main() {
       await blocked.writeAsString('x');
       final fallback = Directory('${temp.path}/fallback');
       final path = await writeAutoBackup(
-        content: '{}',
+        write: (file) => file.writeAsString('{}'),
         folders: [Directory(blocked.path), fallback],
         now: DateTime(2026, 2, 1),
       );
