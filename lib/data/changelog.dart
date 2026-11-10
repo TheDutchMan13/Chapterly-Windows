@@ -13,6 +13,22 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.50.0',
+    date: '2026-11-10',
+    changes: [
+      'Fix library has a new first step, Titles and authors. It turns '
+          'library-catalogue authors such as "Gordon, Michael R., 1951-" '
+          'into "Michael R. Gordon", removes stray semicolons and shows '
+          'things like "Bush&#39;s Wars" as "Bush\'s Wars". You see every '
+          'change first and untick any you do not want',
+      'A book whose title or author is damaged beyond repair is listed '
+          'in Fix library so you can correct it by hand; Chapterly never '
+          'guesses at those',
+      'Google Books and Open Library lookups now come back cleaner, with '
+          'the same tidying applied to titles and authors',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.49.0',
     date: '2026-11-10',
     changes: [

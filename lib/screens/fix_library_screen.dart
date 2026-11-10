@@ -9,6 +9,7 @@ import '../data/hardcover_client.dart';
 import '../data/isbn_update.dart';
 import '../data/open_library_client.dart';
 import '../data/series.dart';
+import '../data/tidy_text.dart';
 import '../models/book.dart';
 import '../widgets/book_cover.dart';
 
@@ -16,6 +17,9 @@ import '../widgets/book_cover.dart';
 
 /// The steps of Fix library, in the order they run and are applied.
 enum FixStep {
+  titles('Titles and authors',
+      'Fixes characters like &#39; in titles, extra spaces, and authors written '
+      'the library-catalogue way (semicolons, birth years).'),
   seriesNames('Series spelled two ways', 'Joins "Dexter" and "Dexter Series".'),
   files('From your book files',
       'Series, ISBN and cover written inside your EPUB and M4B files, or known '
@@ -139,6 +143,34 @@ class _FixLibraryScreenState extends State<FixLibraryScreen> {
     final hasSeries = <String>{};
     final hasIsbn = <String>{};
     final hasCover = <String>{};
+
+    if (_steps.contains(FixStep.titles) && !_cancel) {
+      _show('Looking at titles and authors');
+      for (final book in _books) {
+        final title = tidyText(book.title);
+        final author = tidyAuthor(book.author);
+        if (looksDamaged(book.title) || looksDamaged(book.author)) {
+          _notes.add('One book has a damaged title or author, which '
+              'Chapterly cannot fix: open it and correct it by hand '
+              '(${tidyText(book.title.replaceAll(RegExp('[^\\x20-\\x7e]'), '?')).trim()}).');
+          continue;
+        }
+        final newTitle = title.isEmpty ? book.title : title;
+        final newAuthor = author.isEmpty ? book.author : author;
+        if (newTitle == book.title && newAuthor == book.author) continue;
+        _found(LibraryFix(
+          step: FixStep.titles,
+          book: book,
+          title: newTitle == book.title ? book.title : '${book.title} → $newTitle',
+          detail: newAuthor == book.author
+              ? 'Title'
+              : 'Author: ${book.author} → $newAuthor',
+          apply: () => repository.setTitlesAndAuthors(
+            {book.id: (newTitle, newAuthor)},
+          ),
+        ));
+      }
+    }
 
     if (_steps.contains(FixStep.seriesNames) && !_cancel) {
       _show('Looking for series spelled two ways');

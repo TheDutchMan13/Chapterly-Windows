@@ -563,6 +563,20 @@ class BookRepository extends ChangeNotifier implements CoverStore {
     return _update(id, (book) => book.copyWith(title: clean));
   }
 
+  /// Sets the title and author of many books at once (Fix library). A book
+  /// whose new title is empty keeps its old one, and an empty author is
+  /// ignored the same way, so a cleanup can never blank a book.
+  Future<void> setTitlesAndAuthors(Map<String, (String, String)> choices) {
+    if (choices.isEmpty) return Future.value();
+    return _updateMany(choices.keys.toSet(), (book) {
+      final (title, author) = choices[book.id]!;
+      return book.copyWith(
+        title: title.trim().isEmpty ? book.title : title.trim(),
+        author: author.trim().isEmpty ? book.author : author.trim(),
+      );
+    });
+  }
+
   /// A web address or a picture stored as a data: address (see
   /// cover_image.dart). Null removes the cover.
   /// Windows app: changes a book's ISBN (Library health).

@@ -7,6 +7,7 @@ import '../models/book.dart';
 import 'app_info.dart';
 import 'file_match.dart';
 import 'open_library_client.dart' show OpenLibraryBook, cleanSubjects;
+import 'tidy_text.dart';
 
 // The same file is in the Android app; keep the two copies alike.
 
@@ -84,8 +85,10 @@ class GoogleBook {
       }
     }
     return GoogleBook(
-      title: title.trim(),
-      author: authors is List ? authors.whereType<String>().join(', ') : '',
+      title: tidyText(title),
+      author: authors is List
+          ? tidyText(authors.whereType<String>().join(', '))
+          : '',
       isbn: isbn,
       pages: pages is int && pages > 0 ? pages : null,
       year: year != null && year > 0 ? year : null,

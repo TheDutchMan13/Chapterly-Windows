@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'tidy_text.dart';
+
 class OpenLibraryException implements Exception {
   const OpenLibraryException(this.message, {this.statusCode});
 
@@ -64,9 +66,9 @@ class OpenLibraryBook {
     final key = json['key'];
     return OpenLibraryBook(
       workKey: key is String && key.startsWith('/works/') ? key : null,
-      title: json['title'] is String ? json['title'] as String : 'Untitled',
+      title: json['title'] is String ? tidyText(json['title'] as String) : 'Untitled',
       author: authors is List && authors.isNotEmpty
-          ? authors.first.toString()
+          ? tidyText(authors.first.toString())
           : 'Unknown author',
       firstPublishYear: year is int ? year : null,
       isbn: isbns is List && isbns.isNotEmpty ? isbns.first.toString() : null,
@@ -128,7 +130,7 @@ class OpenLibraryEdition {
     final pages = json['number_of_pages'];
     final date = json['publish_date'];
     return OpenLibraryEdition(
-      title: json['title'] is String ? json['title'] as String : 'Untitled',
+      title: json['title'] is String ? tidyText(json['title'] as String) : 'Untitled',
       publisher: first(json['publishers']),
       publishDate: date is String && date.isNotEmpty ? date : null,
       pages: pages is int && pages > 0 ? pages : null,
