@@ -782,7 +782,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               value: font.family ?? '',
                               title: Text(
                                 font.label,
-                                style: TextStyle(fontFamily: font.family),
+                                style: TextStyle(fontFamily: fontFor(font.family)),
                               ),
                             ),
                         ],

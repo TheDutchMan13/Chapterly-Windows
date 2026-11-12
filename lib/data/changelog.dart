@@ -13,6 +13,21 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.51.0',
+    date: '2026-11-12',
+    changes: [
+      'Empty pages now explain themselves: an icon, what is missing and '
+          'what to do about it (the Library shelves, the wish list and the '
+          'book pane beside the list)',
+      'The shelf tabs line up with the edge instead of floating in from the '
+          'left',
+      'The font list now shows real Windows fonts. Serif, Monospace, '
+          'Condensed, Casual and Cursive used to fall back to the normal font '
+          'on Windows; they now use Georgia, Consolas, Arial Narrow, Comic '
+          'Sans and Segoe Script. Your saved choice is kept',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.50.0',
     date: '2026-11-10',
     changes: [

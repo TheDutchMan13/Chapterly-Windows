@@ -27,7 +27,7 @@ void main() {
       ..setAccent(0xFF43A047)
       ..setFontFamily('monospace');
     final theme = buildTheme(settings, Brightness.light);
-    expect(theme.textTheme.bodyMedium?.fontFamily, 'monospace');
+    expect(theme.textTheme.bodyMedium?.fontFamily, 'Consolas');
     expect(theme.colorScheme.primary, isNot(const Color(0xFF795548)));
   });
 
@@ -55,7 +55,7 @@ void main() {
     settings.setFontFamily('serif');
     expect(
       buildTheme(settings, Brightness.dark).textTheme.bodyMedium?.fontFamily,
-      'serif',
+      'Georgia',
     );
   });
 }

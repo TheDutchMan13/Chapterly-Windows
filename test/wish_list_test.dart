@@ -156,7 +156,7 @@ void main() {
       home: WishListScreen(repository: repository, settings: settings),
     ));
     await tester.pump();
-    expect(find.textContaining('Nothing here yet'), findsOneWidget);
+    expect(find.textContaining('Nothing on your wish list yet'), findsOneWidget);
 
     await tester.tap(find.text('Add'));
     await tester.pumpAndSettle();

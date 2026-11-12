@@ -31,7 +31,23 @@ const accentChoices = [
   AccentChoice('Grey', Color(0xFF607D8B)),
 ];
 
-/// Fonts built into Android, so the app needs no downloads and stays offline.
+/// Font families that come with Windows, for the names the font list stores.
+/// The list keeps the Android names so a saved choice still means the same
+/// thing; here they are turned into fonts Windows really has (the Android
+/// names do not exist on Windows, so they fell back to the default font).
+const _windowsFonts = {
+  'serif': 'Georgia',
+  'monospace': 'Consolas',
+  'sans-serif-condensed': 'Arial Narrow',
+  'casual': 'Comic Sans MS',
+  'cursive': 'Segoe Script',
+};
+
+/// The font to draw with for a saved font choice.
+String? fontFor(String? choice) =>
+    choice == null ? null : (_windowsFonts[choice] ?? choice);
+
+/// The font choices, by name.
 const fontChoices = [
   FontChoice('Default', null),
   FontChoice('Serif (like a printed book)', 'serif'),
@@ -126,7 +142,7 @@ ThemeData _midnightTheme(AppSettings settings, Brightness brightness) {
     brightness,
     black: dark && settings.pureBlack,
   );
-  final font = settings.fontFamily ?? midnightFont;
+  final font = fontFor(settings.fontFamily) ?? midnightFont;
   final base = ThemeData(
     colorScheme: scheme,
     fontFamily: font,
@@ -375,7 +391,7 @@ ThemeData _classicTheme(AppSettings settings, Brightness brightness) {
             ? scheme.copyWith(surface: Colors.black)
             : scheme,
     scaffoldBackgroundColor: background,
-    fontFamily: settings.fontFamily,
+    fontFamily: fontFor(settings.fontFamily),
     useMaterial3: true,
   );
 }

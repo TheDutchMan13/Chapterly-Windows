@@ -9,6 +9,7 @@ import '../models/book.dart';
 import '../models/book_format.dart';
 import '../models/shelf.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/empty_state.dart';
 
 const _rowHeight = 44.0;
 const _checkWidth = 48.0;
@@ -28,6 +29,7 @@ class BookTable extends StatefulWidget {
     required this.onContextMenu,
     required this.ratingAsNumber,
     required this.emptyText,
+    required this.emptyHint,
   });
 
   /// The books to show, in the library's sort order.
@@ -39,6 +41,7 @@ class BookTable extends StatefulWidget {
   final void Function(Book book, Offset position) onContextMenu;
   final bool ratingAsNumber;
   final String emptyText;
+  final String emptyHint;
 
   @override
   State<BookTable> createState() => _BookTableState();
@@ -441,11 +444,10 @@ class _BookTableState extends State<BookTable> {
   Widget build(BuildContext context) {
     final rows = _rows;
     if (rows.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(widget.emptyText, textAlign: TextAlign.center),
-        ),
+      return EmptyState(
+        icon: Icons.auto_stories_outlined,
+        title: widget.emptyText,
+        hint: widget.emptyHint,
       );
     }
     return LayoutBuilder(

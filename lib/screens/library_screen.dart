@@ -24,6 +24,7 @@ import '../models/shelf.dart';
 import '../models/wish_priority.dart';
 import '../server/book_server.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/empty_state.dart';
 import 'add_book_dialog.dart';
 import 'book_detail_screen.dart';
 import 'book_edit_screen.dart';
@@ -284,11 +285,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
     return ScaffoldMessenger(
       child: Scaffold(
-        body: Center(
-          child: Text(
-            'Pick a book to see it here.',
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
+        body: const EmptyState(
+          icon: Icons.menu_book_outlined,
+          title: 'Pick a book to see it here.',
+          hint: 'Its details, notes and reading progress show beside the list.',
         ),
       ),
     );
@@ -1610,6 +1610,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         emptyText: _filtering
             ? 'No books on this shelf match your search or filters.'
             : 'No books on this shelf yet.',
+        emptyHint: _filtering
+            ? 'Clear the filters or the search to see everything here.'
+            : 'Add one with the + button or Ctrl+N, or drop a book file here.',
       );
     }
     return _shelfList(books);
@@ -1881,6 +1884,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             appBar: _buildAppBar(
               TabBar(
                 isScrollable: true,
+                tabAlignment: TabAlignment.start,
                 tabs: [
                   for (final shelf in widget.settings.shelfOrder)
                     Tab(
@@ -2199,16 +2203,14 @@ class _ShelfList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (books.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            filtering
-                ? 'No books on this shelf match your search or filters.'
-                : 'No books on this shelf yet.',
-            textAlign: TextAlign.center,
-          ),
-        ),
+      return EmptyState(
+        icon: Icons.auto_stories_outlined,
+        title: filtering
+            ? 'No books on this shelf match your search or filters.'
+            : 'No books on this shelf yet.',
+        hint: filtering
+            ? 'Clear the filters or the search to see everything here.'
+            : 'Add one with the + button or Ctrl+N, or drop a book file here.',
       );
     }
 

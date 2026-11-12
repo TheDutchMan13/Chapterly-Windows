@@ -5,6 +5,7 @@ import '../data/book_repository.dart';
 import '../data/wish_list.dart';
 import '../models/shelf.dart';
 import '../models/wish_priority.dart';
+import '../widgets/empty_state.dart';
 
 // The same screen is in the Windows app.
 
@@ -186,15 +187,11 @@ class _WishListScreenState extends State<WishListScreen> {
               ),
               Expanded(
                 child: all.isEmpty
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text(
-                            'Nothing here yet. Add books you want to buy or '
-                            'borrow. When you get one, move it to your library.',
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
+                    ? const EmptyState(
+                        icon: Icons.favorite_border,
+                        title: 'Nothing on your wish list yet.',
+                        hint: 'Add books you want to buy or borrow. When you '
+                            'get one, move it to your library.',
                       )
                     : shown.isEmpty
                         ? const Center(child: Text('No wishes match.'))

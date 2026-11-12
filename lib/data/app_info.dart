@@ -2,7 +2,7 @@
 const appName = 'Chapterly';
 
 /// Keep this in step with the version in pubspec.yaml.
-const appVersion = '1.50.0';
+const appVersion = '1.51.0';
 
 const sourceCodeUrl = 'https://github.com/TheDutchMan13/Chapterly-Windows';
 
