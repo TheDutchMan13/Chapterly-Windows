@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -87,6 +89,15 @@ bool pinMatches(String pin, String stored, {String? oldSalt}) {
   }
 }
 
+/// [pinMatches] on another thread. The PBKDF2 check takes about a third of a
+/// second on purpose, which froze the window (and the keypad) while it ran.
+Future<bool> pinMatchesAsync(String pin, String stored, {String? oldSalt}) {
+  if (isOldPinHash(stored)) {
+    return Future.value(pinMatches(pin, stored, oldSalt: oldSalt));
+  }
+  return Isolate.run(() => pinMatches(pin, stored, oldSalt: oldSalt));
+}
+
 bool _sameText(String a, String b) => _sameBytes(utf8.encode(a), utf8.encode(b));
 
 /// Compares without stopping at the first difference.
@@ -172,11 +183,14 @@ String pinWaitMessage(Duration wait) {
 
 /// Checks a PIN with [check] through the shared [PinGuard]. Returns null
 /// when it was right, or the message to show (wrong, or wait).
-Future<String?> checkPinGuarded(bool Function() check, {PinGuard? guard}) async {
+Future<String?> checkPinGuarded(
+  FutureOr<bool> Function() check, {
+  PinGuard? guard,
+}) async {
   final pins = guard ?? await PinGuard.load();
   final left = pins.waitLeft;
   if (left > Duration.zero) return pinWaitMessage(left);
-  if (check()) {
+  if (await check()) {
     await pins.recordSuccess();
     return null;
   }

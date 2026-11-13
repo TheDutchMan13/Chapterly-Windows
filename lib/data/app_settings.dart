@@ -1251,6 +1251,15 @@ class AppSettings extends ChangeNotifier {
     return true;
   }
 
+  /// [checkPin] without freezing the window while the PIN is worked out.
+  Future<bool> checkPinAsync(String pin) async {
+    final hash = _pinHash;
+    if (hash == null) return false;
+    if (!await pinMatchesAsync(pin, hash, oldSalt: _pinSalt)) return false;
+    if (isOldPinHash(hash)) setPin(pin);
+    return true;
+  }
+
   void clearPin() {
     _pinHash = null;
     _pinSalt = null;

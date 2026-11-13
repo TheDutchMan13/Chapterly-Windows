@@ -13,6 +13,14 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.52.0',
+    date: '2026-11-12',
+    changes: [
+      'Typing your PIN no longer freezes the window for a moment: the check, which is slow on purpose, now runs in the background',
+      'Changing a setting that does not change how Chapterly looks (such as the width of the list) no longer rebuilds the whole app',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.51.0',
     date: '2026-11-12',
     changes: [

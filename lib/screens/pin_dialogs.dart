@@ -117,7 +117,7 @@ class _CurrentPinDialogState extends State<_CurrentPinDialog> {
     if (_checking) return;
     _checking = true;
     final pin = _pin.text;
-    final problem = await checkPinGuarded(() => widget.settings.checkPin(pin));
+    final problem = await checkPinGuarded(() => widget.settings.checkPinAsync(pin));
     _checking = false;
     if (!mounted) return;
     if (problem == null) {

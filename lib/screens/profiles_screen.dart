@@ -211,7 +211,7 @@ class ProfilesScreen extends StatelessWidget {
       final pin = await _askPin(context, profile);
       if (pin == null || !context.mounted) return;
       final problem =
-          await checkPinGuarded(() => store.checkPin(profile.id, pin));
+          await checkPinGuarded(() => store.checkPinAsync(profile.id, pin));
       if (!context.mounted) return;
       if (problem != null) {
         ScaffoldMessenger.of(context)

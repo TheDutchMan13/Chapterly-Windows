@@ -224,6 +224,21 @@ class ProfileStore extends ChangeNotifier {
     return true;
   }
 
+  /// [checkPin] without freezing the window while the PIN is worked out.
+  Future<bool> checkPinAsync(String id, String pin) async {
+    final prefs = scope(id);
+    final hash = prefs.getString('pinHash');
+    final salt = prefs.getString('pinSalt');
+    if (hash == null || !await pinMatchesAsync(pin, hash, oldSalt: salt)) {
+      return false;
+    }
+    if (isOldPinHash(hash)) {
+      prefs.setString('pinHash', hashNewPin(pin));
+      prefs.remove('pinSalt');
+    }
+    return true;
+  }
+
   /// What is wrong with a name for a profile, or null when it can be used.
   String? nameProblem(String name, {String? exceptId}) {
     final trimmed = name.trim();

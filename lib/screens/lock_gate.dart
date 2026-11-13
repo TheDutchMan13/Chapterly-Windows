@@ -195,7 +195,9 @@ class _PinScreenState extends State<_PinScreen> {
         _startWait(left);
         return;
       }
-      if (widget.settings.checkPin(_entry)) {
+      final right = await widget.settings.checkPinAsync(_entry);
+      if (!mounted) return;
+      if (right) {
         await guard.recordSuccess();
         widget.onUnlocked();
         return;

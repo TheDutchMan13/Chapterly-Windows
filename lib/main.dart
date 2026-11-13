@@ -54,6 +54,7 @@ import 'server/server_state.dart';
 import 'server/server_sync.dart';
 import 'data/cover_store.dart';
 import 'data/sync_phones.dart';
+import 'widgets/theme_changes.dart';
 
 /// Lets code outside the screens (such as Ctrl+V for a cover) show messages.
 final _messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -385,9 +386,9 @@ class ChapterlyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: settings,
-      builder: (context, _) => MaterialApp(
+    return ThemeChanges(
+      settings: settings,
+      builder: (context) => MaterialApp(
         title: 'Chapterly',
         debugShowCheckedModeBanner: false,
         scaffoldMessengerKey: _messengerKey,
