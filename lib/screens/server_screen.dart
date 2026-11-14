@@ -95,7 +95,7 @@ class _ConnectViewState extends State<_ConnectView> {
     final token = _token.text.trim();
     if (address == null) {
       setState(() => _problem =
-          'Type the server\'s address, such as 100.72.125.106:8780.');
+          'Type the server\'s address, such as 100.101.102.103:8780.');
       return;
     }
     if (token.isEmpty) {
@@ -190,7 +190,7 @@ class _ConnectViewState extends State<_ConnectView> {
             onChanged: _addressChanged,
             decoration: InputDecoration(
               labelText: 'Address',
-              hintText: '100.72.125.106:8780',
+              hintText: '100.101.102.103:8780',
               helperText: 'Its Tailscale address and port',
               border: const OutlineInputBorder(),
               suffixIcon: IconButton(

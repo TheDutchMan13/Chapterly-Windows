@@ -4,8 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('parseServerCode', () {
     test('reads a valid code', () {
-      final code = parseServerCode('chapterly-server:1|100.72.125.106:8780|aB3_-.~x');
-      expect(code?.address, '100.72.125.106:8780');
+      final code = parseServerCode('chapterly-server:1|100.101.102.103:8780|aB3_-.~x');
+      expect(code?.address, '100.101.102.103:8780');
       expect(code?.token, 'aB3_-.~x');
     });
 

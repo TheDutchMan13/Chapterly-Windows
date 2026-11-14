@@ -145,10 +145,10 @@ Future<void> _settleNetwork(WidgetTester tester) async {
 void main() {
   group('the server address you type', () {
     test('gets http and the default port', () {
-      expect(parseServerAddress('100.72.125.106:8780').toString(),
-          'http://100.72.125.106:8780');
-      expect(parseServerAddress('100.72.125.106').toString(),
-          'http://100.72.125.106:8780');
+      expect(parseServerAddress('100.101.102.103:8780').toString(),
+          'http://100.101.102.103:8780');
+      expect(parseServerAddress('100.101.102.103').toString(),
+          'http://100.101.102.103:8780');
       expect(parseServerAddress(' http://box:9000/opds ').toString(),
           'http://box:9000');
       expect(parseServerAddress('https://books.example').toString(),
