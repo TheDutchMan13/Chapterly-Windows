@@ -119,6 +119,10 @@ class BookRepository extends ChangeNotifier implements CoverStore {
 
   bool get isLoaded => _isLoaded;
 
+  /// Ids of books to leave out of shelves, search and tag lists (the view
+  /// setting "Hide PDF books"). They are still saved, synced and backed up.
+  Set<String> Function()? hiddenIds;
+
   /// Every book that is not in the trash, newest first.
   List<Book> get books =>
       List.unmodifiable([for (final b in _books) if (b.deletedAt == null) b]);
@@ -206,9 +210,11 @@ class BookRepository extends ChangeNotifier implements CoverStore {
     int? finishYear,
   }) {
     final plan = searchPlan(query);
+    final hidden = hiddenIds?.call() ?? const <String>{};
     return [
         for (final book in _books)
           if (book.deletedAt == null &&
+              !hidden.contains(book.id) &&
               book.shelf == shelf &&
               _passes(
                 book,
@@ -238,9 +244,11 @@ class BookRepository extends ChangeNotifier implements CoverStore {
     int? finishYear,
   }) {
     final plan = searchPlan(query);
+    final hidden = hiddenIds?.call() ?? const <String>{};
     return [
         for (final book in _books)
           if (book.deletedAt == null &&
+              !hidden.contains(book.id) &&
               book.collections.contains(name) &&
               _passes(
                 book,
@@ -311,8 +319,11 @@ class BookRepository extends ChangeNotifier implements CoverStore {
   /// Every tag in use on books that are not in the trash, sorted alphabetically.
   List<String> get allTags {
     final tags = <String>{};
+    final hidden = hiddenIds?.call() ?? const <String>{};
     for (final book in _books) {
-      if (book.deletedAt == null) tags.addAll(book.tags);
+      if (book.deletedAt == null && !hidden.contains(book.id)) {
+        tags.addAll(book.tags);
+      }
     }
     return tags.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -1029,8 +1040,9 @@ class BookRepository extends ChangeNotifier implements CoverStore {
   /// How many books (not in the trash) have each tag.
   Map<String, int> get tagCounts {
     final counts = <String, int>{};
+    final hidden = hiddenIds?.call() ?? const <String>{};
     for (final book in _books) {
-      if (book.deletedAt != null) continue;
+      if (book.deletedAt != null || hidden.contains(book.id)) continue;
       for (final tag in book.tags) {
         counts[tag] = (counts[tag] ?? 0) + 1;
       }

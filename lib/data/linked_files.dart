@@ -45,6 +45,9 @@ class LinkedFiles extends ChangeNotifier {
 
   int get count => _paths.length;
 
+  /// Every link, book id to path.
+  Map<String, String> get paths => Map.unmodifiable(_paths);
+
   Future<void> link(String bookId, String path) async {
     _paths[bookId] = path;
     notifyListeners();

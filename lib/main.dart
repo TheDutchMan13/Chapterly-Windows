@@ -23,6 +23,7 @@ import 'data/hardcover_client.dart';
 import 'data/library_scan.dart';
 import 'data/linked_files.dart';
 import 'data/open_library_client.dart';
+import 'data/pdf_hiding.dart';
 import 'data/pc_sync.dart';
 import 'data/perf_log.dart';
 import 'data/pc_sync_profiles.dart';
@@ -164,6 +165,17 @@ Future<void> main() async {
   EbookReading.files = const WindowsEbookFiles();
   EbookReading.repository = repository;
   EbookReading.booksDir = Directory(p.join(dataDir.path, 'books'));
+  // "Hide PDF books": the library leaves out books whose only file is a PDF
+  // while the setting is on.
+  repository.hiddenIds = () {
+    if (!settings.hidePdfBooks) return const <String>{};
+    final audio = Listening.controller?.library;
+    return pdfOnlyBookIds(
+      ebooks: EbookReading.library?.links ?? const {},
+      linked: LinkedFiles.shared?.paths ?? const {},
+      hasAudio: (id) => audio?.linkFor(id) != null,
+    );
+  };
   // Files and folders linked to books where they already are on the drives.
   LinkedFiles.shared =
       await LinkedFiles.load(File(p.join(dataDir.path, 'linked_files.json')));

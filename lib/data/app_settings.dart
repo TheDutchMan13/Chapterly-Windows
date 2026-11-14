@@ -121,6 +121,7 @@ class AppSettings extends ChangeNotifier {
   DateTime? _reminderShownOn;
   bool _closeToTray = false;
   bool _smartRewind = true;
+  bool _hidePdfBooks = false;
   bool _bookmarksMoved = false;
   Set<String> _notDuplicates = {};
   bool _quoteOnLibrary = true;
@@ -288,6 +289,9 @@ class AppSettings extends ChangeNotifier {
 
   /// Go back a few seconds when playing an audiobook again after a pause.
   bool get smartRewind => _smartRewind;
+
+  /// Books whose only file is a PDF stay out of shelves, search and tags.
+  bool get hidePdfBooks => _hidePdfBooks;
 
   /// The bookmarks from before 1.11.0 were moved into the books (once).
   bool get bookmarksMoved => _bookmarksMoved;
@@ -480,6 +484,7 @@ class AppSettings extends ChangeNotifier {
     settings._goalOnLibrary = prefs.getBool('goalOnLibrary') ?? true;
     settings._closeToTray = prefs.getBool('closeToTray') ?? false;
     settings._smartRewind = prefs.getBool('smartRewind') ?? true;
+    settings._hidePdfBooks = prefs.getBool('hidePdfBooks') ?? false;
     settings._bookmarksMoved = prefs.getBool('bookmarksMoved') ?? false;
     settings._notDuplicates = {...?prefs.getStringList('notDuplicates')};
     settings._quoteOnLibrary = prefs.getBool('quoteOnLibrary') ?? true;
@@ -1009,6 +1014,12 @@ class AppSettings extends ChangeNotifier {
   void setSmartRewind(bool value) {
     _smartRewind = value;
     prefs?.setBool('smartRewind', value);
+    notifyListeners();
+  }
+
+  void setHidePdfBooks(bool value) {
+    _hidePdfBooks = value;
+    prefs?.setBool('hidePdfBooks', value);
     notifyListeners();
   }
 

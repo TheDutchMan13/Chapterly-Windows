@@ -13,6 +13,13 @@ class ChangelogEntry {
 
 const changelog = [
   ChangelogEntry(
+    version: '1.53.0',
+    date: '2026-11-14',
+    changes: [
+      'New setting, Hide PDF books (Settings): books whose only file is a PDF stay out of your shelves, search and tag lists. Nothing is deleted: they stay on this PC, still sync and back up, and come straight back when you switch it off. A book with an EPUB or an audiobook stays',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.52.0',
     date: '2026-11-12',
     changes: [

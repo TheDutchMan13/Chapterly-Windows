@@ -808,6 +808,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ListenableBuilder(
                 listenable: widget.settings,
                 builder: (context, _) => SwitchListTile(
+                  secondary: const Icon(Icons.picture_as_pdf_outlined),
+                  title: const Text('Hide PDF books'),
+                  subtitle: const Text(
+                    'Books whose only file is a PDF stay out of your shelves, '
+                    'search and tag lists. They stay on this PC and still '
+                    'sync and back up.',
+                  ),
+                  value: widget.settings.hidePdfBooks,
+                  onChanged: widget.settings.setHidePdfBooks,
+                ),
+              ),
+              ListenableBuilder(
+                listenable: widget.settings,
+                builder: (context, _) => SwitchListTile(
                   secondary: const Icon(Icons.replay_5),
                   title: const Text('Rewind a little after a pause'),
                   subtitle: const Text(
